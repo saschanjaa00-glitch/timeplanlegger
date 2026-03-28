@@ -10,6 +10,8 @@ class Subject(BaseModel):
     name: str
     teacher_id: str
     class_ids: List[str]
+    subject_type: str = "fellesfag"
+    sessions_per_week: int = 1
     allowed_timeslots: Optional[List[str]] = None
     # Optional extension to support blocks as grouped timeslot candidates.
     allowed_block_ids: Optional[List[str]] = None

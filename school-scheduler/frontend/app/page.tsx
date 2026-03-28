@@ -7,6 +7,8 @@ type Subject = {
   name: string;
   teacher_id: string;
   class_ids: string[];
+  subject_type: "fellesfag" | "programfag";
+  sessions_per_week: number;
   allowed_timeslots?: string[];
   allowed_block_ids?: string[];
 };
@@ -118,6 +120,22 @@ function normalizeBlock(block: Partial<Block>): Block {
     b_week_lessons: typeof block.b_week_lessons === "number" ? block.b_week_lessons : 5,
     class_ids: Array.isArray(block.class_ids) ? block.class_ids : [],
     subject_ids: Array.isArray(block.subject_ids) ? block.subject_ids : [],
+  };
+}
+
+function normalizeSubject(subject: Partial<Subject>): Subject {
+  return {
+    id: subject.id ?? "",
+    name: subject.name ?? "",
+    teacher_id: subject.teacher_id ?? "",
+    class_ids: Array.isArray(subject.class_ids) ? subject.class_ids : [],
+    subject_type: subject.subject_type === "programfag" ? "programfag" : "fellesfag",
+    sessions_per_week:
+      typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
+        ? Math.floor(subject.sessions_per_week)
+        : 1,
+    allowed_timeslots: Array.isArray(subject.allowed_timeslots) ? subject.allowed_timeslots : undefined,
+    allowed_block_ids: Array.isArray(subject.allowed_block_ids) ? subject.allowed_block_ids : undefined,
   };
 }
 
@@ -325,6 +343,16 @@ function normalizeTimeslotIds(timeslots: Timeslot[]): {
   return { normalizedTimeslots, idMap };
 }
 
+function indexToLetters(index: number): string {
+  let value = index;
+  let result = "";
+  do {
+    result = String.fromCharCode(65 + (value % 26)) + result;
+    value = Math.floor(value / 26) - 1;
+  } while (value >= 0);
+  return result;
+}
+
 export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
@@ -342,14 +370,15 @@ export default function Home() {
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
-    teacher_id: "",
-    class_ids: [] as string[],
-    assignment_mode: "per_class" as "per_class" | "shared",
-    allowed_timeslots: "",
-    allowed_block_ids: "",
   });
   const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "" });
-  const [classForm, setClassForm] = useState({ name: "" });
+  const [classForm, setClassForm] = useState({ name: "", setupId: "" });
+  const [bulkClassForm, setBulkClassForm] = useState({
+    years: "3",
+    abbreviation: "ST",
+    classesPerYear: "6",
+    setupId: "",
+  });
   const [timeslotForm, setTimeslotForm] = useState({
     day: "Monday",
     start_time: "08:00",
@@ -366,11 +395,14 @@ export default function Home() {
   const timeslotsRef = useRef<Timeslot[]>(timeslots);
   const [weekSetupForm, setWeekSetupForm] = useState({
     name: "",
-    class_ids: [] as string[],
   });
   const [activeWeekSetupId, setActiveWeekSetupId] = useState<string | null>(null);
   const [renamingWeekSetupId, setRenamingWeekSetupId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
+  const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
+  const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
+  const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
   const [blockForm, setBlockForm] = useState({
     name: "",
     timeslot_ids: "",
@@ -410,7 +442,7 @@ export default function Home() {
       }>;
 
       if (Array.isArray(parsed.subjects)) {
-        setSubjects(parsed.subjects);
+        setSubjects(parsed.subjects.map((subject) => normalizeSubject(subject)));
       }
       if (Array.isArray(parsed.teachers)) {
         setTeachers(parsed.teachers);
@@ -518,9 +550,61 @@ export default function Home() {
     return Object.fromEntries(timeslots.map((t) => [t.id, t])) as Record<string, Timeslot>;
   }, [timeslots]);
 
-  const classNameById = useMemo(() => {
-    return Object.fromEntries(classes.map((c) => [c.id, c.name])) as Record<string, string>;
+  const sortedClasses = useMemo(() => {
+    return [...classes].sort((a, b) => a.name.localeCompare(b.name));
   }, [classes]);
+
+  const classNameById = useMemo(() => {
+    return Object.fromEntries(sortedClasses.map((c) => [c.id, c.name])) as Record<string, string>;
+  }, [sortedClasses]);
+
+  // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
+  // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
+  const fellesfagTemplates = useMemo(() => {
+    const allFellesfag = subjects.filter((s) => s.subject_type === "fellesfag");
+    const seen = new Set<string>();
+    return allFellesfag
+      .filter((s) => s.class_ids.length !== 1)
+      .filter((s) => {
+        if (seen.has(s.name)) return false;
+        seen.add(s.name);
+        return true;
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [subjects]);
+
+  // All fellesfag subjects (templates + per-class copies) — used in Classes tab list.
+  const fellesfagSubjects = useMemo(() => {
+    return [...subjects]
+      .filter((subject) => subject.subject_type === "fellesfag")
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [subjects]);
+
+  // Subjects tab only shows templates: fellesfag templates + programfag (always shared).
+  // For each template, derive which classes are assigned via per-class copies.
+  const subjectTabEntries = useMemo(() => {
+    // Build a map: subjectName -> [classIds] from per-class copies
+    const assignedByName = new Map<string, string[]>();
+    for (const s of subjects) {
+      if (s.subject_type === "fellesfag" && s.class_ids.length === 1) {
+        const existing = assignedByName.get(s.name) ?? [];
+        assignedByName.set(s.name, [...existing, s.class_ids[0]]);
+      }
+    }
+
+    // Templates: fellesfag with class_ids.length !== 1, and all programfag
+    return subjects
+      .filter((s) => s.subject_type === "programfag" || s.class_ids.length !== 1)
+      .map((s) => ({
+        subject: s,
+        // For fellesfag templates, show derived assigned classes
+        derivedClassIds:
+          s.subject_type === "fellesfag"
+            ? (assignedByName.get(s.name) ?? [])
+            : s.class_ids,
+      }))
+      .sort((a, b) => a.subject.name.localeCompare(b.subject.name));
+  }, [subjects]);
 
   const timelineMarks = useMemo(() => {
     const marks = new Set<number>([DAY_START_MINUTES, DAY_END_MINUTES]);
@@ -697,7 +781,140 @@ export default function Home() {
     }
     const id = makeUniqueId(`class_${toSlug(classForm.name) || "item"}`, classes.map((c) => c.id));
     setClasses((prev) => [...prev, { id, name: classForm.name }]);
-    setClassForm({ name: "" });
+    if (classForm.setupId) {
+      assignClassesToSetup([id], classForm.setupId);
+    }
+    setClassForm({ name: "", setupId: "" });
+  }
+
+  function assignClassesToSetup(classIds: string[], setupId: string) {
+    if (!classIds.length) {
+      return;
+    }
+
+    setWeekCalendarSetups((prev) => prev.map((setup) => {
+      const filtered = setup.class_ids.filter((id) => !classIds.includes(id));
+      if (!setupId) {
+        return { ...setup, class_ids: filtered };
+      }
+      if (setup.id === setupId) {
+        return { ...setup, class_ids: [...filtered, ...classIds] };
+      }
+      return { ...setup, class_ids: filtered };
+    }));
+  }
+
+  function removeClass(classId: string) {
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+
+    setClasses((prev) => prev.filter((c) => c.id !== classId));
+
+    setWeekCalendarSetups((prev) => prev.map((setup) => ({
+      ...setup,
+      class_ids: setup.class_ids.filter((id) => id !== classId),
+    })));
+
+    setBlocks((prev) => prev.map((block) => ({
+      ...block,
+      class_ids: (block.class_ids ?? []).filter((id) => id !== classId),
+    })));
+
+    setSubjects((prev) => prev
+      .map((subject) => ({
+        ...subject,
+        class_ids: subject.class_ids.filter((id) => id !== classId),
+      }))
+      .filter((subject) => subject.class_ids.length > 0));
+
+    setSchedule((prev) => prev
+      .map((item) => ({
+        ...item,
+        class_ids: item.class_ids.filter((id) => id !== classId),
+      }))
+      .filter((item) => item.class_ids.length > 0));
+
+    setBlockForm((prev) => ({
+      ...prev,
+      class_ids: prev.class_ids.filter((id) => id !== classId),
+    }));
+
+    setFellesfagSelectionByClass((prev) => {
+      if (!(classId in prev)) {
+        return prev;
+      }
+      const next = { ...prev };
+      delete next[classId];
+      return next;
+    });
+
+    if (expandedClassId === classId) {
+      setExpandedClassId(null);
+    }
+
+    setStatusText(`Deleted class ${className}.`);
+  }
+
+  function bulkAddClasses() {
+    const years = Number(bulkClassForm.years);
+    const classesPerYear = Number(bulkClassForm.classesPerYear);
+    const abbreviation = bulkClassForm.abbreviation.trim().toUpperCase();
+
+    if (!Number.isInteger(years) || years <= 0) {
+      setStatusText("Trinn must be a positive whole number.");
+      return;
+    }
+    if (!Number.isInteger(classesPerYear) || classesPerYear <= 0) {
+      setStatusText("Classes per trinn must be a positive whole number.");
+      return;
+    }
+    if (!abbreviation) {
+      setStatusText("Forkortelse is required.");
+      return;
+    }
+
+    const existingNames = new Set(classes.map((c) => c.name));
+    const existingIds = classes.map((c) => c.id);
+    const toAdd: SchoolClass[] = [];
+    const skipped: string[] = [];
+
+    for (let year = 1; year <= years; year += 1) {
+      for (let classIndex = 0; classIndex < classesPerYear; classIndex += 1) {
+        const suffix = classesPerYear === 1 ? "" : indexToLetters(classIndex);
+        const className = `${year}${abbreviation}${suffix}`;
+
+        if (existingNames.has(className)) {
+          skipped.push(className);
+          continue;
+        }
+
+        existingNames.add(className);
+        const id = makeUniqueId(
+          `class_${toSlug(className) || "item"}`,
+          [...existingIds, ...toAdd.map((c) => c.id)],
+        );
+        toAdd.push({ id, name: className });
+      }
+    }
+
+    if (!toAdd.length) {
+      setStatusText("No new classes were added (all generated names already exist).");
+      return;
+    }
+
+    setClasses((prev) => [...prev, ...toAdd]);
+
+    if (bulkClassForm.setupId) {
+      assignClassesToSetup(
+        toAdd.map((c) => c.id),
+        bulkClassForm.setupId,
+      );
+    }
+
+    if (skipped.length) {
+      setStatusText(`Added ${toAdd.length} classes, skipped ${skipped.length} existing.`);
+    } else {
+      setStatusText(`Added ${toAdd.length} classes.`);
+    }
   }
 
   function saveCurrentWeekSetup() {
@@ -709,8 +926,6 @@ export default function Home() {
       setStatusText("Add at least one timeslot before saving a setup.");
       return;
     }
-
-    const selectedClassIds = weekSetupForm.class_ids.filter((id) => classes.some((c) => c.id === id));
 
     const snapshot = timeslots.map((slot) => ({ ...slot }));
     const { normalizedTimeslots } = normalizeTimeslotIds(snapshot);
@@ -724,7 +939,6 @@ export default function Home() {
           ...setup,
           name: weekSetupForm.name.trim(),
           timeslots: normalizedTimeslots,
-          class_ids: selectedClassIds,
         };
       }));
       setStatusText(`Updated week setup ${activeWeekSetupId}.`);
@@ -742,7 +956,7 @@ export default function Home() {
         id: setupId,
         name: weekSetupForm.name.trim(),
         timeslots: normalizedTimeslots,
-        class_ids: selectedClassIds,
+        class_ids: [],
       },
     ]);
 
@@ -773,7 +987,6 @@ export default function Home() {
     setActiveWeekSetupId(setup.id);
     setWeekSetupForm({
       name: setup.name,
-      class_ids: [...setup.class_ids],
     });
 
     setStatusText(`Applied week setup ${setup.name}.`);
@@ -783,13 +996,148 @@ export default function Home() {
     setWeekCalendarSetups((prev) => prev.filter((setup) => setup.id !== setupId));
     if (activeWeekSetupId === setupId) {
       setActiveWeekSetupId(null);
-      setWeekSetupForm({ name: "", class_ids: [] });
+      setWeekSetupForm({ name: "" });
     }
     if (renamingWeekSetupId === setupId) {
       setRenamingWeekSetupId(null);
       setRenameDraft("");
     }
     setStatusText(`Deleted week setup ${setupId}.`);
+  }
+
+  function getSetupIdForClass(classId: string): string {
+    const found = weekCalendarSetups.find((setup) => setup.class_ids.includes(classId));
+    return found?.id ?? "";
+  }
+
+  function assignClassToSetup(classId: string, setupId: string) {
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+    assignClassesToSetup([classId], setupId);
+
+    if (setupId) {
+      const target = weekCalendarSetups.find((setup) => setup.id === setupId);
+      setStatusText(`Assigned class ${className} to ${target?.name ?? setupId}.`);
+      return;
+    }
+
+    setStatusText(`Cleared setup assignment for class ${className}.`);
+  }
+
+  function addFellesfagToClass(classId: string, subjectId: string) {
+    if (!subjectId) {
+      return;
+    }
+
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+    const template = subjects.find((s) => s.id === subjectId && s.subject_type === "fellesfag");
+    if (!template) {
+      return;
+    }
+
+    // Check if a per-class copy already exists for this class + subject name
+    const alreadyExists = subjects.some(
+      (s) => s.subject_type === "fellesfag" &&
+        s.name === template.name &&
+        s.class_ids.length === 1 &&
+        s.class_ids[0] === classId
+    );
+    if (alreadyExists) {
+      setStatusText(`${template.name} is already assigned to ${className}.`);
+      return;
+    }
+
+    // Create an independent per-class copy so each class gets its own scheduled slot
+    const newId = makeUniqueId(
+      `subject_${toSlug(template.name)}_${toSlug(className)}`,
+      subjects.map((s) => s.id),
+    );
+    const copy: Subject = {
+      ...template,
+      id: newId,
+      class_ids: [classId],
+    };
+
+    setSubjects((prev) => [...prev, copy]);
+    setStatusText(`Added fellesfag ${template.name} to ${className} (independent lesson).`);
+  }
+
+  function removeFellesfagFromClass(classId: string, subjectId: string) {
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+    const subject = subjects.find((s) => s.id === subjectId);
+    const subjectName = subject?.name ?? subjectId;
+
+    // Remove the per-class copy entirely
+    setSubjects((prev) => prev.filter((s) => s.id !== subjectId));
+    setBlocks((prev) => prev.map((block) => ({
+      ...block,
+      subject_ids: (block.subject_ids ?? []).filter((id) => id !== subjectId),
+    })));
+
+    setStatusText(`Removed fellesfag ${subjectName} from ${className}.`);
+  }
+
+  function duplicateFellesfagToClasses(sourceClassId: string, targetClassIds: string[]) {
+    if (!targetClassIds.length) {
+      return;
+    }
+
+    // Collect per-class copies that belong to the source class
+    const sourceCopies = subjects.filter(
+      (s) => s.subject_type === "fellesfag" && s.class_ids.length === 1 && s.class_ids[0] === sourceClassId,
+    );
+
+    if (!sourceCopies.length) {
+      setStatusText("No fellesfag assigned to this class to duplicate.");
+      return;
+    }
+
+    const sourceClassName = classes.find((c) => c.id === sourceClassId)?.name ?? sourceClassId;
+
+    setSubjects((prev) => {
+      let next = [...prev];
+      const existingIds = next.map((s) => s.id);
+
+      for (const targetClassId of targetClassIds) {
+        for (const template of sourceCopies) {
+          // Skip if a copy for that name + target already exists
+          const alreadyExists = next.some(
+            (s) =>
+              s.subject_type === "fellesfag" &&
+              s.name === template.name &&
+              s.class_ids.length === 1 &&
+              s.class_ids[0] === targetClassId,
+          );
+          if (alreadyExists) {
+            continue;
+          }
+
+          const targetName = classes.find((c) => c.id === targetClassId)?.name ?? targetClassId;
+          const newId = makeUniqueId(
+            `subject_${toSlug(template.name)}_${toSlug(targetName)}`,
+            [...existingIds, ...next.map((s) => s.id)],
+          );
+
+          next = [
+            ...next,
+            {
+              ...template,
+              id: newId,
+              class_ids: [targetClassId],
+            },
+          ];
+        }
+      }
+
+      return next;
+    });
+
+    const targetNames = targetClassIds
+      .map((id) => classes.find((c) => c.id === id)?.name ?? id)
+      .join(", ");
+    setStatusText(`Duplicated fellesfag from ${sourceClassName} to: ${targetNames}.`);
+
+    // Clear the selection after duplicating
+    setDuplicateTargetsByClass((prev) => ({ ...prev, [sourceClassId]: [] }));
   }
 
   function cloneWeekSetup(setupId: string) {
@@ -818,7 +1166,6 @@ export default function Home() {
     setActiveWeekSetupId(cloneId);
     setWeekSetupForm({
       name: clonedName,
-      class_ids: [...source.class_ids],
     });
 
     const { normalizedTimeslots } = normalizeTimeslotIds(clonedTimeslots);
@@ -1085,67 +1432,71 @@ export default function Home() {
     });
   }
 
-  function addSubject() {
-    if (!subjectForm.name || !subjectForm.class_ids.length) {
+  function addSubjectCard() {
+    const name = subjectForm.name.trim();
+    if (!name) {
+      setStatusText("Enter a subject name first.");
       return;
     }
 
-    const allowedTimeslots = splitCsv(subjectForm.allowed_timeslots);
-    const allowedBlocks = splitCsv(subjectForm.allowed_block_ids);
+    const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
+    setSubjects((prev) => [
+      ...prev,
+      {
+        id,
+        name,
+        teacher_id: "",
+        class_ids: [],
+        subject_type: "fellesfag",
+        sessions_per_week: 1,
+      },
+    ]);
 
-    setSubjects((prev) => {
-      const existingIds = prev.map((s) => s.id);
-      const toAdd: Subject[] = [];
+    setSubjectForm({ name: "" });
+    setStatusText(`Added subject card ${name}.`);
+  }
 
-      if (subjectForm.assignment_mode === "shared") {
-        const id = makeUniqueId(`subject_${toSlug(subjectForm.name) || "item"}`, existingIds);
-        const sharedSubject: Subject = {
-          id,
-          name: subjectForm.name,
-          teacher_id: subjectForm.teacher_id,
-          class_ids: subjectForm.class_ids,
-        };
-        if (allowedTimeslots.length) {
-          sharedSubject.allowed_timeslots = allowedTimeslots;
-        }
-        if (allowedBlocks.length) {
-          sharedSubject.allowed_block_ids = allowedBlocks;
-        }
-        toAdd.push(sharedSubject);
-      } else {
-        for (const classId of subjectForm.class_ids) {
-          const base = `subject_${toSlug(subjectForm.name) || "item"}_${toSlug(classId)}`;
-          const id = makeUniqueId(base, [...existingIds, ...toAdd.map((s) => s.id)]);
-          const classSpecific: Subject = {
-            id,
-            name: subjectForm.name,
-            teacher_id: subjectForm.teacher_id,
-            class_ids: [classId],
-          };
-          if (allowedTimeslots.length) {
-            classSpecific.allowed_timeslots = allowedTimeslots;
-          }
-          if (allowedBlocks.length) {
-            classSpecific.allowed_block_ids = allowedBlocks;
-          }
-          toAdd.push(classSpecific);
-        }
+  function updateSubjectCard(subjectId: string, patch: Partial<Subject>) {
+    setSubjects((prev) => prev.map((subject) => {
+      if (subject.id !== subjectId) {
+        return subject;
       }
 
-      return [...prev, ...toAdd];
-    });
+      const merged = { ...subject, ...patch };
+      const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
+      return {
+        ...merged,
+        class_ids: cleanedClassIds,
+        sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
+      };
+    }));
+  }
 
-    const createdCount = subjectForm.assignment_mode === "shared" ? 1 : subjectForm.class_ids.length;
-    setStatusText(`Added ${createdCount} subject${createdCount > 1 ? "s" : ""}.`);
+  function deleteSubjectCard(subjectId: string) {
+    // Find the template so we can also remove all per-class copies with the same name
+    const template = subjects.find((s) => s.id === subjectId);
+    const toRemove = new Set<string>([subjectId]);
 
-    setSubjectForm({
-      name: "",
-      teacher_id: "",
-      class_ids: [],
-      assignment_mode: "per_class",
-      allowed_timeslots: "",
-      allowed_block_ids: "",
-    });
+    if (template) {
+      // Per-class copies: same name + subject_type, class_ids.length === 1
+      for (const s of subjects) {
+        if (
+          s.id !== subjectId &&
+          s.name === template.name &&
+          s.subject_type === template.subject_type &&
+          s.class_ids.length === 1
+        ) {
+          toRemove.add(s.id);
+        }
+      }
+    }
+
+    setSubjects((prev) => prev.filter((s) => !toRemove.has(s.id)));
+    setBlocks((prev) => prev.map((block) => ({
+      ...block,
+      subject_ids: (block.subject_ids ?? []).filter((id) => !toRemove.has(id)),
+    })));
+    setStatusText(`Deleted subject and ${toRemove.size - 1} class assignment(s).`);
   }
 
   async function generateSchedule() {
@@ -1265,24 +1616,6 @@ export default function Home() {
               />
             </div>
 
-            <div className="calendar-field">
-              <label>Classes For This Setup</label>
-              <select
-                multiple
-                value={weekSetupForm.class_ids}
-                onChange={(e) => {
-                  const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                  setWeekSetupForm((s) => ({ ...s, class_ids: selected }));
-                }}
-              >
-                {classes.map((cls) => (
-                  <option key={cls.id} value={cls.id}>
-                    {cls.name} ({cls.id})
-                  </option>
-                ))}
-              </select>
-            </div>
-
             <button type="submit" className="calendar-submit">
               {activeWeekSetupId ? "Save Changes To Active Setup" : "Save Current Week As Setup"}
             </button>
@@ -1294,7 +1627,7 @@ export default function Home() {
               className="secondary"
               onClick={() => {
                 setActiveWeekSetupId(null);
-                setWeekSetupForm({ name: "", class_ids: [] });
+                setWeekSetupForm({ name: "" });
                 setStatusText("Ready to create a new week setup.");
               }}
             >
@@ -1658,16 +1991,199 @@ export default function Home() {
       <section className="grid">
         <article className="card">
           <h2>Classes</h2>
-          <p>Add teaching groups like 1STA, 1STB, 1STC.</p>
+          <p>Add teaching groups like 1STA, 1STB, 1STC and choose which week setup each class follows.</p>
           <form onSubmit={(e) => { e.preventDefault(); addClass(); }}>
             <label>Name</label>
             <input value={classForm.name} onChange={(e) => setClassForm((s) => ({ ...s, name: e.target.value }))} />
+            <label>Calendar Setup (optional)</label>
+            <select
+              value={classForm.setupId}
+              onChange={(e) => setClassForm((s) => ({ ...s, setupId: e.target.value }))}
+            >
+              <option value="">No setup assigned</option>
+              {weekCalendarSetups.map((setup) => (
+                <option key={setup.id} value={setup.id}>
+                  {setup.name} ({setup.id})
+                </option>
+              ))}
+            </select>
             <button type="submit">Add Class</button>
           </form>
-          <div className="list">
-            {classes.map((c) => (
-              <div key={c.id} className="item">
-                {c.id} - {c.name}
+
+          <form
+            className="class-bulk-form"
+            onSubmit={(e) => {
+              e.preventDefault();
+              bulkAddClasses();
+            }}
+          >
+            <div className="calendar-field">
+              <label>Trinn (Years)</label>
+              <input
+                type="number"
+                min={1}
+                value={bulkClassForm.years}
+                onChange={(e) => setBulkClassForm((s) => ({ ...s, years: e.target.value }))}
+              />
+            </div>
+            <div className="calendar-field">
+              <label>Forkortelse</label>
+              <input
+                value={bulkClassForm.abbreviation}
+                onChange={(e) => setBulkClassForm((s) => ({ ...s, abbreviation: e.target.value.toUpperCase() }))}
+                placeholder="ST"
+              />
+            </div>
+            <div className="calendar-field">
+              <label>Classes Per Trinn</label>
+              <input
+                type="number"
+                min={1}
+                value={bulkClassForm.classesPerYear}
+                onChange={(e) => setBulkClassForm((s) => ({ ...s, classesPerYear: e.target.value }))}
+              />
+            </div>
+            <div className="calendar-field">
+              <label>Calendar Setup (optional)</label>
+              <select
+                value={bulkClassForm.setupId}
+                onChange={(e) => setBulkClassForm((s) => ({ ...s, setupId: e.target.value }))}
+              >
+                <option value="">No setup assigned</option>
+                {weekCalendarSetups.map((setup) => (
+                  <option key={setup.id} value={setup.id}>
+                    {setup.name} ({setup.id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button type="submit">Mass Add Classes</button>
+          </form>
+
+          <div className="list classes-setup-list">
+            {sortedClasses.map((c) => (
+              <div
+                key={c.id}
+                className={`item class-expand-item ${expandedClassId === c.id ? "expanded" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="class-expand-trigger"
+                  onClick={() => setExpandedClassId((prev) => (prev === c.id ? null : c.id))}
+                  aria-expanded={expandedClassId === c.id}
+                >
+                  <span className="class-expand-title">
+                    {c.name}
+                    {expandedClassId === c.id ? " (selected)" : ""}
+                  </span>
+                  <span className="class-expand-symbol">{expandedClassId === c.id ? "-" : "+"}</span>
+                </button>
+
+                {expandedClassId === c.id && (
+                  <div className="class-expand-panel">
+                    <div className="calendar-field">
+                      <label>Calendar Setup</label>
+                      <select
+                        value={getSetupIdForClass(c.id)}
+                        onChange={(e) => assignClassToSetup(c.id, e.target.value)}
+                      >
+                        <option value="">No setup assigned</option>
+                        {weekCalendarSetups.map((setup) => (
+                          <option key={setup.id} value={setup.id}>
+                            {setup.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="calendar-field">
+                      <label>Add Fellesfag</label>
+                      <div className="class-setup-controls">
+                        <select
+                          value={fellesfagSelectionByClass[c.id] ?? ""}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setFellesfagSelectionByClass((prev) => ({
+                              ...prev,
+                              [c.id]: value,
+                            }));
+                          }}
+                        >
+                          <option value="">Choose fellesfag</option>
+                          {fellesfagTemplates.map((subject) => (
+                            <option key={subject.id} value={subject.id}>
+                              {subject.name}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => addFellesfagToClass(c.id, fellesfagSelectionByClass[c.id] ?? "")}
+                          disabled={!fellesfagSelectionByClass[c.id]}
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="class-fellesfag-list">
+                      {fellesfagSubjects
+                        .filter((subject) => subject.class_ids.length === 1 && subject.class_ids[0] === c.id)
+                        .map((subject) => (
+                          <div key={subject.id} className="class-fellesfag-item">
+                            <span>{subject.name}</span>
+                            <button
+                              type="button"
+                              className="secondary"
+                              onClick={() => removeFellesfagFromClass(c.id, subject.id)}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                    </div>
+
+                    {fellesfagSubjects.some(
+                      (s) => s.class_ids.length === 1 && s.class_ids[0] === c.id,
+                    ) && (
+                      <div className="calendar-field">
+                        <label>Duplicate Fellesfag To Other Classes</label>
+                        <select
+                          multiple
+                          size={Math.min(Math.max(sortedClasses.filter((cl) => cl.id !== c.id).length, 3), 8)}
+                          value={duplicateTargetsByClass[c.id] ?? []}
+                          onChange={(e) => {
+                            const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+                            setDuplicateTargetsByClass((prev) => ({ ...prev, [c.id]: selected }));
+                          }}
+                        >
+                          {sortedClasses
+                            .filter((cl) => cl.id !== c.id)
+                            .map((cl) => (
+                              <option key={cl.id} value={cl.id}>
+                                {cl.name}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          disabled={!(duplicateTargetsByClass[c.id] ?? []).length}
+                          onClick={() => duplicateFellesfagToClasses(c.id, duplicateTargetsByClass[c.id] ?? [])}
+                        >
+                          Duplicate to Selected Classes
+                        </button>
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => removeClass(c.id)}
+                    >
+                      Delete Class
+                    </button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1679,68 +2195,154 @@ export default function Home() {
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
           <h2>Subjects</h2>
-          <p>
-            Fellesfag can be created once and cloned per class. Programfag can be shared across selected classes.
-          </p>
-          <form onSubmit={(e) => { e.preventDefault(); addSubject(); }}>
-            <label>Name</label>
-            <input value={subjectForm.name} onChange={(e) => setSubjectForm((s) => ({ ...s, name: e.target.value }))} />
-            <label>Teacher (optional)</label>
-            <select
-              value={subjectForm.teacher_id}
-              onChange={(e) => setSubjectForm((s) => ({ ...s, teacher_id: e.target.value }))}
-            >
-              <option value="">No teacher yet</option>
-              {teachers.map((teacher) => (
-                <option key={teacher.id} value={teacher.id}>
-                  {teacher.name} ({teacher.id})
-                </option>
-              ))}
-            </select>
-            <label>Classes</label>
-            <select
-              multiple
-              value={subjectForm.class_ids}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                setSubjectForm((s) => ({ ...s, class_ids: selected }));
-              }}
-            >
-              {classes.map((cls) => (
-                <option key={cls.id} value={cls.id}>
-                  {cls.name} ({cls.id})
-                </option>
-              ))}
-            </select>
-            <label>Subject Type</label>
-            <select
-              value={subjectForm.assignment_mode}
-              onChange={(e) => {
-                const mode = e.target.value as "per_class" | "shared";
-                setSubjectForm((s) => ({ ...s, assignment_mode: mode }));
-              }}
-            >
-              <option value="per_class">Fellesfag (one per selected class)</option>
-              <option value="shared">Programfag (shared across selected classes)</option>
-            </select>
-            <label>Allowed Timeslot IDs (optional, comma-separated)</label>
+          <p>Add a subject name, then configure each subject card below.</p>
+          <form onSubmit={(e) => { e.preventDefault(); addSubjectCard(); }}>
+            <label>Subject Name</label>
             <input
-              value={subjectForm.allowed_timeslots}
-              onChange={(e) => setSubjectForm((s) => ({ ...s, allowed_timeslots: e.target.value }))}
+              value={subjectForm.name}
+              onChange={(e) => setSubjectForm((s) => ({ ...s, name: e.target.value }))}
+              placeholder="Geografi"
             />
-            <label>Allowed Block IDs (optional, comma-separated)</label>
-            <input
-              value={subjectForm.allowed_block_ids}
-              onChange={(e) => setSubjectForm((s) => ({ ...s, allowed_block_ids: e.target.value }))}
-            />
-            <button type="submit">Add Subject</button>
+            <button type="submit">Add Subject Card</button>
           </form>
 
-          <div className="list">
-            {subjects.map((s) => (
-              <div key={s.id} className="item">
-                {s.id} - {s.name} | teacher: {s.teacher_id || "none"} | classes: {s.class_ids.join(", ")}
-              </div>
+          <div className="list subject-card-list">
+            {subjectTabEntries.map(({ subject, derivedClassIds }) => (
+              <article
+                key={subject.id}
+                className={`item subject-card-item${expandedSubjectId === subject.id ? " expanded" : ""}`}
+              >
+                <button
+                  type="button"
+                  className="subject-expand-trigger"
+                  onClick={() => setExpandedSubjectId((prev) => (prev === subject.id ? null : subject.id))}
+                  aria-expanded={expandedSubjectId === subject.id}
+                >
+                  <span className="subject-expand-summary">
+                    <span className="subject-expand-name">{subject.name}</span>
+                    <span className="subject-expand-meta">
+                      {subject.subject_type === "fellesfag" ? "Fellesfag" : "Programfag"}
+                      {" "}({subject.sessions_per_week}x45)
+                    </span>
+                    {derivedClassIds.length > 0 && (
+                      <span className="subject-expand-chips">
+                        {derivedClassIds.map((cid) => (
+                          <span key={cid} className="subject-class-chip">
+                            {classNameById[cid] ?? cid}
+                          </span>
+                        ))}
+                      </span>
+                    )}
+                  </span>
+                  <span className="subject-expand-symbol">{expandedSubjectId === subject.id ? "-" : "+"}</span>
+                </button>
+
+                {expandedSubjectId === subject.id && (
+                  <div className="subject-expand-panel">
+                    <div className="subject-card-grid">
+                      <div className="calendar-field">
+                        <label>Sessions Per Week (x45m)</label>
+                        <input
+                          type="number"
+                          min={1}
+                          value={subject.sessions_per_week}
+                          onChange={(e) =>
+                            updateSubjectCard(subject.id, {
+                              sessions_per_week: Number(e.target.value) || 1,
+                            })
+                          }
+                        />
+                      </div>
+
+                      <div className="calendar-field">
+                        <label>Subject Type</label>
+                        <select
+                          value={subject.subject_type}
+                          onChange={(e) =>
+                            updateSubjectCard(subject.id, {
+                              subject_type: e.target.value as "fellesfag" | "programfag",
+                            })
+                          }
+                        >
+                          <option value="fellesfag">Fellesfag</option>
+                          <option value="programfag">Programfag</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => deleteSubjectCard(subject.id)}
+                    >
+                      Delete Subject
+                    </button>
+
+                    {/* Teacher assignment per class entity */}
+                    {(subject.subject_type === "programfag" ||
+                      subjects.some(
+                        (s) =>
+                          s.subject_type === "fellesfag" &&
+                          s.class_ids.length === 1 &&
+                          s.name === subject.name
+                      )) && (
+                      <div className="subject-teacher-section">
+                        <span className="subject-teacher-section-title">Teachers</span>
+                        {subject.subject_type === "fellesfag" ? (
+                          subjects
+                            .filter(
+                              (s) =>
+                                s.subject_type === "fellesfag" &&
+                                s.class_ids.length === 1 &&
+                                s.name === subject.name
+                            )
+                            .sort((a, b) =>
+                              (classNameById[a.class_ids[0]] ?? "").localeCompare(
+                                classNameById[b.class_ids[0]] ?? ""
+                              )
+                            )
+                            .map((entity) => (
+                              <div key={entity.id} className="subject-teacher-row">
+                                <span className="subject-teacher-classname">
+                                  {classNameById[entity.class_ids[0]] ?? entity.class_ids[0]}
+                                </span>
+                                <select
+                                  value={entity.teacher_id}
+                                  onChange={(e) =>
+                                    updateSubjectCard(entity.id, { teacher_id: e.target.value })
+                                  }
+                                >
+                                  <option value="">— no teacher —</option>
+                                  {teachers.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            ))
+                        ) : (
+                          <div className="subject-teacher-row">
+                            <select
+                              value={subject.teacher_id}
+                              onChange={(e) =>
+                                updateSubjectCard(subject.id, { teacher_id: e.target.value })
+                              }
+                            >
+                              <option value="">— no teacher —</option>
+                              {teachers.map((t) => (
+                                <option key={t.id} value={t.id}>
+                                  {t.name}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </article>
             ))}
           </div>
         </article>
@@ -1792,9 +2394,9 @@ export default function Home() {
                 setBlockForm((s) => ({ ...s, class_ids: selected }));
               }}
             >
-              {classes.map((cls) => (
+              {sortedClasses.map((cls) => (
                 <option key={cls.id} value={cls.id}>
-                  {cls.name} ({cls.id})
+                  {cls.name}
                 </option>
               ))}
             </select>

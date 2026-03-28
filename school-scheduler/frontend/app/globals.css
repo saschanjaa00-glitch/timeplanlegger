@@ -158,7 +158,7 @@ p {
 
 .week-setup-form {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(220px, 1.2fr) minmax(220px, auto);
+  grid-template-columns: minmax(220px, 1fr) minmax(220px, auto);
   gap: 0.35rem;
   align-items: end;
   margin-bottom: 0.45rem;
@@ -211,6 +211,255 @@ p {
 
 .week-setup-actions button {
   width: auto;
+}
+
+.classes-setup-list {
+  height: 510px;
+  max-height: 510px;
+}
+
+.class-expand-item {
+  border: 1px solid #d7d6d1;
+  background: #f7f7f4;
+  margin-bottom: 0.35rem;
+  padding: 0.2rem;
+  position: relative;
+}
+
+.class-expand-item.expanded {
+  border-color: #111827;
+  background: #eef1f6;
+  box-shadow: inset 0 0 0 1px #bcc6d8;
+}
+
+.class-expand-item.expanded::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #111827;
+}
+
+.class-expand-trigger {
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font: inherit;
+  cursor: pointer;
+}
+
+.class-expand-title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.class-expand-symbol {
+  min-width: 1.1rem;
+  text-align: center;
+  font-weight: 700;
+}
+
+.class-expand-item.expanded .class-expand-title {
+  color: #0b1528;
+}
+
+.class-expand-item.expanded .class-expand-symbol {
+  color: #0b1528;
+}
+
+.class-expand-panel {
+  border-top: 1px dashed #b6c0d3;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.4rem 0.3rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.classes-setup-list .item {
+  padding: 0.12rem;
+  font-size: 0.73rem;
+}
+
+.class-expand-panel select {
+  margin: 0;
+}
+
+.class-setup-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.class-setup-controls button {
+  width: auto;
+  padding: 0.24rem 0.4rem;
+  font-size: 0.72rem;
+}
+
+.class-fellesfag-list {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.class-fellesfag-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.3rem;
+  padding: 0.2rem 0.25rem;
+  border: 1px solid #b8d9be;
+  background: #eef7f0;
+}
+
+.class-fellesfag-item button {
+  width: auto;
+}
+
+.subject-card-classes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.1rem;
+}
+
+.subject-class-chip {
+  background: #e8eaef;
+  border: 1px solid #c5cad5;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+}
+
+.subject-card-item {
+  border: 1px solid #d7d6d1;
+  background: #f7f7f4;
+  margin-bottom: 0.35rem;
+  padding: 0.2rem;
+  position: relative;
+}
+
+.subject-card-item.expanded {
+  border-color: #111827;
+  background: #eef1f6;
+  box-shadow: inset 0 0 0 1px #bcc6d8;
+}
+
+.subject-card-item.expanded::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: #111827;
+}
+
+.subject-expand-trigger {
+  width: 100%;
+  margin: 0;
+  padding: 0.4rem 0.5rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.subject-expand-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  flex: 1;
+}
+
+.subject-expand-name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.subject-expand-meta {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.subject-expand-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+
+.subject-expand-symbol {
+  min-width: 1.1rem;
+  text-align: center;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.subject-expand-panel {
+  border-top: 1px dashed #b6c0d3;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.4rem 0.3rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.subject-teacher-section {
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.5rem;
+  background: #f6f6f3;
+  border: 1px solid #e0deda;
+  border-radius: 4px;
+  display: grid;
+  gap: 0.25rem;
+}
+
+.subject-teacher-section-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #7a7a78;
+  margin-bottom: 0.1rem;
+}
+
+.subject-teacher-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.subject-teacher-classname {
+  font-size: 0.82rem;
+  color: #444;
+  min-width: 4.5rem;
+  font-weight: 500;
+}
+
+.class-bulk-form {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.35rem;
+  padding: 0.35rem;
+  border: 1px solid #d7d6d1;
+  background: #f6f6f3;
+  align-items: end;
 }
 
 .calendar-controls {
@@ -516,6 +765,12 @@ button:hover {
   background: #0c1320;
 }
 
+.subject-expand-trigger:hover,
+.class-expand-trigger:hover {
+  background: #edecea;
+  transform: none;
+}
+
 button:disabled {
   opacity: 0.52;
   cursor: not-allowed;
@@ -534,6 +789,16 @@ button.secondary {
   padding-top: 0.35rem;
   max-height: 170px;
   overflow: auto;
+}
+
+.list.classes-setup-list {
+  height: 510px;
+  max-height: 510px;
+}
+
+.list.subject-card-list {
+  height: 600px;
+  max-height: 600px;
 }
 
 .item {
@@ -751,6 +1016,14 @@ td.idrett-row {
   .week-setup-toolbar {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .class-setup-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .class-bulk-form {
+    grid-template-columns: 1fr;
   }
 
   .calendar-editing-row {

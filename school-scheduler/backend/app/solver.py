@@ -142,7 +142,17 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             for week_label in subject_allowed_weeks[subject.id]
             if (subject.id, t_id, week_label) in x
         ]
-        model.Add(sum(vars_for_subject) == 1)
+        required_sessions = max(1, int(subject.sessions_per_week or 1))
+        if len(vars_for_subject) < required_sessions:
+            return ScheduleResponse(
+                status="infeasible",
+                message=(
+                    f"Not enough valid slots for subject '{subject.name}' ({subject.id}) "
+                    f"to place {required_sessions} sessions per week."
+                ),
+                schedule=[],
+            )
+        model.Add(sum(vars_for_subject) == required_sessions)
 
     # Constraint 2: a teacher cannot teach multiple subjects in the same timeslot.
     for teacher in data.teachers:
@@ -201,7 +211,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     for school_class in data.classes:
         class_subjects = [s for s in data.subjects if school_class.id in s.class_ids]
-        total_load = len(class_subjects)
+        total_load = sum(max(1, int(s.sessions_per_week or 1)) for s in class_subjects)
         if not days:
             continue
 
@@ -250,7 +260,6 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     schedule_items: List[ScheduledItem] = []
     for subject in data.subjects:
         for timeslot_id in subject_allowed[subject.id]:
-            matched = False
             for week_label in subject_allowed_weeks[subject.id]:
                 if (subject.id, timeslot_id, week_label) in x and solver.Value(
                     x[(subject.id, timeslot_id, week_label)]
@@ -268,10 +277,6 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             week_type=None if week_label == "base" else week_label,
                         )
                     )
-                    matched = True
-                    break
-            if matched:
-                break
 
     schedule_items.sort(
         key=lambda item: (
