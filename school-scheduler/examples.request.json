@@ -1,0 +1,47 @@
+{
+  "subjects": [
+    {
+      "id": "sub_math_8a",
+      "name": "Mathematics",
+      "teacher_id": "t_alice",
+      "class_ids": ["c_8a"],
+      "allowed_timeslots": ["mon_p1", "tue_p1", "wed_p1"]
+    },
+    {
+      "id": "sub_physics_joint",
+      "name": "Physics Lab",
+      "teacher_id": "t_bob",
+      "class_ids": ["c_8a", "c_8b"],
+      "allowed_block_ids": ["morning_block"]
+    }
+  ],
+  "teachers": [
+    {
+      "id": "t_alice",
+      "name": "Alice",
+      "unavailable_timeslots": ["mon_p2"]
+    },
+    {
+      "id": "t_bob",
+      "name": "Bob",
+      "unavailable_timeslots": []
+    }
+  ],
+  "classes": [
+    { "id": "c_8a", "name": "Class 8A" },
+    { "id": "c_8b", "name": "Class 8B" }
+  ],
+  "timeslots": [
+    { "id": "mon_p1", "day": "Monday", "period": 1 },
+    { "id": "mon_p2", "day": "Monday", "period": 2 },
+    { "id": "tue_p1", "day": "Tuesday", "period": 1 },
+    { "id": "wed_p1", "day": "Wednesday", "period": 1 }
+  ],
+  "blocks": [
+    {
+      "id": "morning_block",
+      "name": "Morning",
+      "timeslot_ids": ["mon_p1", "tue_p1", "wed_p1"]
+    }
+  ]
+}
