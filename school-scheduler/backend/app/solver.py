@@ -8,6 +8,12 @@ from ortools.sat.python import cp_model
 from .models import Block, BlockOccurrence, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
 
 
+def _normalize_workload_percent(value: int | None) -> int:
+    if value is None:
+        return 100
+    return max(1, min(100, int(value)))
+
+
 def _to_minutes(value: str | None) -> int | None:
     if not value or ":" not in value:
         return None
@@ -601,6 +607,35 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 if vars_same_slot:
                     model.Add(sum(vars_same_slot) <= 1)
 
+    # Constraint 2b: cap teacher load by their workload percentage.
+    teacher_max_units_by_week: Dict[Tuple[str, str], int] = {}
+    for teacher in data.teachers:
+        teacher_subjects = [s for s in data.subjects if s.teacher_id == teacher.id]
+        if not teacher_subjects:
+            continue
+
+        unavailable_slots = set(teacher.unavailable_timeslots)
+        unavailable_slots |= teacher_meeting_unavailable.get(teacher.id, set())
+        available_slot_ids = [
+            ts_id
+            for ts_id in all_timeslot_ids
+            if ts_id not in unavailable_slots
+        ]
+        available_capacity_units = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in available_slot_ids)
+        workload_percent = _normalize_workload_percent(getattr(teacher, "workload_percent", 100))
+        max_units_for_week = (available_capacity_units * workload_percent) // 100
+
+        for week_label in week_labels:
+            teacher_max_units_by_week[(teacher.id, week_label)] = max_units_for_week
+            teacher_units = [
+                timeslot_units_by_id.get(timeslot_id, 1) * x[(subject.id, timeslot_id, week_label)]
+                for subject in teacher_subjects
+                for timeslot_id in subject_allowed[subject.id]
+                if (subject.id, timeslot_id, week_label) in x
+            ]
+            if teacher_units:
+                model.Add(sum(teacher_units) <= max_units_for_week)
+
     # Constraint 3 + 6: each class has at most one subject in each timeslot.
     # Multi-class subjects naturally block all involved classes at that timeslot.
     for school_class in data.classes:
@@ -814,16 +849,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 continue
             for week_label in week_labels:
                 demand = sum(_lower_bound_units_for_week(s, week_label) for s in teacher_subjects)
-                feasible_slot_ids = {
-                    ts_id
-                    for s in teacher_subjects
-                    for ts_id in subject_allowed[s.id]
-                    if (s.id, ts_id, week_label) in x
-                }
-                capacity = len(feasible_slot_ids)
+                capacity = teacher_max_units_by_week.get((teacher.id, week_label), 0)
                 if demand > capacity:
                     teacher_issues.append(
-                        f"teacher {teacher.name} ({week_label}): demand {demand} > slot capacity {capacity}"
+                        f"teacher {teacher.name} ({week_label}): demand {demand} > unit capacity {capacity}"
                     )
 
         if teacher_issues:

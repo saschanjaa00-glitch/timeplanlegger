@@ -20,6 +20,7 @@ type Teacher = {
   avdeling?: string;
   preferred_avoid_timeslots: string[];
   unavailable_timeslots: string[];
+  workload_percent: number;
 };
 
 type MeetingTeacherAssignment = {
@@ -225,6 +226,12 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
 }
 
 function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
+  const rawWorkload =
+    typeof teacher.workload_percent === "number"
+      ? teacher.workload_percent
+      : 100;
+  const workloadPercent = Math.min(100, Math.max(1, Math.round(rawWorkload)));
+
   return {
     id: teacher.id ?? "",
     name: teacher.name ?? "",
@@ -235,6 +242,7 @@ function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
     unavailable_timeslots: Array.isArray(teacher.unavailable_timeslots)
       ? teacher.unavailable_timeslots
       : [],
+    workload_percent: workloadPercent,
   };
 }
 
@@ -582,7 +590,7 @@ export default function Home() {
   const [subjectForm, setSubjectForm] = useState({
     name: "",
   });
-  const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "" });
+  const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "", workload_percent: "100" });
   const [meetingForm, setMeetingForm] = useState<MeetingFormState>({
     name: "",
     timeslot_id: "",
@@ -600,6 +608,9 @@ export default function Home() {
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
   const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
   const [selectedRoomCompareIds, setSelectedRoomCompareIds] = useState<string[]>([]);
+  const [compareClassSearchQuery, setCompareClassSearchQuery] = useState("");
+  const [compareTeacherSearchQuery, setCompareTeacherSearchQuery] = useState("");
+  const [compareRoomSearchQuery, setCompareRoomSearchQuery] = useState("");
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -834,6 +845,26 @@ export default function Home() {
     return [...rooms].sort((a, b) => a.name.localeCompare(b.name));
   }, [rooms]);
 
+  const filteredCompareClasses = useMemo(() => {
+    const q = compareClassSearchQuery.trim().toLowerCase();
+    if (!q) {
+      return sortedClasses;
+    }
+    return sortedClasses.filter((schoolClass) =>
+      schoolClass.name.toLowerCase().includes(q) || schoolClass.id.toLowerCase().includes(q)
+    );
+  }, [sortedClasses, compareClassSearchQuery]);
+
+  const filteredCompareRooms = useMemo(() => {
+    const q = compareRoomSearchQuery.trim().toLowerCase();
+    if (!q) {
+      return sortedRooms;
+    }
+    return sortedRooms.filter((room) =>
+      room.name.toLowerCase().includes(q) || room.id.toLowerCase().includes(q)
+    );
+  }, [sortedRooms, compareRoomSearchQuery]);
+
   const roomsAssignedToClasses = useMemo(() => {
     return new Set(classes.map((c) => c.base_room_id).filter((id): id is string => !!id));
   }, [classes]);
@@ -845,6 +876,16 @@ export default function Home() {
       return aFirstName.localeCompare(bFirstName, undefined, { sensitivity: "base" });
     });
   }, [teachers]);
+
+  const filteredCompareTeachers = useMemo(() => {
+    const q = compareTeacherSearchQuery.trim();
+    if (!q) {
+      return sortedTeachersByFirstName;
+    }
+    return sortedTeachersByFirstName.filter((teacher) =>
+      isTeacherNameMatch(q, teacher.name) || teacher.id.toLowerCase().includes(q.toLowerCase())
+    );
+  }, [sortedTeachersByFirstName, compareTeacherSearchQuery]);
 
   const filteredTeachers = useMemo(() => {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(teacherSearchQuery, teacher.name));
@@ -1556,6 +1597,7 @@ export default function Home() {
     if (!teacherForm.name) {
       return;
     }
+    const workloadPercent = Math.min(100, Math.max(1, Number.parseInt(teacherForm.workload_percent, 10) || 100));
     const id = makeUniqueId(`teacher_${toSlug(teacherForm.name) || "item"}`, teachers.map((t) => t.id));
     setTeachers((prev) => [
       ...prev,
@@ -1565,9 +1607,10 @@ export default function Home() {
         avdeling: "",
         preferred_avoid_timeslots: [],
         unavailable_timeslots: splitCsv(teacherForm.unavailable_timeslots),
+        workload_percent: workloadPercent,
       },
     ]);
-    setTeacherForm({ name: "", unavailable_timeslots: "" });
+    setTeacherForm({ name: "", unavailable_timeslots: "", workload_percent: "100" });
   }
 
   function deleteTeacher(teacherId: string) {
@@ -1640,6 +1683,7 @@ export default function Home() {
             avdeling,
             preferred_avoid_timeslots: [],
             unavailable_timeslots: [],
+            workload_percent: 100,
           });
         });
 
@@ -4179,6 +4223,15 @@ export default function Home() {
           <form onSubmit={(e) => { e.preventDefault(); addTeacher(); }} style={{ marginBottom: "12px" }}>
             <label>Add Teacher Manually</label>
             <input value={teacherForm.name} onChange={(e) => setTeacherForm((s) => ({ ...s, name: e.target.value }))} placeholder="Teacher name" />
+            <label>Workload (%)</label>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={teacherForm.workload_percent}
+              onChange={(e) => setTeacherForm((s) => ({ ...s, workload_percent: e.target.value }))}
+              placeholder="100"
+            />
             <button type="submit">Add Teacher</button>
           </form>
 
@@ -4217,7 +4270,7 @@ export default function Home() {
                       <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
                       <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
                         <span style={{ fontSize: "0.85em", color: "#666" }}>
-                          {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
+                          {t.workload_percent}% workload, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
                         </span>
                         <button
                           type="button"
@@ -4245,6 +4298,26 @@ export default function Home() {
 
                     {expandedTeacherId === t.id && (
                       <div style={{ padding: "8px", backgroundColor: "#fafafa", borderTop: "1px solid #eee" }}>
+                        <div style={{ marginBottom: "8px", display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", alignItems: "center" }}>
+                          <label style={{ fontSize: "0.85em", fontWeight: 600 }}>Workload percentage</label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={100}
+                            value={t.workload_percent}
+                            onClick={(e) => e.stopPropagation()}
+                            onChange={(e) => {
+                              const nextValue = Math.min(100, Math.max(1, Number.parseInt(e.target.value, 10) || 100));
+                              setTeachers((prev) => prev.map((teacher) => (
+                                teacher.id === t.id
+                                  ? { ...teacher, workload_percent: nextValue }
+                                  : teacher
+                              )));
+                            }}
+                            style={{ width: "88px" }}
+                            aria-label={`${t.name} workload percent`}
+                          />
+                        </div>
                         <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Click to cycle: Available -&gt; Preferred (orange) -&gt; Blocked (red)</h4>
                         {(() => {
                           const slotsByDay: Record<string, Timeslot[]> = Object.fromEntries(
@@ -4423,6 +4496,12 @@ export default function Home() {
           <div className="compare-controls">
             <div className="compare-group">
               <label>Compare classes</label>
+              <input
+                type="text"
+                value={compareClassSearchQuery}
+                onChange={(e) => setCompareClassSearchQuery(e.target.value)}
+                placeholder="Search classes"
+              />
               <select
                 multiple
                 value={selectedClassCompareIds}
@@ -4441,13 +4520,19 @@ export default function Home() {
                 }}
                 onChange={() => {}}
               >
-                {sortedClasses.map((schoolClass) => (
+                {filteredCompareClasses.map((schoolClass) => (
                   <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>
                 ))}
               </select>
             </div>
             <div className="compare-group">
               <label>Compare teachers</label>
+              <input
+                type="text"
+                value={compareTeacherSearchQuery}
+                onChange={(e) => setCompareTeacherSearchQuery(e.target.value)}
+                placeholder="Search teachers"
+              />
               <select
                 multiple
                 value={selectedTeacherCompareIds}
@@ -4466,13 +4551,19 @@ export default function Home() {
                 }}
                 onChange={() => {}}
               >
-                {sortedTeachersByFirstName.map((teacher) => (
+                {filteredCompareTeachers.map((teacher) => (
                   <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
                 ))}
               </select>
             </div>
             <div className="compare-group">
               <label>Compare rooms</label>
+              <input
+                type="text"
+                value={compareRoomSearchQuery}
+                onChange={(e) => setCompareRoomSearchQuery(e.target.value)}
+                placeholder="Search rooms"
+              />
               <select
                 multiple
                 value={selectedRoomCompareIds}
@@ -4491,7 +4582,7 @@ export default function Home() {
                 }}
                 onChange={() => {}}
               >
-                {sortedRooms.map((room) => (
+                {filteredCompareRooms.map((room) => (
                   <option key={room.id} value={room.id}>{room.name}</option>
                 ))}
               </select>

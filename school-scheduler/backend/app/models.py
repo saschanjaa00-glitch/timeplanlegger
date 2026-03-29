@@ -22,6 +22,7 @@ class Teacher(BaseModel):
     name: str
     preferred_avoid_timeslots: List[str] = Field(default_factory=list)
     unavailable_timeslots: List[str] = Field(default_factory=list)
+    workload_percent: int = Field(default=100, ge=1, le=100)
 
 
 class MeetingTeacherAssignment(BaseModel):
