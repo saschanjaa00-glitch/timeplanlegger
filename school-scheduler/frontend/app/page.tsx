@@ -363,7 +363,7 @@ function toMinutes(value?: string): number {
 }
 
 function normalizeTime24(value: string): string {
-  const trimmed = value.trim();
+  const trimmed = value.trim().replace(/[;.,]/g, ":");
 
   const compactMatch = trimmed.match(/^(\d{4})$/);
   if (compactMatch) {
@@ -385,6 +385,10 @@ function normalizeTime24(value: string): string {
     return trimmed;
   }
   return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+function isValidTime24(value: string): boolean {
+  return /^([01]\d|2[0-3]):[0-5]\d$/.test(normalizeTime24(value));
 }
 
 function minutesToTime(totalMinutes: number): string {
@@ -2319,6 +2323,14 @@ export default function Home() {
     ));
   }
 
+  function handleBlockCardClick(blockId: string) {
+    setExpandedBlockId((prev) => {
+      if (!prev) return prev;
+      if (prev === blockId) return prev;
+      return null;
+    });
+  }
+
   function loadBlockIntoForm(block: Block) {
     setBlockForm({
       name: block.name,
@@ -3483,7 +3495,7 @@ export default function Home() {
         <article className="card">
           <h2>Blokker</h2>
           <p>Define program blocks (e.g. Blokk 1, 2, 3) with their scheduled times, participating classes, and subjects.</p>
-          <form onSubmit={(e) => { e.preventDefault(); upsertBlock(); }}>
+          <form noValidate onSubmit={(e) => { e.preventDefault(); upsertBlock(); }}>
             <label>Block Name</label>
             <input
               value={blockForm.name}
@@ -3508,18 +3520,26 @@ export default function Home() {
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ fontSize: "0.75em", color: "#666" }}>Start</span>
                 <input
-                  type="time"
+                  type="text"
                   value={blockOccForm.start_time}
-                  onChange={(e) => setBlockOccForm((s) => ({ ...s, start_time: e.target.value }))}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, start_time: normalizeTime24(e.target.value) }))}
+                  onBlur={(e) => setBlockOccForm((s) => ({ ...s, start_time: normalizeTime24(e.target.value) }))}
+                  inputMode="numeric"
+                  placeholder="HH:MM"
+                  pattern="^([01]\\d|2[0-3]):[0-5]\\d$"
                   style={{ fontSize: "0.86em", width: "105px" }}
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <span style={{ fontSize: "0.75em", color: "#666" }}>End</span>
                 <input
-                  type="time"
+                  type="text"
                   value={blockOccForm.end_time}
-                  onChange={(e) => setBlockOccForm((s) => ({ ...s, end_time: e.target.value }))}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, end_time: normalizeTime24(e.target.value) }))}
+                  onBlur={(e) => setBlockOccForm((s) => ({ ...s, end_time: normalizeTime24(e.target.value) }))}
+                  inputMode="numeric"
+                  placeholder="HH:MM"
+                  pattern="^([01]\\d|2[0-3]):[0-5]\\d$"
                   style={{ fontSize: "0.86em", width: "105px" }}
                 />
               </div>
@@ -3538,7 +3558,7 @@ export default function Home() {
               <button
                 type="button"
                 onClick={addOccurrenceToBlockForm}
-                disabled={!blockOccForm.start_time || !blockOccForm.end_time}
+                disabled={!isValidTime24(blockOccForm.start_time) || !isValidTime24(blockOccForm.end_time)}
                 style={{ padding: "4px 10px", fontSize: "0.85em", whiteSpace: "nowrap" }}
               >
                 + Add Time
@@ -3600,14 +3620,20 @@ export default function Home() {
               {blocks.map((block) => {
                 const classNames = (block.class_ids ?? []).map((id) => classes.find((c) => c.id === id)?.name ?? id).join(", ");
                 const isExpanded = expandedBlockId === block.id;
+                const isDimmed = expandedBlockId !== null && expandedBlockId !== block.id;
                 const subjectEntries = block.subject_entries ?? [];
                 return (
-                  <div key={block.id} className="item" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                  <div
+                    key={block.id}
+                    className={`item block-list-item${isExpanded ? " is-expanded" : ""}${isDimmed ? " is-dimmed" : ""}`}
+                    style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+                    onClick={() => handleBlockCardClick(block.id)}
+                  >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <strong>{block.name}</strong>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button type="button" className="secondary" onClick={() => loadBlockIntoForm(block)} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Edit</button>
-                        <button type="button" className="secondary" onClick={() => deleteBlock(block.id)} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Delete</button>
+                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); loadBlockIntoForm(block); }} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Edit</button>
+                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); deleteBlock(block.id); }} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Delete</button>
                       </div>
                     </div>
                     {(block.occurrences ?? []).length > 0 && (
@@ -3624,7 +3650,10 @@ export default function Home() {
                       <button
                         type="button"
                         className="secondary"
-                        onClick={() => setExpandedBlockId((prev) => prev === block.id ? null : block.id)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setExpandedBlockId((prev) => prev === block.id ? null : block.id);
+                        }}
                         style={{ fontSize: "0.8em", padding: "2px 8px", width: "100%", textAlign: "left" }}
                       >
                         {isExpanded ? "▲ Hide" : `▼ Subjects (${subjectEntries.length})`}
@@ -3635,13 +3664,14 @@ export default function Home() {
                             const subj = subjects.find((s) => s.id === se.subject_id);
                             const searchKey = `block_${block.id}_${se.subject_id}`;
                             return (
-                              <div key={se.subject_id} className="subject-teacher-row" style={{ background: "#fafafa", borderRadius: "4px", padding: "4px 8px" }}>
+                              <div key={se.subject_id} className="subject-teacher-row block-subject-row" style={{ background: "#fafafa", borderRadius: "4px", padding: "4px 8px" }}>
                                 <span className="subject-teacher-classname" style={{ fontSize: "0.85em", fontWeight: 600 }}>
                                   {subj?.name ?? se.subject_id}
                                 </span>
-                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
-                                  <div className="faggrupper-teacher-picker">
+                                <div className="block-subject-row-controls">
+                                  <div className="faggrupper-teacher-picker block-subject-teacher-picker">
                                     <input
+                                      className="block-subject-teacher-input"
                                       list={`block-teacher-opts-${block.id}-${se.subject_id}`}
                                       value={getTeacherInputValue(searchKey, se.teacher_id)}
                                       onChange={(e) => {
@@ -3663,32 +3693,34 @@ export default function Home() {
                                   </div>
                                   <button
                                     type="button"
-                                    className="secondary"
+                                    className="secondary block-subject-remove-btn"
                                     onClick={() => {
                                       setBlocks((prev) => prev.map((b) =>
                                         b.id !== block.id ? b : { ...b, subject_entries: b.subject_entries.filter((s) => s.subject_id !== se.subject_id) }
                                       ));
                                     }}
-                                    style={{ padding: "2px 6px", fontSize: "0.78em", color: "#c53", flexShrink: 0 }}
+                                    style={{ color: "#c53" }}
                                   >✕</button>
                                 </div>
                               </div>
                             );
                           })}
-                          <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "4px" }}>
+                          <div className="block-subject-add-row">
                             <input
+                              className="block-subject-add-input"
                               type="text"
                               placeholder="New subject name"
                               value={blockInlineSubjNames[block.id] ?? ""}
                               onChange={(e) => setBlockInlineSubjNames((prev) => ({ ...prev, [block.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createAndAddSubjectToSavedBlock(block.id); } }}
-                              style={{ fontSize: "0.84em", padding: "3px 6px", border: "1px solid #ccc", flex: 1 }}
+                              style={{ fontSize: "0.84em", padding: "3px 6px", border: "1px solid #ccc" }}
                             />
                             <button
                               type="button"
+                              className="block-subject-add-btn"
                               onClick={() => createAndAddSubjectToSavedBlock(block.id)}
                               disabled={!(blockInlineSubjNames[block.id] ?? "").trim()}
-                              style={{ padding: "3px 10px", fontSize: "0.82em", whiteSpace: "nowrap" }}
+                              style={{ whiteSpace: "nowrap" }}
                             >
                               + Add
                             </button>

@@ -794,12 +794,70 @@ p {
 .faggrupper-teacher-picker input {
   margin-bottom: 0;
 }
+.block-subject-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.85fr) minmax(220px, 1.15fr);
+  align-items: center;
+  gap: 0.45rem;
+}
+.block-subject-row-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.block-subject-teacher-picker {
+  flex: 1;
+  min-width: 160px;
+}
+.block-subject-teacher-input {
+  width: 100%;
+  margin-bottom: 0;
+}
+.block-subject-remove-btn,
+.block-subject-add-btn {
+  width: auto;
+  flex: 0 0 auto;
+  padding: 0.2rem 0.55rem;
+  font-size: 0.74rem;
+  line-height: 1.1;
+}
+.block-subject-add-row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-top: 0.25rem;
+}
+.block-subject-add-input {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.block-list-item {
+  transition: opacity 160ms ease, filter 160ms ease, border-color 160ms ease;
+}
+
+.block-list-item.is-expanded {
+  border-color: #9ea9bf;
+  background: #f7f9fc;
+}
+
+.block-list-item.is-dimmed {
+  opacity: 0.42;
+  filter: grayscale(0.22);
+}
 
 .subject-teacher-classname {
   font-size: 0.82rem;
   color: #444;
   min-width: 4.5rem;
   font-weight: 500;
+}
+@media (max-width: 760px) {
+  .block-subject-row {
+    grid-template-columns: 1fr;
+  }
 }
 
 .class-bulk-form {
