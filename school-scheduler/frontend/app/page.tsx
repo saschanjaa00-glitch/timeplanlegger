@@ -946,8 +946,8 @@ export default function Home() {
   }
 
   function upsertRoom() {
-    const name = roomForm.name.trim();
-    if (!name) {
+    const input = roomForm.name.trim();
+    if (!input) {
       setStatusText("Room name is required.");
       return;
     }
@@ -955,18 +955,36 @@ export default function Home() {
     if (editingRoomId) {
       setRooms((prev) => prev.map((room) => (
         room.id === editingRoomId
-          ? { ...room, name }
+          ? { ...room, name: input }
           : room
       )));
-      setStatusText(`Updated room ${name}.`);
+      setStatusText(`Updated room ${input}.`);
       setRoomForm({ name: "" });
       setEditingRoomId(null);
       return;
     }
 
-    const id = makeUniqueId(`room_${toSlug(name) || "item"}`, rooms.map((room) => room.id));
-    setRooms((prev) => [...prev, { id, name }]);
-    setStatusText(`Added room ${name}.`);
+    // Parse comma-separated room names
+    const roomNames = input
+      .split(",")
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0);
+
+    if (roomNames.length === 0) {
+      setStatusText("Please enter at least one room name.");
+      return;
+    }
+
+    const collectedIds = rooms.map((r) => r.id);
+    const newRooms: Room[] = [];
+    for (const name of roomNames) {
+      const id = makeUniqueId(`room_${toSlug(name) || "item"}`, [...collectedIds, ...newRooms.map((r) => r.id)]);
+      newRooms.push({ id, name });
+    }
+
+    setRooms((prev) => [...prev, ...newRooms]);
+    const message = roomNames.length === 1 ? `Added room ${roomNames[0]}.` : `Added ${roomNames.length} rooms.`;
+    setStatusText(message);
     setRoomForm({ name: "" });
   }
 
@@ -3500,7 +3518,7 @@ export default function Home() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", marginBottom: "12px", alignItems: "end" }}>
             <input
               type="text"
-              placeholder="Room name (e.g. 101, A301, Sal)"
+              placeholder="Room name(s) - separate multiple with commas (e.g., R202, R203, R204)"
               value={roomForm.name}
               onChange={(e) => setRoomForm({ name: e.target.value })}
               onKeyDown={(e) => { if (e.key === "Enter") upsertRoom(); }}
