@@ -51,6 +51,7 @@ type Timeslot = {
   is_double?: boolean;
   is_idrett?: boolean;
   is_lunch?: boolean;
+  excluded_from_generation?: boolean;
 };
 
 type BlockOccurrence = {
@@ -646,6 +647,7 @@ export default function Home() {
     is_double: false,
     is_idrett: false,
     is_lunch: false,
+    excluded_from_generation: false,
   });
   const [activeCalendarDay, setActiveCalendarDay] = useState("Monday");
   const [editingTimeslotId, setEditingTimeslotId] = useState<string | null>(null);
@@ -2459,6 +2461,7 @@ export default function Home() {
         is_double: timeslotForm.is_double,
         is_idrett: timeslotForm.is_idrett,
         is_lunch: timeslotForm.is_lunch,
+        excluded_from_generation: timeslotForm.excluded_from_generation,
       },
     ];
     const normalizedId = applyNormalizedTimeslotState(nextTimeslots, id) ?? id;
@@ -2476,6 +2479,7 @@ export default function Home() {
       is_double: Boolean(slot.is_double),
       is_idrett: Boolean(slot.is_idrett),
       is_lunch: Boolean(slot.is_lunch),
+      excluded_from_generation: Boolean(slot.excluded_from_generation),
     });
     setStatusText(`Editing timeslot ${slot.id}.`);
   }
@@ -2490,6 +2494,7 @@ export default function Home() {
       is_double: false,
       is_idrett: false,
       is_lunch: false,
+      excluded_from_generation: false,
     }));
     setStatusText("Timeslot editing cancelled.");
   }
@@ -2529,6 +2534,7 @@ export default function Home() {
         is_double: timeslotForm.is_double,
         is_idrett: timeslotForm.is_idrett,
         is_lunch: timeslotForm.is_lunch,
+        excluded_from_generation: timeslotForm.excluded_from_generation,
       };
     });
 
@@ -3235,6 +3241,15 @@ export default function Home() {
             Lunch (yellow in schedule)
           </label>
 
+          <label className="calendar-check">
+            <input
+              type="checkbox"
+              checked={timeslotForm.excluded_from_generation}
+              onChange={(e) => setTimeslotForm((s) => ({ ...s, excluded_from_generation: e.target.checked }))}
+            />
+            Exclude from generation
+          </label>
+
           <button className="calendar-submit" type="submit">
             {editingTimeslotId ? "Save Changes" : "Add Timeslot"}
           </button>
@@ -3336,7 +3351,7 @@ export default function Home() {
                     return (
                       <div
                         key={slot.id}
-                        className={`slot-pill ${getSlotToneClass(slot)}`}
+                        className={`slot-pill ${getSlotToneClass(slot)}${slot.excluded_from_generation ? " excluded" : ""}`}
                         draggable={!resizeState}
                         onDragStart={() => setDraggingTimeslotId(slot.id)}
                         onDragEnd={() => {
@@ -3384,6 +3399,7 @@ export default function Home() {
                         ) : (
                           <div>{slot.start_time} - {slot.end_time}</div>
                         )}
+                        {slot.excluded_from_generation ? <small>Excluded from generation</small> : null}
                         <small>{slot.id}</small>
                       </div>
                     );

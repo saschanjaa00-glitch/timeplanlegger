@@ -1063,6 +1063,12 @@ p {
   background: var(--warn-bg);
 }
 
+.slot-pill.excluded {
+  border-style: dashed;
+  border-color: #8b1e1e;
+  background: #f3dede;
+}
+
 .slot-split {
   display: grid;
   grid-template-columns: 1fr;

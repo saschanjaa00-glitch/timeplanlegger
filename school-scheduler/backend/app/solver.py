@@ -17,6 +17,8 @@ DAY_IMBALANCE_WEIGHT = 1
 BOUNDARY_SLOT_WEIGHT = 1
 TEACHER_PRESENCE_EXCESS_WEIGHT = 5
 TEACHER_WORKLOAD_EXCESS_WEIGHT = 10
+FELLESFAG_SAME_DAY_PENALTY_WEIGHT = 3
+NORSK_VG3_NO_DOUBLE90_PENALTY_WEIGHT = 12
 SOLVER_LOG_PATH = Path(__file__).resolve().parents[1] / "solver_last_run.log"
 
 
@@ -371,16 +373,17 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             schedule=[],
         )
 
-    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in data.timeslots}
+    active_timeslots = [t for t in data.timeslots if not getattr(t, "excluded_from_generation", False)]
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in active_timeslots}
     timeslot_bounds_by_id: Dict[str, Tuple[int, int]] = {
-        t.id: _timeslot_bounds_minutes(t) for t in data.timeslots
+        t.id: _timeslot_bounds_minutes(t) for t in active_timeslots
     }
     timeslot_units_by_id: Dict[str, int] = {
-        t.id: _timeslot_45m_units(t) for t in data.timeslots
+        t.id: _timeslot_45m_units(t) for t in active_timeslots
     }
     all_timeslot_ids = set(timeslots_by_id.keys())
     day_slot_ids: Dict[str, List[str]] = defaultdict(list)
-    for timeslot in data.timeslots:
+    for timeslot in active_timeslots:
         day_slot_ids[timeslot.day].append(timeslot.id)
     for day in day_slot_ids:
         day_slot_ids[day].sort(key=lambda ts_id: timeslots_by_id[ts_id].period)
@@ -1197,7 +1200,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 for subject_id in block_subject_set
                 if subject_id in subjects_by_id
                 and (
-                    class_id in subjects_by_id[subject_id].class_ids
+                    not subjects_by_id[subject_id].class_ids
+                    or class_id in subjects_by_id[subject_id].class_ids
                 )
             ]
 
@@ -1303,14 +1307,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         max_target = (total_load + len(days) - 1) // len(days)
 
         for day in days:
-            day_slot_ids = [t.id for t in data.timeslots if t.day == day]
+            day_timeslot_ids = [t.id for t in data.timeslots if t.day == day]
             day_count = model.NewIntVar(0, total_load, f"count_{school_class.id}_{day}")
             class_day_counts[(school_class.id, day)] = day_count
 
             vars_for_day = [
                 timeslot_units_by_id.get(ts_id, 1) * x[(s.id, ts_id, week_label)]
                     for s in class_subjects
-                for ts_id in day_slot_ids
+                for ts_id in day_timeslot_ids
                 for week_label in week_labels
                 if (s.id, ts_id, week_label) in x
             ]
@@ -1374,6 +1378,76 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         objective_parts.append(TEACHER_PRESENCE_EXCESS_WEIGHT * sum(teacher_presence_excess_terms))
     if teacher_workload_excess_terms:
         objective_parts.append(TEACHER_WORKLOAD_EXCESS_WEIGHT * sum(teacher_workload_excess_terms))
+
+    # Soft preference:
+    # - For fellesfag (except Norsk vg3), prefer distributing lessons across different days.
+    # - For Norsk vg3, prefer at least one 2x90 consecutive pair per week.
+    fellesfag_same_day_excess_terms: List[cp_model.IntVar] = []
+    norsk_vg3_no_double90_terms: List[cp_model.IntVar] = []
+
+    for subject in data.subjects:
+        is_fellesfag = subject.subject_type == "fellesfag"
+        is_norsk_vg3 = is_fellesfag and ("norsk vg3" in (subject.name or "").lower())
+        if not is_fellesfag:
+            continue
+
+        relevant_weeks = subject_allowed_weeks.get(subject.id, [])
+        for week_label in relevant_weeks:
+            if week_label not in week_labels:
+                continue
+
+            if is_norsk_vg3:
+                pair_literals: List[cp_model.IntVar] = []
+                for day, slot_ids in day_slot_ids.items():
+                    ordered = sorted(slot_ids, key=lambda sid: timeslots_by_id[sid].period)
+                    for i in range(len(ordered) - 1):
+                        ts_a = timeslots_by_id[ordered[i]]
+                        ts_b = timeslots_by_id[ordered[i + 1]]
+                        if ts_a.period + 1 != ts_b.period:
+                            continue
+                        if timeslot_units_by_id.get(ts_a.id, 1) < 2 or timeslot_units_by_id.get(ts_b.id, 1) < 2:
+                            continue
+                        key_a = (subject.id, ts_a.id, week_label)
+                        key_b = (subject.id, ts_b.id, week_label)
+                        if key_a not in x or key_b not in x:
+                            continue
+                        if key_a in forced_zero_keys or key_b in forced_zero_keys:
+                            continue
+
+                        pair_lit = model.NewBoolVar(f"norsk_vg3_pair_{subject.id}_{week_label}_{day}_{i}")
+                        model.Add(pair_lit <= x[key_a])
+                        model.Add(pair_lit <= x[key_b])
+                        model.Add(pair_lit >= x[key_a] + x[key_b] - 1)
+                        pair_literals.append(pair_lit)
+
+                if pair_literals:
+                    no_pair = model.NewBoolVar(f"norsk_vg3_no_pair_{subject.id}_{week_label}")
+                    model.Add(sum(pair_literals) >= 1).OnlyEnforceIf(no_pair.Not())
+                    model.Add(sum(pair_literals) == 0).OnlyEnforceIf(no_pair)
+                    norsk_vg3_no_double90_terms.append(no_pair)
+                continue
+
+            # Non-Norsk vg3 fellesfag: penalize additional lessons on same day.
+            for day, slot_ids in day_slot_ids.items():
+                day_literals = [
+                    x[(subject.id, ts_id, week_label)]
+                    for ts_id in slot_ids
+                    if (subject.id, ts_id, week_label) in x
+                    if (subject.id, ts_id, week_label) not in forced_zero_keys
+                ]
+                if len(day_literals) <= 1:
+                    continue
+
+                day_count = model.NewIntVar(0, len(day_literals), f"fellesfag_day_count_{subject.id}_{week_label}_{day}")
+                model.Add(day_count == sum(day_literals))
+                day_excess = model.NewIntVar(0, len(day_literals), f"fellesfag_day_excess_{subject.id}_{week_label}_{day}")
+                model.Add(day_excess >= day_count - 1)
+                fellesfag_same_day_excess_terms.append(day_excess)
+
+    if fellesfag_same_day_excess_terms:
+        objective_parts.append(FELLESFAG_SAME_DAY_PENALTY_WEIGHT * sum(fellesfag_same_day_excess_terms))
+    if norsk_vg3_no_double90_terms:
+        objective_parts.append(NORSK_VG3_NO_DOUBLE90_PENALTY_WEIGHT * sum(norsk_vg3_no_double90_terms))
 
     if objective_parts:
         model.Minimize(sum(objective_parts))

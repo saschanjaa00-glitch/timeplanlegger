@@ -52,6 +52,7 @@ class Timeslot(BaseModel):
     period: int
     start_time: Optional[str] = None
     end_time: Optional[str] = None
+    excluded_from_generation: bool = False
 
 
 class BlockOccurrence(BaseModel):
