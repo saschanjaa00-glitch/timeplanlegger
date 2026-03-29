@@ -20,6 +20,7 @@ class Subject(BaseModel):
 class Teacher(BaseModel):
     id: str
     name: str
+    preferred_avoid_timeslots: List[str] = Field(default_factory=list)
     unavailable_timeslots: List[str] = Field(default_factory=list)
 
 

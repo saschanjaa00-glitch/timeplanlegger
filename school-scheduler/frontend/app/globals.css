@@ -85,7 +85,7 @@ p {
 
 .tab-strip {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 0.3rem;
   margin: 0.4rem 0 0.45rem;
 }
@@ -442,6 +442,90 @@ p {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.faggrupper-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.9fr) minmax(360px, 1.6fr);
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+  min-height: 520px;
+}
+
+.faggrupper-classes {
+  margin: 0;
+  max-height: none;
+  min-height: 520px;
+  overflow: auto;
+  padding-top: 0;
+}
+
+.faggrupper-class-item {
+  width: 100%;
+  margin: 0;
+  border: 1px solid #d3d3ce;
+  border-bottom: 0;
+  background: #fbfbf9;
+  color: #232320;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.3rem 0.45rem;
+  font-size: 0.78rem;
+  min-height: 30px;
+}
+
+.faggrupper-class-item:last-child {
+  border-bottom: 1px solid #d3d3ce;
+}
+
+.faggrupper-class-item.active {
+  background: #e8ecf4;
+  border-color: #aeb8cc;
+  color: #111827;
+  font-weight: 600;
+}
+
+.faggrupper-subjects {
+  border: 1px solid #d3d3ce;
+  background: #f8f8f6;
+  padding: 0.45rem;
+  min-height: 520px;
+  display: flex;
+  flex-direction: column;
+}
+
+.faggrupper-subject-list {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 0.35rem;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.faggrupper-subject-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(240px, 1.2fr);
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid #deddd8;
+  background: #fbfbf9;
+  padding: 0.25rem 0.35rem;
+}
+
+.faggrupper-subject-row .subject-teacher-classname {
+  min-width: 0;
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.faggrupper-teacher-picker {
+  display: grid;
+  gap: 0.12rem;
+}
+
+.faggrupper-teacher-picker input {
+  margin-bottom: 0;
 }
 
 .subject-teacher-classname {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
 
 type Subject = {
   id: string;
@@ -16,6 +17,7 @@ type Subject = {
 type Teacher = {
   id: string;
   name: string;
+  preferred_avoid_timeslots: string[];
   unavailable_timeslots: string[];
 };
 
@@ -46,7 +48,7 @@ type Block = {
   subject_ids?: string[];
 };
 
-type TabKey = "calendar" | "classes" | "subjects" | "blocks" | "teachers" | "generate";
+type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "teachers" | "generate";
 
 type WeekMode = "A" | "B";
 
@@ -97,6 +99,7 @@ const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "calendar", label: "Week Calendar" },
   { id: "classes", label: "Classes" },
   { id: "subjects", label: "Subjects" },
+  { id: "faggrupper", label: "Faggrupper" },
   { id: "blocks", label: "Blocks" },
   { id: "teachers", label: "Teachers" },
   { id: "generate", label: "Generate" },
@@ -139,11 +142,73 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
   };
 }
 
+function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
+  return {
+    id: teacher.id ?? "",
+    name: teacher.name ?? "",
+    preferred_avoid_timeslots: Array.isArray(teacher.preferred_avoid_timeslots)
+      ? teacher.preferred_avoid_timeslots
+      : [],
+    unavailable_timeslots: Array.isArray(teacher.unavailable_timeslots)
+      ? teacher.unavailable_timeslots
+      : [],
+  };
+}
+
 function splitCsv(input: string): string[] {
   return input
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .replace(/[æÆ]/g, "ae")
+    .replace(/[øØ]/g, "o")
+    .replace(/[åÅ]/g, "a")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isFuzzyTokenMatch(queryToken: string, candidateToken: string): boolean {
+  if (!queryToken || !candidateToken) {
+    return false;
+  }
+
+  if (candidateToken.includes(queryToken)) {
+    return true;
+  }
+
+  return false;
+}
+
+function isTeacherNameMatch(query: string, teacherName: string): boolean {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  const queryTokens = normalizedQuery.split(" ").filter(Boolean);
+  const nameTokens = normalizeSearchText(teacherName).split(" ").filter(Boolean);
+  if (!queryTokens.length || !nameTokens.length) {
+    return false;
+  }
+
+  const allQueryTokensMatch = queryTokens.every((queryToken) =>
+    nameTokens.some((nameToken) => isFuzzyTokenMatch(queryToken, nameToken))
+  );
+  if (allQueryTokensMatch) {
+    return true;
+  }
+
+  const collapsedQuery = queryTokens.join(" ");
+  const collapsedName = nameTokens.join(" ");
+  return isFuzzyTokenMatch(collapsedQuery, collapsedName) || collapsedName.includes(collapsedQuery);
 }
 
 function toSlug(value: string): string {
@@ -372,6 +437,8 @@ export default function Home() {
     name: "",
   });
   const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "" });
+  const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
+  const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -400,6 +467,8 @@ export default function Home() {
   const [renamingWeekSetupId, setRenamingWeekSetupId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [expandedClassId, setExpandedClassId] = useState<string | null>(null);
+  const [activeFaggruppeClassId, setActiveFaggruppeClassId] = useState<string | null>(null);
+  const [faggrupperClassSearchQuery, setFaggrupperClassSearchQuery] = useState("");
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
   const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
@@ -413,6 +482,8 @@ export default function Home() {
     subject_ids: [] as string[],
   });
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
+  const [expandedTeacherId, setExpandedTeacherId] = useState<string | null>(null);
+  const excelFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     try {
@@ -445,7 +516,7 @@ export default function Home() {
         setSubjects(parsed.subjects.map((subject) => normalizeSubject(subject)));
       }
       if (Array.isArray(parsed.teachers)) {
-        setTeachers(parsed.teachers);
+        setTeachers(parsed.teachers.map((teacher) => normalizeTeacher(teacher)));
       }
       if (Array.isArray(parsed.classes)) {
         setClasses(parsed.classes);
@@ -554,9 +625,74 @@ export default function Home() {
     return [...classes].sort((a, b) => a.name.localeCompare(b.name));
   }, [classes]);
 
+  const sortedTeachersByFirstName = useMemo(() => {
+    return [...teachers].sort((a, b) => {
+      const aFirstName = a.name.trim().split(/\s+/)[0] ?? "";
+      const bFirstName = b.name.trim().split(/\s+/)[0] ?? "";
+      return aFirstName.localeCompare(bFirstName, undefined, { sensitivity: "base" });
+    });
+  }, [teachers]);
+
+  const filteredTeachers = useMemo(() => {
+    return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(teacherSearchQuery, teacher.name));
+  }, [sortedTeachersByFirstName, teacherSearchQuery]);
+
+  function filterTeachersForQuery(query: string): Teacher[] {
+    return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(query, teacher.name));
+  }
+
+  function resolveTeacherIdFromInput(inputValue: string): string | null {
+    const normalizedInput = normalizeSearchText(inputValue);
+    if (!normalizedInput) {
+      return "";
+    }
+    const exactMatch = sortedTeachersByFirstName.find(
+      (teacher) => normalizeSearchText(teacher.name) === normalizedInput
+    );
+    return exactMatch ? exactMatch.id : null;
+  }
+
+  function getTeacherInputValue(entityId: string, currentTeacherId: string): string {
+    const draft = teacherSearchBySubjectEntity[entityId];
+    if (typeof draft === "string") {
+      return draft;
+    }
+    return sortedTeachersByFirstName.find((teacher) => teacher.id === currentTeacherId)?.name ?? "";
+  }
+
   const classNameById = useMemo(() => {
     return Object.fromEntries(sortedClasses.map((c) => [c.id, c.name])) as Record<string, string>;
   }, [sortedClasses]);
+
+  const classSubjectsById = useMemo(() => {
+    const grouped: Record<string, Subject[]> = {};
+    for (const schoolClass of sortedClasses) {
+      grouped[schoolClass.id] = subjects
+        .filter((subject) => subject.class_ids.includes(schoolClass.id))
+        .sort((a, b) => a.name.localeCompare(b.name));
+    }
+    return grouped;
+  }, [sortedClasses, subjects]);
+
+  const filteredFaggrupperClasses = useMemo(() => {
+    const normalizedQuery = normalizeSearchText(faggrupperClassSearchQuery);
+    if (!normalizedQuery) {
+      return sortedClasses;
+    }
+    return sortedClasses.filter((schoolClass) =>
+      normalizeSearchText(schoolClass.name).includes(normalizedQuery)
+    );
+  }, [sortedClasses, faggrupperClassSearchQuery]);
+
+  useEffect(() => {
+    if (!filteredFaggrupperClasses.length) {
+      setActiveFaggruppeClassId(null);
+      return;
+    }
+    if (!activeFaggruppeClassId || !filteredFaggrupperClasses.some((schoolClass) => schoolClass.id === activeFaggruppeClassId)) {
+      setActiveFaggruppeClassId(filteredFaggrupperClasses[0].id);
+    }
+  }, [filteredFaggrupperClasses, activeFaggruppeClassId]);
 
   // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
   // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
@@ -654,6 +790,7 @@ export default function Home() {
 
     setTeachers((prev) => prev.map((teacher) => ({
       ...teacher,
+      preferred_avoid_timeslots: Array.from(new Set(teacher.preferred_avoid_timeslots.map(remapId))),
       unavailable_timeslots: Array.from(new Set(teacher.unavailable_timeslots.map(remapId))),
     })));
 
@@ -769,10 +906,130 @@ export default function Home() {
       {
         id,
         name: teacherForm.name,
+        preferred_avoid_timeslots: [],
         unavailable_timeslots: splitCsv(teacherForm.unavailable_timeslots),
       },
     ]);
     setTeacherForm({ name: "", unavailable_timeslots: "" });
+  }
+
+  function deleteTeacher(teacherId: string) {
+    setTeachers((prev) => prev.filter((t) => t.id !== teacherId));
+    if (expandedTeacherId === teacherId) {
+      setExpandedTeacherId(null);
+    }
+  }
+
+  function handleExcelUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    processExcelFile(file);
+  }
+
+  function processExcelFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const workbook = XLSX.read(data, { type: "array" });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet) as Array<{ [key: string]: unknown }>;
+
+        const newTeachers: Teacher[] = [];
+        const existingIds = teachers.map((t) => t.id);
+
+        jsonData.forEach((row) => {
+          let name = "";
+
+          // Try Norwegian names first (Fornavn = first name, Etternavn = last name)
+          const fornavnKey = Object.keys(row).find((key) => key.toLowerCase() === "fornavn");
+          const etternavnKey = Object.keys(row).find((key) => key.toLowerCase() === "etternavn");
+
+          if (fornavnKey && etternavnKey) {
+            const fornavn = String(row[fornavnKey] || "").trim();
+            const etternavn = String(row[etternavnKey] || "").trim();
+            if (fornavn || etternavn) {
+              name = `${fornavn} ${etternavn}`.trim();
+            }
+          }
+
+          // Fallback to generic name/teacher column
+          if (!name) {
+            const nameKey = Object.keys(row).find(
+              (key) => key.toLowerCase().includes("name") || key.toLowerCase().includes("teacher")
+            );
+            if (nameKey && row[nameKey]) {
+              name = String(row[nameKey]).trim();
+            }
+          }
+
+          if (!name) return;
+
+          const id = makeUniqueId(`teacher_${toSlug(name) || "item"}`, [...existingIds, ...newTeachers.map((t) => t.id)]);
+          newTeachers.push({
+            id,
+            name,
+            preferred_avoid_timeslots: [],
+            unavailable_timeslots: [],
+          });
+        });
+
+        setTeachers((prev) => [...prev, ...newTeachers]);
+        if (excelFileRef.current) {
+          excelFileRef.current.value = "";
+        }
+        setStatusText(`Imported ${newTeachers.length} teachers from Excel.`);
+      } catch (error) {
+        console.error("Error parsing Excel:", error);
+        setStatusText("Error parsing Excel file.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleDrop(e: React.DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    e.stopPropagation();
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv")) {
+        processExcelFile(file);
+      } else {
+        setStatusText("Please drop a .xlsx, .xls, or .csv file");
+      }
+    }
+  }
+
+  function toggleTeacherTimeslot(teacherId: string, timeslotId: string) {
+    setTeachers((prev) =>
+      prev.map((teacher) => {
+        if (teacher.id !== teacherId) return teacher;
+        const updated = { ...teacher };
+
+        // Cycle states: available -> preferred(orange) -> unavailable(red) -> available
+        if (updated.unavailable_timeslots.includes(timeslotId)) {
+          updated.unavailable_timeslots = updated.unavailable_timeslots.filter((t) => t !== timeslotId);
+          return updated;
+        }
+
+        if (updated.preferred_avoid_timeslots.includes(timeslotId)) {
+          updated.preferred_avoid_timeslots = updated.preferred_avoid_timeslots.filter((t) => t !== timeslotId);
+          updated.unavailable_timeslots = [...updated.unavailable_timeslots, timeslotId];
+          return updated;
+        }
+
+        updated.preferred_avoid_timeslots = [...updated.preferred_avoid_timeslots, timeslotId];
+        return updated;
+      })
+    );
   }
 
   function addClass() {
@@ -1381,6 +1638,9 @@ export default function Home() {
 
     setTeachers((prev) => prev.map((teacher) => ({
       ...teacher,
+      preferred_avoid_timeslots: Array.from(
+        new Set(teacher.preferred_avoid_timeslots.filter((id) => id !== timeslotId).map(remapId)),
+      ),
       unavailable_timeslots: Array.from(
         new Set(teacher.unavailable_timeslots.filter((id) => id !== timeslotId).map(remapId)),
       ),
@@ -2306,36 +2566,56 @@ export default function Home() {
                                 <span className="subject-teacher-classname">
                                   {classNameById[entity.class_ids[0]] ?? entity.class_ids[0]}
                                 </span>
-                                <select
-                                  value={entity.teacher_id}
-                                  onChange={(e) =>
-                                    updateSubjectCard(entity.id, { teacher_id: e.target.value })
-                                  }
-                                >
-                                  <option value="">— no teacher —</option>
-                                  {teachers.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name}
-                                    </option>
-                                  ))}
-                                </select>
+                                <div style={{ display: "grid", gap: "4px", flex: 1 }}>
+                                  <input
+                                    list={`teacher-options-${entity.id}`}
+                                    value={getTeacherInputValue(entity.id, entity.teacher_id)}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value;
+                                      setTeacherSearchBySubjectEntity((prev) => ({
+                                        ...prev,
+                                        [entity.id]: nextValue,
+                                      }));
+                                      const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                      if (resolvedTeacherId !== null) {
+                                        updateSubjectCard(entity.id, { teacher_id: resolvedTeacherId });
+                                      }
+                                    }}
+                                    placeholder="Choose teacher"
+                                  />
+                                  <datalist id={`teacher-options-${entity.id}`}>
+                                    {filterTeachersForQuery(teacherSearchBySubjectEntity[entity.id] ?? "").map((t) => (
+                                      <option key={t.id} value={t.name} />
+                                    ))}
+                                  </datalist>
+                                </div>
                               </div>
                             ))
                         ) : (
                           <div className="subject-teacher-row">
-                            <select
-                              value={subject.teacher_id}
-                              onChange={(e) =>
-                                updateSubjectCard(subject.id, { teacher_id: e.target.value })
-                              }
-                            >
-                              <option value="">— no teacher —</option>
-                              {teachers.map((t) => (
-                                <option key={t.id} value={t.id}>
-                                  {t.name}
-                                </option>
-                              ))}
-                            </select>
+                            <div style={{ display: "grid", gap: "4px", flex: 1 }}>
+                              <input
+                                list={`teacher-options-${subject.id}`}
+                                value={getTeacherInputValue(subject.id, subject.teacher_id)}
+                                onChange={(e) => {
+                                  const nextValue = e.target.value;
+                                  setTeacherSearchBySubjectEntity((prev) => ({
+                                    ...prev,
+                                    [subject.id]: nextValue,
+                                  }));
+                                  const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                  if (resolvedTeacherId !== null) {
+                                    updateSubjectCard(subject.id, { teacher_id: resolvedTeacherId });
+                                  }
+                                }}
+                                placeholder="Choose teacher"
+                              />
+                              <datalist id={`teacher-options-${subject.id}`}>
+                                {filterTeachersForQuery(teacherSearchBySubjectEntity[subject.id] ?? "").map((t) => (
+                                  <option key={t.id} value={t.name} />
+                                ))}
+                              </datalist>
+                            </div>
                           </div>
                         )}
                       </div>
@@ -2344,6 +2624,89 @@ export default function Home() {
                 )}
               </article>
             ))}
+          </div>
+        </article>
+      </section>
+      )}
+
+      {activeTab === "faggrupper" && (
+      <section className="grid">
+        <article className="card" style={{ gridColumn: "1 / -1" }}>
+          <h2>Faggrupper</h2>
+          <p>Select a class to view its subjects and set teachers.</p>
+
+          <div className="faggrupper-layout">
+            <aside className="faggrupper-classes list">
+              <input
+                value={faggrupperClassSearchQuery}
+                onChange={(e) => setFaggrupperClassSearchQuery(e.target.value)}
+                placeholder="Search classes"
+                style={{ marginBottom: "6px" }}
+              />
+              {filteredFaggrupperClasses.map((schoolClass) => (
+                <button
+                  key={schoolClass.id}
+                  type="button"
+                  className={`faggrupper-class-item${activeFaggruppeClassId === schoolClass.id ? " active" : ""}`}
+                  onClick={() => setActiveFaggruppeClassId(schoolClass.id)}
+                >
+                  <span>{schoolClass.name}</span>
+                  <span>{(classSubjectsById[schoolClass.id] ?? []).length}</span>
+                </button>
+              ))}
+              {filteredFaggrupperClasses.length === 0 ? (
+                <p style={{ margin: "4px 0", color: "#777", fontSize: "0.78rem" }}>No class matches.</p>
+              ) : null}
+            </aside>
+
+            <section className="faggrupper-subjects">
+              {activeFaggruppeClassId ? (
+                <>
+                  <h3>
+                    {classNameById[activeFaggruppeClassId] ?? activeFaggruppeClassId}
+                  </h3>
+                  <div className="faggrupper-subject-list">
+                    {(classSubjectsById[activeFaggruppeClassId] ?? []).length === 0 ? (
+                      <p>No subjects assigned to this class yet.</p>
+                    ) : (
+                      (classSubjectsById[activeFaggruppeClassId] ?? []).map((subject) => {
+                        const searchKey = `faggrupper_${subject.id}`;
+                        return (
+                          <div key={`${activeFaggruppeClassId}_${subject.id}`} className="subject-teacher-row faggrupper-subject-row">
+                            <span className="subject-teacher-classname">{subject.name}</span>
+                            <div className="faggrupper-teacher-picker">
+                              <input
+                                list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
+                                value={getTeacherInputValue(searchKey, subject.teacher_id)}
+                                onChange={(e) => {
+                                  const nextValue = e.target.value;
+                                  setTeacherSearchBySubjectEntity((prev) => ({
+                                    ...prev,
+                                    [searchKey]: nextValue,
+                                  }));
+                                  const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                  if (resolvedTeacherId !== null) {
+                                    updateSubjectCard(subject.id, { teacher_id: resolvedTeacherId });
+                                  }
+                                }}
+                                placeholder="Choose teacher"
+                              />
+                              <datalist id={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}>
+                                {filterTeachersForQuery(teacherSearchBySubjectEntity[searchKey] ?? "").map((teacher) => (
+                                  <option key={teacher.id} value={teacher.name} />
+                                ))}
+                              </datalist>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </>
+              ) : (
+                <p>Select a class to manage subject teachers.</p>
+              )}
+            </section>
           </div>
         </article>
       </section>
@@ -2437,22 +2800,222 @@ export default function Home() {
         <article className="card">
           <h2>Teachers</h2>
           <p>Add teachers here so they can be assigned to subjects.</p>
-          <form onSubmit={(e) => { e.preventDefault(); addTeacher(); }}>
-            <label>Name</label>
-            <input value={teacherForm.name} onChange={(e) => setTeacherForm((s) => ({ ...s, name: e.target.value }))} />
-            <label>Unavailable Timeslot IDs (comma-separated)</label>
-            <input
-              value={teacherForm.unavailable_timeslots}
-              onChange={(e) => setTeacherForm((s) => ({ ...s, unavailable_timeslots: e.target.value }))}
-            />
+
+          <div style={{ marginBottom: "15px" }}>
+            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9em" }}>Import Teachers from Excel</label>
+            <div
+              onDragOver={handleDragOver}
+              onDrop={handleDrop}
+              style={{
+                border: "2px dashed #0066cc",
+                borderRadius: "6px",
+                padding: "12px 15px",
+                textAlign: "center",
+                backgroundColor: "#f0f7ff",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onClick={() => excelFileRef.current?.click()}
+            >
+              <input
+                ref={excelFileRef}
+                type="file"
+                accept=".xlsx,.xls,.csv"
+                onChange={handleExcelUpload}
+                style={{ display: "none" }}
+              />
+              <div style={{ fontSize: "0.95em", fontWeight: "bold", color: "#0066cc", marginBottom: "4px" }}>
+                📁 Drag and drop your Excel file here
+              </div>
+              <div style={{ fontSize: "0.8em", color: "#666" }}>
+                or <span style={{ textDecoration: "underline", cursor: "pointer" }}>click to browse</span>
+              </div>
+              <p style={{ fontSize: "0.75em", color: "#666", marginTop: "4px" }}>
+                Supports Fornavn/Etternavn or Name/Teacher columns (.xlsx, .xls, .csv)
+              </p>
+            </div>
+          </div>
+
+          <hr style={{ margin: "12px 0" }} />
+
+          <form onSubmit={(e) => { e.preventDefault(); addTeacher(); }} style={{ marginBottom: "12px" }}>
+            <label>Add Teacher Manually</label>
+            <input value={teacherForm.name} onChange={(e) => setTeacherForm((s) => ({ ...s, name: e.target.value }))} placeholder="Teacher name" />
             <button type="submit">Add Teacher</button>
           </form>
-          <div className="list">
-            {teachers.map((t) => (
-              <div key={t.id} className="item">
-                {t.id} - {t.name}
-              </div>
-            ))}
+
+          <div style={{ marginTop: "12px", height: "600px", display: "flex", flexDirection: "column" }}>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1em" }}>Teachers List</h3>
+            {teachers.length === 0 ? (
+              <p style={{ color: "#999", fontSize: "0.9em" }}>No teachers added yet.</p>
+            ) : (
+              <>
+                <input
+                  value={teacherSearchQuery}
+                  onChange={(e) => setTeacherSearchQuery(e.target.value)}
+                  placeholder="Search teachers (any order)"
+                  style={{ marginBottom: "8px", fontSize: "0.86em" }}
+                />
+                <div className="list" style={{ flex: 1, overflowY: "auto", border: "1px solid #ddd", borderRadius: "4px", maxHeight: "none", marginTop: 0, paddingTop: 0, borderTop: "none" }}>
+                {filteredTeachers.length === 0 ? (
+                  <p style={{ color: "#999", fontSize: "0.86em", padding: "8px" }}>
+                    No matches for "{teacherSearchQuery}".
+                  </p>
+                ) : (
+                filteredTeachers.map((t) => (
+                  <div key={t.id} style={{ marginBottom: "5px", border: "1px solid #eee", borderRadius: "3px", backgroundColor: "#fff" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        padding: "6px 8px",
+                        cursor: "pointer",
+                        backgroundColor: expandedTeacherId === t.id ? "#f0f0f0" : "#fff",
+                                              fontSize: "0.9em",
+                      }}
+                      onClick={() => setExpandedTeacherId(expandedTeacherId === t.id ? null : t.id)}
+                    >
+                      <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
+                      <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
+                        <span style={{ fontSize: "0.85em", color: "#666" }}>
+                          {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
+                        </span>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteTeacher(t.id);
+                          }}
+                          style={{
+                            padding: "2px 6px",
+                            backgroundColor: "#ff6b6b",
+                            color: "white",
+                            border: "none",
+                            borderRadius: "3px",
+                            cursor: "pointer",
+                            fontSize: "0.7em",
+                          }}
+                        >
+                          Delete
+                        </button>
+                        <span style={{ fontSize: "0.9em" }}>
+                          {expandedTeacherId === t.id ? "▼" : "▶"}
+                        </span>
+                      </div>
+                    </div>
+
+                    {expandedTeacherId === t.id && (
+                      <div style={{ padding: "8px", backgroundColor: "#fafafa", borderTop: "1px solid #eee" }}>
+                        <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Click to cycle: Available -> Preferred (orange) -> Blocked (red)</h4>
+                        {(() => {
+                          const slotsByDay: Record<string, Timeslot[]> = Object.fromEntries(
+                            calendarDays.map((day) => [
+                              day,
+                              timeslots
+                                .filter((ts) => ts.day === day)
+                                .sort((a, b) => {
+                                  const timeCmp = toMinutes(a.start_time) - toMinutes(b.start_time);
+                                  return timeCmp !== 0 ? timeCmp : a.period - b.period;
+                                }),
+                            ])
+                          );
+                          const maxRows = Math.max(0, ...calendarDays.map((day) => slotsByDay[day].length));
+                          const rowIndexes = Array.from({ length: maxRows }, (_, idx) => idx);
+
+                          return (
+                            <div style={{ marginTop: "6px", border: "1px solid #bdbdb8", backgroundColor: "#f2f2f0" }}>
+                              <div
+                                style={{
+                                  display: "grid",
+                                  gridTemplateColumns: `repeat(${calendarDays.length}, minmax(100px, 1fr))`,
+                                  borderBottom: "1px solid #8f8f8c",
+                                }}
+                              >
+                                {calendarDays.map((day) => (
+                                  <div
+                                    key={day}
+                                    style={{
+                                      padding: "4px",
+                                      textAlign: "center",
+                                      fontSize: "0.75em",
+                                      fontWeight: 700,
+                                      letterSpacing: "0.06em",
+                                      color: "#3f3f3c",
+                                      borderRight: "1px solid #8f8f8c",
+                                      background: "#e7e6e1",
+                                    }}
+                                  >
+                                    {day.toUpperCase()}
+                                  </div>
+                                ))}
+                              </div>
+
+                              <div>
+                                {rowIndexes.map((rowIdx) => (
+                                  <div
+                                    key={`row_${rowIdx}`}
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: `repeat(${calendarDays.length}, minmax(100px, 1fr))`,
+                                      borderBottom: rowIdx === rowIndexes.length - 1 ? "none" : "1px solid #d3d3ce",
+                                    }}
+                                  >
+                                    {calendarDays.map((day) => {
+                                      const ts = slotsByDay[day][rowIdx];
+                                      if (!ts) {
+                                        return (
+                                          <div
+                                            key={`${day}_${rowIdx}_empty`}
+                                            style={{ minHeight: "30px", borderRight: "1px solid #c9c9c4", backgroundColor: "#f7f7f5" }}
+                                          />
+                                        );
+                                      }
+                                      const isUnavailable = t.unavailable_timeslots.includes(ts.id);
+                                      const isPreferred = t.preferred_avoid_timeslots.includes(ts.id);
+                                      const timeLabel = ts.start_time && ts.end_time
+                                        ? `${ts.start_time} - ${ts.end_time}`
+                                        : `Period ${ts.period}`;
+
+                                      return (
+                                        <button
+                                          key={ts.id}
+                                          type="button"
+                                          onClick={() => toggleTeacherTimeslot(t.id, ts.id)}
+                                          style={{
+                                            minHeight: "30px",
+                                            padding: "5px 4px",
+                                            backgroundColor: isUnavailable ? "#ff6b6b" : isPreferred ? "#f2a53a" : "#fff",
+                                            color: (isUnavailable || isPreferred) ? "white" : "#333",
+                                            textAlign: "center",
+                                            cursor: "pointer",
+                                            userSelect: "none",
+                                            fontSize: "0.72em",
+                                            fontWeight: (isUnavailable || isPreferred) ? "bold" : "normal",
+                                            border: "none",
+                                            borderRight: "1px solid #c9c9c4",
+                                            transition: "all 0.2s",
+                                          }}
+                                          title={`${isUnavailable ? "Blocked" : isPreferred ? "Preferred to avoid" : "Available"} - Period ${ts.period}${ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}`}
+                                        >
+                                          {timeLabel}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                ))
+                )}
+                </div>
+              </>
+            )}
           </div>
         </article>
       </section>

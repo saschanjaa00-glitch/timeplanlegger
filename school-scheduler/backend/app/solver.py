@@ -208,6 +208,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     days = sorted({t.day for t in data.timeslots})
     class_day_counts: Dict[Tuple[str, str], cp_model.IntVar] = {}
     day_imbalance_terms: List[cp_model.IntVar] = []
+    preferred_avoid_penalty_vars: List[cp_model.IntVar] = []
 
     for school_class in data.classes:
         class_subjects = [s for s in data.subjects if school_class.id in s.class_ids]
@@ -241,8 +242,31 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             model.Add(day_count - over <= max_target)
             day_imbalance_terms.extend([under, over])
 
+    # Soft preference: avoid orange (preferred_avoid_timeslots) when possible.
+    for subject in data.subjects:
+        teacher = teachers_by_id.get(subject.teacher_id)
+        if not teacher:
+            continue
+
+        preferred_avoid = set(teacher.preferred_avoid_timeslots)
+        if not preferred_avoid:
+            continue
+
+        for timeslot_id in preferred_avoid:
+            for week_label in week_labels:
+                key = (subject.id, timeslot_id, week_label)
+                if key in x:
+                    preferred_avoid_penalty_vars.append(x[key])
+
+    objective_parts = []
     if day_imbalance_terms:
-        model.Minimize(sum(day_imbalance_terms))
+        objective_parts.append(sum(day_imbalance_terms))
+    if preferred_avoid_penalty_vars:
+        # Keep this as a soft penalty: reduce preferred-avoid assignments where feasible.
+        objective_parts.append(sum(preferred_avoid_penalty_vars))
+
+    if objective_parts:
+        model.Minimize(sum(objective_parts))
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 10.0
@@ -287,12 +311,22 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         )
     )
 
+    preferred_avoid_by_teacher = {
+        teacher.id: set(teacher.preferred_avoid_timeslots) for teacher in data.teachers
+    }
+    preferred_avoid_assignments = sum(
+        1
+        for item in schedule_items
+        if item.timeslot_id in preferred_avoid_by_teacher.get(item.teacher_id, set())
+    )
+
     return ScheduleResponse(
         status="success",
         message="Schedule generated successfully.",
         schedule=schedule_items,
         metadata={
-            "objective_value": float(solver.ObjectiveValue()) if day_imbalance_terms else 0.0,
+            "objective_value": float(solver.ObjectiveValue()) if objective_parts else 0.0,
             "wall_time_seconds": solver.WallTime(),
+            "preferred_avoid_assignments": preferred_avoid_assignments,
         },
     )
