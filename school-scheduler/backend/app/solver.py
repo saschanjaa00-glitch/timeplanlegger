@@ -8,6 +8,12 @@ from ortools.sat.python import cp_model
 from .models import Block, BlockOccurrence, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
 
 
+MAX_WEEKLY_WORK_MINUTES_100_PERCENT = 29 * 60
+PREFERRED_AVOID_WEIGHT = 20
+DAY_IMBALANCE_WEIGHT = 1
+BOUNDARY_SLOT_WEIGHT = 1
+
+
 def _normalize_workload_percent(value: int | None) -> int:
     if value is None:
         return 100
@@ -34,6 +40,16 @@ def _timeslot_45m_units(timeslot: Timeslot) -> int:
     # Scheduling units are slot-based in this project: one selected timeslot equals one unit.
     # This keeps weekly load behavior intuitive in alternating weeks (e.g. 2 each week + 1 every second week).
     return 1
+
+
+def _timeslot_bounds_minutes(timeslot: Timeslot) -> Tuple[int, int]:
+    start = _to_minutes(timeslot.start_time)
+    end = _to_minutes(timeslot.end_time)
+    if start is not None and end is not None and end > start:
+        return start, end
+
+    fallback_start = max(0, (timeslot.period - 1) * 45)
+    return fallback_start, fallback_start + 45
 
 
 def _timeslots_overlapping_occurrence(
@@ -278,10 +294,18 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     model = cp_model.CpModel()
 
     timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in data.timeslots}
+    timeslot_bounds_by_id: Dict[str, Tuple[int, int]] = {
+        t.id: _timeslot_bounds_minutes(t) for t in data.timeslots
+    }
     timeslot_units_by_id: Dict[str, int] = {
         t.id: _timeslot_45m_units(t) for t in data.timeslots
     }
     all_timeslot_ids = set(timeslots_by_id.keys())
+    day_slot_ids: Dict[str, List[str]] = defaultdict(list)
+    for timeslot in data.timeslots:
+        day_slot_ids[timeslot.day].append(timeslot.id)
+    for day in day_slot_ids:
+        day_slot_ids[day].sort(key=lambda ts_id: timeslots_by_id[ts_id].period)
     teachers_by_id = {t.id: t for t in data.teachers}
 
     # Build class_id -> base_room_id mapping
@@ -453,6 +477,40 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 x[(subject.id, timeslot_id, week_label)] = model.NewBoolVar(
                     f"subject_{subject.id}_timeslot_{timeslot_id}_week_{week_label}"
                 )
+
+    # Search guidance: prioritize block subjects first, then decisions in meeting slots.
+    meeting_timeslot_ids = {
+        meeting.timeslot_id for meeting in data.meetings if meeting.timeslot_id in all_timeslot_ids
+    }
+    block_priority_vars: List[cp_model.IntVar] = []
+    meeting_priority_vars: List[cp_model.IntVar] = []
+    remaining_priority_vars: List[cp_model.IntVar] = []
+    for (subject_id, timeslot_id, _week_label), decision_var in x.items():
+        if subject_id in block_subject_ids:
+            block_priority_vars.append(decision_var)
+        elif timeslot_id in meeting_timeslot_ids:
+            meeting_priority_vars.append(decision_var)
+        else:
+            remaining_priority_vars.append(decision_var)
+
+    if block_priority_vars:
+        model.AddDecisionStrategy(
+            block_priority_vars,
+            cp_model.CHOOSE_FIRST,
+            cp_model.SELECT_MAX_VALUE,
+        )
+    if meeting_priority_vars:
+        model.AddDecisionStrategy(
+            meeting_priority_vars,
+            cp_model.CHOOSE_FIRST,
+            cp_model.SELECT_MIN_VALUE,
+        )
+    if remaining_priority_vars:
+        model.AddDecisionStrategy(
+            remaining_priority_vars,
+            cp_model.CHOOSE_FIRST,
+            cp_model.SELECT_MAX_VALUE,
+        )
 
     # Allow block subjects to run in parallel for classes inside their block windows.
     # key = (class_id, subject_id, timeslot_id, week_label)
@@ -636,6 +694,109 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if teacher_units:
                 model.Add(sum(teacher_units) <= max_units_for_week)
 
+    # Constraint 2c: cap teacher on-site span (first lesson start to last lesson end each day).
+    # Weekly total is the sum of daily spans. In alternating mode, enforce average of A/B weeks.
+    teacher_presence_minutes_by_week: Dict[Tuple[str, str], cp_model.IntVar] = {}
+    teacher_meeting_presence_by_day_week: Dict[Tuple[str, str, str], List[Tuple[int, int]]] = defaultdict(list)
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in timeslots_by_id:
+            continue
+        timeslot = timeslots_by_id[meeting.timeslot_id]
+        start_min, end_min = timeslot_bounds_by_id[meeting.timeslot_id]
+        for assignment in meeting.teacher_assignments:
+            if assignment.teacher_id not in teachers_by_id:
+                continue
+            # "preferred" meeting assignments are treated as fixed presence for on-site time.
+            if assignment.mode != "preferred":
+                continue
+            for week_label in week_labels:
+                teacher_meeting_presence_by_day_week[(assignment.teacher_id, timeslot.day, week_label)].append(
+                    (start_min, end_min)
+                )
+
+    days = sorted({t.day for t in data.timeslots})
+    for teacher in data.teachers:
+        teacher_subjects = [s for s in data.subjects if s.teacher_id == teacher.id]
+        workload_percent = _normalize_workload_percent(getattr(teacher, "workload_percent", 100))
+        max_week_minutes = (MAX_WEEKLY_WORK_MINUTES_100_PERCENT * workload_percent) // 100
+
+        for week_label in week_labels:
+            day_span_vars: List[cp_model.IntVar] = []
+
+            for day in days:
+                slot_ids_for_day = day_slot_ids.get(day, [])
+                subject_slot_literals: List[Tuple[cp_model.IntVar, int, int]] = []
+                for subject in teacher_subjects:
+                    for timeslot_id in slot_ids_for_day:
+                        key = (subject.id, timeslot_id, week_label)
+                        if key not in x:
+                            continue
+                        start_min, end_min = timeslot_bounds_by_id[timeslot_id]
+                        subject_slot_literals.append((x[key], start_min, end_min))
+
+                fixed_presence = teacher_meeting_presence_by_day_week.get((teacher.id, day, week_label), [])
+                if not subject_slot_literals and not fixed_presence:
+                    continue
+
+                has_presence = model.NewBoolVar(f"teacher_presence_{teacher.id}_{week_label}_{day}")
+                if fixed_presence:
+                    model.Add(has_presence == 1)
+                else:
+                    lesson_literals = [literal for literal, _, _ in subject_slot_literals]
+                    if lesson_literals:
+                        model.Add(sum(lesson_literals) >= 1).OnlyEnforceIf(has_presence)
+                        model.Add(sum(lesson_literals) == 0).OnlyEnforceIf(has_presence.Not())
+                    else:
+                        model.Add(has_presence == 0)
+
+                min_candidates: List[cp_model.IntVar] = []
+                max_candidates: List[cp_model.IntVar] = []
+                for idx, (literal, start_min, end_min) in enumerate(subject_slot_literals):
+                    min_candidate = model.NewIntVar(0, 24 * 60, f"mincand_{teacher.id}_{week_label}_{day}_{idx}")
+                    max_candidate = model.NewIntVar(0, 24 * 60, f"maxcand_{teacher.id}_{week_label}_{day}_{idx}")
+                    model.Add(min_candidate == start_min).OnlyEnforceIf(literal)
+                    model.Add(min_candidate == 24 * 60).OnlyEnforceIf(literal.Not())
+                    model.Add(max_candidate == end_min).OnlyEnforceIf(literal)
+                    model.Add(max_candidate == 0).OnlyEnforceIf(literal.Not())
+                    min_candidates.append(min_candidate)
+                    max_candidates.append(max_candidate)
+
+                for fixed_start_min, fixed_end_min in fixed_presence:
+                    min_candidates.append(model.NewConstant(fixed_start_min))
+                    max_candidates.append(model.NewConstant(fixed_end_min))
+
+                if not min_candidates or not max_candidates:
+                    continue
+
+                day_start = model.NewIntVar(0, 24 * 60, f"day_start_{teacher.id}_{week_label}_{day}")
+                day_end = model.NewIntVar(0, 24 * 60, f"day_end_{teacher.id}_{week_label}_{day}")
+                model.AddMinEquality(day_start, min_candidates)
+                model.AddMaxEquality(day_end, max_candidates)
+
+                day_span = model.NewIntVar(0, 24 * 60, f"day_span_{teacher.id}_{week_label}_{day}")
+                model.Add(day_span == day_end - day_start).OnlyEnforceIf(has_presence)
+                model.Add(day_span == 0).OnlyEnforceIf(has_presence.Not())
+                day_span_vars.append(day_span)
+
+            if day_span_vars:
+                total_week_span = model.NewIntVar(
+                    0,
+                    len(days) * 24 * 60,
+                    f"week_span_{teacher.id}_{week_label}",
+                )
+                model.Add(total_week_span == sum(day_span_vars))
+                teacher_presence_minutes_by_week[(teacher.id, week_label)] = total_week_span
+
+        if data.alternating_weeks_enabled and "A" in week_labels and "B" in week_labels:
+            week_a_span = teacher_presence_minutes_by_week.get((teacher.id, "A"), model.NewConstant(0))
+            week_b_span = teacher_presence_minutes_by_week.get((teacher.id, "B"), model.NewConstant(0))
+            model.Add(week_a_span + week_b_span <= 2 * max_week_minutes)
+        else:
+            for week_label in week_labels:
+                week_span = teacher_presence_minutes_by_week.get((teacher.id, week_label))
+                if week_span is not None:
+                    model.Add(week_span <= max_week_minutes)
+
     # Constraint 3 + 6: each class has at most one subject in each timeslot.
     # Multi-class subjects naturally block all involved classes at that timeslot.
     for school_class in data.classes:
@@ -710,7 +871,6 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             model.Add(x[key] == 0)
 
     # Optional optimization: spread subjects for each class across days.
-    days = sorted({t.day for t in data.timeslots})
     class_day_counts: Dict[Tuple[str, str], cp_model.IntVar] = {}
     day_imbalance_terms: List[cp_model.IntVar] = []
     preferred_avoid_penalty_vars: List[cp_model.IntVar] = []
@@ -785,12 +945,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     objective_parts = []
     if day_imbalance_terms:
-        objective_parts.append(sum(day_imbalance_terms))
+        objective_parts.append(DAY_IMBALANCE_WEIGHT * sum(day_imbalance_terms))
     if preferred_avoid_penalty_vars:
-        # Keep this as a soft penalty: reduce preferred-avoid assignments where feasible.
-        objective_parts.append(sum(preferred_avoid_penalty_vars))
+        # Keep this as a soft penalty but prioritize it above generic balancing.
+        objective_parts.append(PREFERRED_AVOID_WEIGHT * sum(preferred_avoid_penalty_vars))
     if boundary_slot_penalty_vars:
-        objective_parts.append(sum(boundary_slot_penalty_vars))
+        objective_parts.append(BOUNDARY_SLOT_WEIGHT * sum(boundary_slot_penalty_vars))
 
     if objective_parts:
         model.Minimize(sum(objective_parts))
@@ -863,6 +1023,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = 10.0
     solver.parameters.num_search_workers = 8
+    solver.parameters.search_branching = cp_model.FIXED_SEARCH
 
     status = solver.Solve(model)
 
