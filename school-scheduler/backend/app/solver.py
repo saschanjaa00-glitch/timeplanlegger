@@ -107,6 +107,21 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     all_timeslot_ids = set(timeslots_by_id.keys())
     teachers_by_id = {t.id: t for t in data.teachers}
 
+    # Build class_id -> base_room_id mapping
+    class_to_base_room: Dict[str, str] = {}
+    for cls in data.classes:
+        if cls.base_room_id:
+            class_to_base_room[cls.id] = cls.base_room_id
+
+    # Build subject_id -> room_id mapping (use first class's base room if available)
+    subject_to_room: Dict[str, str] = {}
+    for subject in data.subjects:
+        if subject.class_ids:
+            for class_id in subject.class_ids:
+                if class_id in class_to_base_room:
+                    subject_to_room[subject.id] = class_to_base_room[class_id]
+                    break
+
     teacher_meeting_unavailable: Dict[str, Set[str]] = defaultdict(set)
     teacher_meeting_preferred: Dict[str, Set[str]] = defaultdict(set)
     for meeting in data.meetings:
@@ -466,6 +481,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             day=ts.day,
                             period=ts.period,
                             week_type=None,
+                            room_id=subject_to_room.get(subject.id),
                         )
                     )
                 elif in_a:
@@ -479,6 +495,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             day=ts.day,
                             period=ts.period,
                             week_type="A",
+                            room_id=subject_to_room.get(subject.id),
                         )
                     )
                 else:
@@ -492,6 +509,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             day=ts.day,
                             period=ts.period,
                             week_type="B",
+                            room_id=subject_to_room.get(subject.id),
                         )
                     )
             else:
@@ -510,6 +528,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                                 day=ts.day,
                                 period=ts.period,
                                 week_type=None if week_label == "base" else week_label,
+                                room_id=subject_to_room.get(subject.id),
                             )
                         )
 

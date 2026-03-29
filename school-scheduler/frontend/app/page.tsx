@@ -778,6 +778,10 @@ export default function Home() {
     return [...rooms].sort((a, b) => a.name.localeCompare(b.name));
   }, [rooms]);
 
+  const roomsAssignedToClasses = useMemo(() => {
+    return new Set(classes.map((c) => c.base_room_id).filter((id): id is string => !!id));
+  }, [classes]);
+
   const sortedTeachersByFirstName = useMemo(() => {
     return [...teachers].sort((a, b) => {
       const aFirstName = a.name.trim().split(/\s+/)[0] ?? "";
@@ -2300,6 +2304,14 @@ export default function Home() {
     setStatusText("Generating schedule...");
     setSchedule([]);
 
+    // Validate that all classes have a base room
+    const classesWithoutRoom = classes.filter((c) => !c.base_room_id);
+    if (classesWithoutRoom.length > 0) {
+      setStatusText(`Error: The following classes need a room assigned: ${classesWithoutRoom.map((c) => c.name).join(", ")}`);
+      setLoading(false);
+      return;
+    }
+
     try {
       const payload = {
         subjects,
@@ -3587,19 +3599,36 @@ export default function Home() {
                 <select
                   value={cls.base_room_id ?? ""}
                   onChange={(e) => {
-                    const newRoomId = e.target.value || undefined;
+                    const newRoomId = e.target.value;
+                    if (!newRoomId) {
+                      setStatusText("Please select a room for " + cls.name);
+                      return;
+                    }
+                    // Check if room is already assigned to another class
+                    const isAssignedElsewhere = classes.some((c) => c.id !== cls.id && c.base_room_id === newRoomId);
+                    if (isAssignedElsewhere) {
+                      setStatusText("This room is already assigned to another class.");
+                      return;
+                    }
                     setClasses((prev) => prev.map((c) => (
                       c.id === cls.id
                         ? { ...c, base_room_id: newRoomId }
                         : c
                     )));
                   }}
-                  style={{ padding: "6px 8px", fontSize: "0.86em", border: "1px solid #ccc", borderRadius: "3px" }}
+                  style={{ padding: "6px 8px", fontSize: "0.86em", border: cls.base_room_id ? "1px solid #ccc" : "2px solid #f88", borderRadius: "3px" }}
+                  required
                 >
-                  <option value="">— No base room —</option>
-                  {sortedRooms.map((room) => (
-                    <option key={room.id} value={room.id}>{room.name}</option>
-                  ))}
+                  <option value="">— Select a room —</option>
+                  {sortedRooms.map((room) => {
+                    const isCurrentlyAssigned = cls.base_room_id === room.id;
+                    const isAssignedElsewhere = roomsAssignedToClasses.has(room.id) && !isCurrentlyAssigned;
+                    return (
+                      <option key={room.id} value={room.id} disabled={isAssignedElsewhere}>
+                        {room.name}{isAssignedElsewhere ? " (assigned)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
             ))}
