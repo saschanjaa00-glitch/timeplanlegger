@@ -3986,6 +3986,7 @@ export default function Home() {
                         ts: Timeslot | undefined;
                         classLabel: string;
                         teacherLabel: string;
+                        roomLabel?: string;
                         laneIndex: number;
                         laneCount: number;
                         laneEntityLabel: string;
@@ -4025,6 +4026,7 @@ export default function Home() {
                             const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
                             const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
                             const teacherLabel = teacherNameById[item.teacher_id] ?? item.teacher_id;
+                            const roomLabel = item.room_id ? rooms.find((r) => r.id === item.room_id)?.name : undefined;
 
                             const matchedEntityIds = compareEntities.length
                               ? [
@@ -4057,6 +4059,7 @@ export default function Home() {
                                 ts,
                                 classLabel,
                                 teacherLabel,
+                                roomLabel,
                                 laneIndex,
                                 laneCount,
                                 laneEntityLabel: laneEntity?.label ?? "Selection",
@@ -4223,6 +4226,7 @@ export default function Home() {
                             )}
                             {compareEntities.length > 0 ? <small>{event.classLabel}</small> : null}
                             <small>{event.teacherLabel}</small>
+                            {event.roomLabel ? <small>Rom: {event.roomLabel}</small> : null}
                             <small>{event.ts?.start_time}-{event.ts?.end_time}</small>
                           </article>
                         );
