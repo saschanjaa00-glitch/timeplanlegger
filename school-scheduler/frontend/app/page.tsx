@@ -115,7 +115,7 @@ type GenerateResponse = {
 type CompareEntity = {
   id: string;
   label: string;
-  kind: "class" | "teacher";
+  kind: "class" | "teacher" | "room";
   color: string;
 };
 
@@ -561,6 +561,7 @@ export default function Home() {
   const [subjectClassSelectionBySubject, setSubjectClassSelectionBySubject] = useState<Record<string, string>>({});
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
   const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
+  const [selectedRoomCompareIds, setSelectedRoomCompareIds] = useState<string[]>([]);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -1039,6 +1040,10 @@ export default function Home() {
     return Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher.name])) as Record<string, string>;
   }, [teachers]);
 
+  const roomNameById = useMemo(() => {
+    return Object.fromEntries(rooms.map((room) => [room.id, room.name])) as Record<string, string>;
+  }, [rooms]);
+
   const classSubjectsById = useMemo(() => {
     const grouped: Record<string, Subject[]> = {};
     for (const schoolClass of sortedClasses) {
@@ -1090,8 +1095,17 @@ export default function Home() {
       });
     }
 
+    for (const roomId of selectedRoomCompareIds) {
+      entities.push({
+        id: `room:${roomId}`,
+        label: roomNameById[roomId] ?? roomId,
+        kind: "room",
+        color: COMPARE_PALETTE[entities.length % COMPARE_PALETTE.length],
+      });
+    }
+
     return entities;
-  }, [selectedClassCompareIds, selectedTeacherCompareIds, classNameById, teacherNameById]);
+  }, [selectedClassCompareIds, selectedTeacherCompareIds, selectedRoomCompareIds, classNameById, teacherNameById, roomNameById]);
 
   const compareEntityIndex = useMemo(() => {
     return Object.fromEntries(compareEntities.map((entity, idx) => [entity.id, idx])) as Record<string, number>;
@@ -3919,10 +3933,20 @@ export default function Home() {
               <select
                 multiple
                 value={selectedClassCompareIds}
-                onChange={(e) => {
-                  const values = Array.from(e.target.selectedOptions, (option) => option.value);
-                  setSelectedClassCompareIds(values);
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") {
+                    return;
+                  }
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedClassCompareIds((prev) => (
+                    prev.includes(value)
+                      ? prev.filter((id) => id !== value)
+                      : [...prev, value]
+                  ));
                 }}
+                onChange={() => {}}
               >
                 {sortedClasses.map((schoolClass) => (
                   <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>
@@ -3934,13 +3958,48 @@ export default function Home() {
               <select
                 multiple
                 value={selectedTeacherCompareIds}
-                onChange={(e) => {
-                  const values = Array.from(e.target.selectedOptions, (option) => option.value);
-                  setSelectedTeacherCompareIds(values);
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") {
+                    return;
+                  }
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedTeacherCompareIds((prev) => (
+                    prev.includes(value)
+                      ? prev.filter((id) => id !== value)
+                      : [...prev, value]
+                  ));
                 }}
+                onChange={() => {}}
               >
                 {sortedTeachersByFirstName.map((teacher) => (
                   <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="compare-group">
+              <label>Compare rooms</label>
+              <select
+                multiple
+                value={selectedRoomCompareIds}
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") {
+                    return;
+                  }
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedRoomCompareIds((prev) => (
+                    prev.includes(value)
+                      ? prev.filter((id) => id !== value)
+                      : [...prev, value]
+                  ));
+                }}
+                onChange={() => {}}
+              >
+                {sortedRooms.map((room) => (
+                  <option key={room.id} value={room.id}>{room.name}</option>
                 ))}
               </select>
             </div>
@@ -3950,8 +4009,9 @@ export default function Home() {
                 onClick={() => {
                   setSelectedClassCompareIds([]);
                   setSelectedTeacherCompareIds([]);
+                  setSelectedRoomCompareIds([]);
                 }}
-                disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0}
+                disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0}
               >
                 Clear compare
               </button>
@@ -3962,7 +4022,7 @@ export default function Home() {
               {compareEntities.map((entity) => (
                 <span key={entity.id} className="compare-pill" style={{ borderColor: entity.color }}>
                   <span className="dot" style={{ backgroundColor: entity.color }} />
-                  {entity.kind === "class" ? "Class" : "Teacher"}: {entity.label}
+                  {entity.kind === "class" ? "Class" : entity.kind === "teacher" ? "Teacher" : "Room"}: {entity.label}
                 </span>
               ))}
             </div>
@@ -4053,6 +4113,9 @@ export default function Home() {
                                     .map((id) => `class:${id}`),
                                   ...(selectedTeacherCompareIds.includes(item.teacher_id)
                                     ? [`teacher:${item.teacher_id}`]
+                                    : []),
+                                  ...(item.room_id && selectedRoomCompareIds.includes(item.room_id)
+                                    ? [`room:${item.room_id}`]
                                     : []),
                                 ]
                               : ["all"];
