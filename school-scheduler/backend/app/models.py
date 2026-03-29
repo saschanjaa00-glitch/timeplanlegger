@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -24,6 +24,18 @@ class Teacher(BaseModel):
     unavailable_timeslots: List[str] = Field(default_factory=list)
 
 
+class MeetingTeacherAssignment(BaseModel):
+    teacher_id: str
+    mode: Literal["preferred", "unavailable"]
+
+
+class Meeting(BaseModel):
+    id: str
+    name: str
+    timeslot_id: str
+    teacher_assignments: List[MeetingTeacherAssignment] = Field(default_factory=list)
+
+
 class Class(BaseModel):
     id: str
     name: str
@@ -33,6 +45,8 @@ class Timeslot(BaseModel):
     id: str
     day: str
     period: int
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
 
 
 class Block(BaseModel):
@@ -50,6 +64,7 @@ class ScheduleRequest(BaseModel):
     classes: List[Class]
     timeslots: List[Timeslot]
     blocks: List[Block] = Field(default_factory=list)
+    meetings: List[Meeting] = Field(default_factory=list)
     alternating_weeks_enabled: bool = False
 
 

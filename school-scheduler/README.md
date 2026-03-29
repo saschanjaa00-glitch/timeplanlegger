@@ -42,6 +42,7 @@ Core constraints implemented in `backend/app/solver.py`:
 4. Teacher unavailable timeslots respected
 5. Subject allowed timeslots respected
 6. Multi-class subjects block all included classes at once
+7. Permanent meetings can block teachers fully or mark slots as preferred-to-avoid
 
 Optional optimization:
 
@@ -50,6 +51,7 @@ Optional optimization:
 ## 3) Frontend (Next.js + TypeScript)
 
 - Forms to add teachers, classes, timeslots, blocks, subjects
+- Permanent meeting management with per-teacher busy vs preferred-busy states
 - Generate button calls backend via `fetch()`
 - Timetable grid: rows=timeslots, columns=classes
 

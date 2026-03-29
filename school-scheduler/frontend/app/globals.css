@@ -85,9 +85,170 @@ p {
 
 .tab-strip {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
   gap: 0.3rem;
   margin: 0.4rem 0 0.45rem;
+}
+
+.meeting-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.15rem 0 0.3rem;
+}
+
+.meeting-badge,
+.meeting-chip {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid #c8c0b2;
+  padding: 0.16rem 0.42rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.02em;
+  background: #f5f2eb;
+}
+
+.meeting-badge.available {
+  border-color: #c7c6c1;
+  background: #fbfbf9;
+}
+
+.meeting-badge.preferred,
+.meeting-chip.preferred {
+  border-color: #d1922f;
+  background: #f9e2b5;
+}
+
+.meeting-badge.unavailable,
+.meeting-chip.unavailable {
+  border-color: #cf6666;
+  background: #f5c4c4;
+}
+
+.meeting-chip.neutral {
+  border-color: #d7d2c9;
+  background: #f5f1ea;
+}
+
+.meeting-teacher-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 0.35rem;
+  max-height: 360px;
+  overflow-y: auto;
+  padding-right: 0.12rem;
+}
+
+.meeting-bulk-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.35rem;
+  margin: 0.1rem 0 0.2rem;
+}
+
+.meeting-filter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(180px, 0.9fr);
+  gap: 0.35rem;
+  align-items: end;
+}
+
+.meeting-teacher-toggle {
+  border: 1px solid #c9c7c1;
+  background: #fffdfa;
+  color: #1f1f1d;
+  text-align: left;
+  padding: 0.45rem 0.5rem;
+  min-height: 64px;
+  display: grid;
+  gap: 0.15rem;
+}
+
+.meeting-teacher-toggle.available {
+  background: #fffdfa;
+}
+
+.meeting-teacher-toggle.preferred {
+  border-color: #d1922f;
+  background: #f9e2b5;
+}
+
+.meeting-teacher-toggle.unavailable {
+  border-color: #cf6666;
+  background: #f5c4c4;
+}
+
+.meeting-teacher-toggle strong {
+  font-size: 0.82rem;
+}
+
+.meeting-teacher-toggle small {
+  font-size: 0.7rem;
+  color: #5a5347;
+}
+
+.meeting-actions-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.meeting-list {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.meeting-item {
+  border: 1px solid #d7d1c6;
+  background: #faf7f0;
+  padding: 0.5rem;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.meeting-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.45rem;
+}
+
+.meeting-item-header p {
+  margin-top: 0.15rem;
+}
+
+.meeting-item-actions {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.meeting-item-actions button {
+  width: auto;
+}
+
+.meeting-summary-grid {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.meeting-summary-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #585246;
+  margin-bottom: 0.2rem;
+}
+
+.meeting-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.meeting-empty {
+  color: #76716a;
+  font-size: 0.84rem;
 }
 
 .tab-button {
@@ -139,6 +300,55 @@ p {
   background: #f7f7f4;
   padding: 0.4rem;
   margin: 0.45rem 0;
+}
+.compare-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.compare-group {
+  display: grid;
+  gap: 6px;
+}
+.compare-group label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #2f3b3c;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.compare-group select {
+  min-height: 110px;
+}
+.compare-actions {
+  display: flex;
+  align-items: flex-end;
+}
+.compare-actions button {
+  width: 100%;
+}
+.compare-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 2px 0 12px;
+}
+.compare-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #8ca3ad;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  background: #f8f4ec;
+}
+.compare-pill .dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
 }
 
 .week-strategy {
@@ -417,6 +627,72 @@ p {
   padding: 0.35rem 0.4rem 0.3rem;
   display: grid;
   gap: 0.35rem;
+}
+
+.subject-card-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  gap: 0.35rem;
+  align-items: end;
+}
+
+.subject-card-action {
+  display: flex;
+  align-items: flex-end;
+}
+
+.subject-card-action button {
+  width: auto;
+  min-width: 150px;
+}
+
+.subject-class-manager {
+  border: 1px solid #d7d6d1;
+  background: #f6f6f3;
+  padding: 0.32rem 0.4rem;
+  display: grid;
+  gap: 0.22rem;
+}
+
+.subject-class-manager-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+}
+
+.subject-class-chip-editable {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.subject-class-chip-remove {
+  width: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0;
+  line-height: 1;
+  font-size: 0.66rem;
+  border: 1px solid #a8afbe;
+  background: #eef1f6;
+  color: #1a2234;
+}
+
+.subject-class-empty {
+  font-size: 0.74rem;
+  color: #6a6966;
+}
+
+.subject-class-manager-add {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  gap: 0.3rem;
+  align-items: end;
+}
+
+.subject-class-manager-add button {
+  width: auto;
+  min-width: 96px;
 }
 
 .subject-teacher-section {
@@ -981,6 +1257,7 @@ button.secondary {
   left: 0;
   right: 0;
   border-top: 1px solid #bdbcb7;
+  z-index: 1;
 }
 
 .weekly-event {
@@ -993,6 +1270,7 @@ button.secondary {
   overflow: hidden;
   display: grid;
   gap: 0.02rem;
+  z-index: 3;
 }
 
 .weekly-event strong {
@@ -1004,6 +1282,17 @@ button.secondary {
   font-size: 0.58rem;
   color: #444b55;
   line-height: 1.05;
+}
+
+.weekly-event.meeting {
+  background-color: #efe7d9;
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(102, 78, 42, 0.18) 0,
+    rgba(102, 78, 42, 0.18) 8px,
+    rgba(255, 255, 255, 0.14) 8px,
+    rgba(255, 255, 255, 0.14) 16px
+  );
 }
 
 .weekly-event.idrett {

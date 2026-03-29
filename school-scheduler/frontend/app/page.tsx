@@ -17,8 +17,21 @@ type Subject = {
 type Teacher = {
   id: string;
   name: string;
+  avdeling?: string;
   preferred_avoid_timeslots: string[];
   unavailable_timeslots: string[];
+};
+
+type MeetingTeacherAssignment = {
+  teacher_id: string;
+  mode: "preferred" | "unavailable";
+};
+
+type Meeting = {
+  id: string;
+  name: string;
+  timeslot_id: string;
+  teacher_assignments: MeetingTeacherAssignment[];
 };
 
 type SchoolClass = {
@@ -48,7 +61,7 @@ type Block = {
   subject_ids?: string[];
 };
 
-type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "teachers" | "generate";
+type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "teachers" | "generate";
 
 type WeekMode = "A" | "B";
 
@@ -66,6 +79,12 @@ type WeekCalendarSetup = {
   name: string;
   timeslots: Timeslot[];
   class_ids: string[];
+};
+
+type MeetingFormState = {
+  name: string;
+  timeslot_id: string;
+  teacher_modes: Record<string, "preferred" | "unavailable">;
 };
 
 type ScheduledItem = {
@@ -86,6 +105,13 @@ type GenerateResponse = {
   metadata?: Record<string, number>;
 };
 
+type CompareEntity = {
+  id: string;
+  label: string;
+  kind: "class" | "teacher";
+  color: string;
+};
+
 const API_BASE = "http://localhost:8000";
 
 const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -93,14 +119,28 @@ const calendarDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
 const DAY_START_MINUTES = 8 * 60;
 const DAY_END_MINUTES = 16 * 60;
 const TIMELINE_TOTAL_MINUTES = DAY_END_MINUTES - DAY_START_MINUTES;
-const STORAGE_KEY = "school_scheduler_state_v2";
+const STORAGE_KEY = "school_scheduler_state_v3";
+const LEGACY_STORAGE_KEYS = ["school_scheduler_state_v2", "school_scheduler_state_v1"];
+const COMPARE_PALETTE = [
+  "#e76f51",
+  "#2a9d8f",
+  "#457b9d",
+  "#f4a261",
+  "#8d5a97",
+  "#4f772d",
+  "#c44536",
+  "#3d5a80",
+  "#2d6a4f",
+  "#6d597a",
+];
 
 const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "calendar", label: "Week Calendar" },
   { id: "classes", label: "Classes" },
   { id: "subjects", label: "Subjects" },
-  { id: "faggrupper", label: "Faggrupper" },
+  { id: "faggrupper", label: "Fellesfag" },
   { id: "blocks", label: "Blocks" },
+  { id: "meetings", label: "Møter" },
   { id: "teachers", label: "Teachers" },
   { id: "generate", label: "Generate" },
 ];
@@ -146,6 +186,7 @@ function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
   return {
     id: teacher.id ?? "",
     name: teacher.name ?? "",
+    avdeling: typeof teacher.avdeling === "string" ? teacher.avdeling.trim() : "",
     preferred_avoid_timeslots: Array.isArray(teacher.preferred_avoid_timeslots)
       ? teacher.preferred_avoid_timeslots
       : [],
@@ -155,11 +196,47 @@ function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
   };
 }
 
+function normalizeMeeting(meeting: Partial<Meeting>): Meeting {
+  const assignments = Array.isArray(meeting.teacher_assignments)
+    ? meeting.teacher_assignments
+        .filter(
+          (assignment): assignment is MeetingTeacherAssignment =>
+            Boolean(assignment?.teacher_id) &&
+            (assignment?.mode === "preferred" || assignment?.mode === "unavailable")
+        )
+        .map((assignment) => ({
+          teacher_id: assignment.teacher_id,
+          mode: assignment.mode,
+        }))
+    : [];
+
+  return {
+    id: meeting.id ?? "",
+    name: meeting.name ?? "",
+    timeslot_id: meeting.timeslot_id ?? "",
+    teacher_assignments: assignments,
+  };
+}
+
 function splitCsv(input: string): string[] {
   return input
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
+}
+
+function extractAvdeling(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+
+  const tokens = value
+    .trim()
+    .split(/\s+/)
+    .map((token) => token.replace(/[.,;:]+$/g, ""))
+    .filter(Boolean);
+
+  return tokens.at(-1) ?? "";
 }
 
 function normalizeSearchText(value: string): string {
@@ -297,6 +374,27 @@ function getSlotToneClass(slot?: Timeslot): string {
   return "";
 }
 
+function toOpaqueTint(hexColor: string, mixWithWhite = 0.82): string {
+  const hex = hexColor.trim().replace(/^#/, "");
+  const normalized = hex.length === 3
+    ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    : hex;
+
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) {
+    return "#efe9df";
+  }
+
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+
+  const alpha = Math.min(1, Math.max(0, mixWithWhite));
+  const mixedR = Math.round(r * (1 - alpha) + 255 * alpha);
+  const mixedG = Math.round(g * (1 - alpha) + 255 * alpha);
+  const mixedB = Math.round(b * (1 - alpha) + 255 * alpha);
+  return `rgb(${mixedR}, ${mixedG}, ${mixedB})`;
+}
+
 function computeDaySlotLayout(slots: Timeslot[]): Record<string, { col: number; count: number }> {
   const valid = [...slots]
     .map((slot) => ({ slot, start: toMinutes(slot.start_time), end: toMinutes(slot.end_time) }))
@@ -421,6 +519,7 @@ function indexToLetters(index: number): string {
 export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
+  const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
   const [weekCalendarSetups, setWeekCalendarSetups] = useState<WeekCalendarSetup[]>([]);
@@ -437,8 +536,19 @@ export default function Home() {
     name: "",
   });
   const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "" });
+  const [meetingForm, setMeetingForm] = useState<MeetingFormState>({
+    name: "",
+    timeslot_id: "",
+    teacher_modes: {},
+  });
+  const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
+  const [meetingTeacherSearchQuery, setMeetingTeacherSearchQuery] = useState("");
+  const [meetingAvdelingFilter, setMeetingAvdelingFilter] = useState("all");
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
+  const [subjectClassSelectionBySubject, setSubjectClassSelectionBySubject] = useState<Record<string, string>>({});
+  const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
+  const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -488,8 +598,7 @@ export default function Home() {
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      const legacyRaw = window.localStorage.getItem("school_scheduler_state_v1");
-      const source = raw ?? legacyRaw;
+      const source = raw ?? LEGACY_STORAGE_KEYS.map((key) => window.localStorage.getItem(key)).find(Boolean);
 
       if (!source) {
         setIsStorageHydrated(true);
@@ -499,6 +608,7 @@ export default function Home() {
       const parsed = JSON.parse(source) as Partial<{
         subjects: Subject[];
         teachers: Teacher[];
+        meetings: Meeting[];
         classes: SchoolClass[];
         timeslots: Timeslot[];
         weekCalendarSetups: WeekCalendarSetup[];
@@ -517,6 +627,9 @@ export default function Home() {
       }
       if (Array.isArray(parsed.teachers)) {
         setTeachers(parsed.teachers.map((teacher) => normalizeTeacher(teacher)));
+      }
+      if (Array.isArray(parsed.meetings)) {
+        setMeetings(parsed.meetings.map((meeting) => normalizeMeeting(meeting)));
       }
       if (Array.isArray(parsed.classes)) {
         setClasses(parsed.classes);
@@ -562,6 +675,7 @@ export default function Home() {
     const payload = {
       subjects,
       teachers,
+      meetings,
       classes,
       timeslots,
       weekCalendarSetups,
@@ -580,6 +694,7 @@ export default function Home() {
     isStorageHydrated,
     subjects,
     teachers,
+    meetings,
     classes,
     timeslots,
     weekCalendarSetups,
@@ -621,6 +736,22 @@ export default function Home() {
     return Object.fromEntries(timeslots.map((t) => [t.id, t])) as Record<string, Timeslot>;
   }, [timeslots]);
 
+  const sortedMeetings = useMemo(() => {
+    return [...meetings].sort((a, b) => {
+      const slotA = timeslotById[a.timeslot_id];
+      const slotB = timeslotById[b.timeslot_id];
+      const dayCmp = dayOrder.indexOf(slotA?.day ?? "") - dayOrder.indexOf(slotB?.day ?? "");
+      if (dayCmp !== 0) {
+        return dayCmp;
+      }
+      const timeCmp = toMinutes(slotA?.start_time) - toMinutes(slotB?.start_time);
+      if (timeCmp !== 0) {
+        return timeCmp;
+      }
+      return a.name.localeCompare(b.name);
+    });
+  }, [meetings, timeslotById]);
+
   const sortedClasses = useMemo(() => {
     return [...classes].sort((a, b) => a.name.localeCompare(b.name));
   }, [classes]);
@@ -637,8 +768,159 @@ export default function Home() {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(teacherSearchQuery, teacher.name));
   }, [sortedTeachersByFirstName, teacherSearchQuery]);
 
+  const availableAvdelinger = useMemo(() => {
+    return Array.from(
+      new Set(
+        teachers
+          .map((teacher) => teacher.avdeling?.trim() ?? "")
+          .filter(Boolean)
+      )
+    ).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+  }, [teachers]);
+
+  const filteredMeetingTeachers = useMemo(() => {
+    return sortedTeachersByFirstName.filter((teacher) => {
+      const matchesName = isTeacherNameMatch(meetingTeacherSearchQuery, teacher.name);
+      const matchesAvdeling = meetingAvdelingFilter === "all"
+        ? true
+        : (teacher.avdeling?.trim() ?? "") === meetingAvdelingFilter;
+      return matchesName && matchesAvdeling;
+    });
+  }, [sortedTeachersByFirstName, meetingTeacherSearchQuery, meetingAvdelingFilter]);
+
   function filterTeachersForQuery(query: string): Teacher[] {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(query, teacher.name));
+  }
+
+  function resetMeetingForm() {
+    setMeetingForm({
+      name: "",
+      timeslot_id: sortedTimeslots[0]?.id ?? "",
+      teacher_modes: {},
+    });
+    setEditingMeetingId(null);
+    setMeetingTeacherSearchQuery("");
+  }
+
+  function cycleMeetingTeacherMode(teacherId: string) {
+    setMeetingForm((prev) => {
+      const nextModes = { ...prev.teacher_modes };
+      const current = nextModes[teacherId];
+
+      if (current === "preferred") {
+        nextModes[teacherId] = "unavailable";
+      } else if (current === "unavailable") {
+        delete nextModes[teacherId];
+      } else {
+        nextModes[teacherId] = "preferred";
+      }
+
+      return {
+        ...prev,
+        teacher_modes: nextModes,
+      };
+    });
+  }
+
+  function applyMeetingTeacherModeToVisible(mode: "preferred" | "unavailable" | null) {
+    setMeetingForm((prev) => {
+      const nextModes = { ...prev.teacher_modes };
+
+      for (const teacher of filteredMeetingTeachers) {
+        if (mode === null) {
+          delete nextModes[teacher.id];
+        } else {
+          nextModes[teacher.id] = mode;
+        }
+      }
+
+      return {
+        ...prev,
+        teacher_modes: nextModes,
+      };
+    });
+
+    if (mode === "unavailable") {
+      setStatusText(`Marked ${filteredMeetingTeachers.length} visible teacher(s) as busy.`);
+      return;
+    }
+    if (mode === "preferred") {
+      setStatusText(`Marked ${filteredMeetingTeachers.length} visible teacher(s) as prefer busy.`);
+      return;
+    }
+    setStatusText(`Cleared meeting selection for ${filteredMeetingTeachers.length} visible teacher(s).`);
+  }
+
+  function loadMeetingIntoForm(meeting: Meeting) {
+    setEditingMeetingId(meeting.id);
+    setMeetingForm({
+      name: meeting.name,
+      timeslot_id: meeting.timeslot_id,
+      teacher_modes: Object.fromEntries(
+        meeting.teacher_assignments.map((assignment) => [assignment.teacher_id, assignment.mode])
+      ) as Record<string, "preferred" | "unavailable">,
+    });
+    setStatusText(`Editing meeting ${meeting.name}.`);
+  }
+
+  function upsertMeeting() {
+    const name = meetingForm.name.trim();
+    const timeslotId = meetingForm.timeslot_id;
+    const teacherAssignments = Object.entries(meetingForm.teacher_modes)
+      .filter((entry): entry is [string, "preferred" | "unavailable"] => entry[1] === "preferred" || entry[1] === "unavailable")
+      .filter(([teacherId]) => teachers.some((teacher) => teacher.id === teacherId))
+      .map(([teacher_id, mode]) => ({ teacher_id, mode }));
+
+    if (!name) {
+      setStatusText("Meeting name is required.");
+      return;
+    }
+    if (!timeslotId || !timeslots.some((slot) => slot.id === timeslotId)) {
+      setStatusText("Select a valid timeslot for the meeting.");
+      return;
+    }
+    if (teacherAssignments.length === 0) {
+      setStatusText("Pick at least one teacher as preferred or blocked for the meeting.");
+      return;
+    }
+
+    if (editingMeetingId) {
+      setMeetings((prev) => prev.map((meeting) => (
+        meeting.id === editingMeetingId
+          ? {
+              ...meeting,
+              name,
+              timeslot_id: timeslotId,
+              teacher_assignments: teacherAssignments,
+            }
+          : meeting
+      )));
+      setStatusText(`Updated meeting ${name}.`);
+      resetMeetingForm();
+      return;
+    }
+
+    const id = makeUniqueId(`meeting_${toSlug(name) || "item"}`, meetings.map((meeting) => meeting.id));
+    setMeetings((prev) => [
+      ...prev,
+      {
+        id,
+        name,
+        timeslot_id: timeslotId,
+        teacher_assignments: teacherAssignments,
+      },
+    ]);
+    setStatusText(`Added meeting ${name}.`);
+    resetMeetingForm();
+  }
+
+  function deleteMeeting(meetingId: string) {
+    const meetingName = meetings.find((meeting) => meeting.id === meetingId)?.name ?? meetingId;
+    setMeetings((prev) => prev.filter((meeting) => meeting.id !== meetingId));
+    if (editingMeetingId === meetingId) {
+      resetMeetingForm();
+    }
+    setStatusText(`Deleted meeting ${meetingName}.`);
   }
 
   function resolveTeacherIdFromInput(inputValue: string): string | null {
@@ -663,6 +945,10 @@ export default function Home() {
   const classNameById = useMemo(() => {
     return Object.fromEntries(sortedClasses.map((c) => [c.id, c.name])) as Record<string, string>;
   }, [sortedClasses]);
+
+  const teacherNameById = useMemo(() => {
+    return Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher.name])) as Record<string, string>;
+  }, [teachers]);
 
   const classSubjectsById = useMemo(() => {
     const grouped: Record<string, Subject[]> = {};
@@ -693,6 +979,89 @@ export default function Home() {
       setActiveFaggruppeClassId(filteredFaggrupperClasses[0].id);
     }
   }, [filteredFaggrupperClasses, activeFaggruppeClassId]);
+
+  const compareEntities = useMemo(() => {
+    const entities: CompareEntity[] = [];
+
+    for (const classId of selectedClassCompareIds) {
+      entities.push({
+        id: `class:${classId}`,
+        label: classNameById[classId] ?? classId,
+        kind: "class",
+        color: COMPARE_PALETTE[entities.length % COMPARE_PALETTE.length],
+      });
+    }
+
+    for (const teacherId of selectedTeacherCompareIds) {
+      entities.push({
+        id: `teacher:${teacherId}`,
+        label: teacherNameById[teacherId] ?? teacherId,
+        kind: "teacher",
+        color: COMPARE_PALETTE[entities.length % COMPARE_PALETTE.length],
+      });
+    }
+
+    return entities;
+  }, [selectedClassCompareIds, selectedTeacherCompareIds, classNameById, teacherNameById]);
+
+  const compareEntityIndex = useMemo(() => {
+    return Object.fromEntries(compareEntities.map((entity, idx) => [entity.id, idx])) as Record<string, number>;
+  }, [compareEntities]);
+
+  const displaySchedule = useMemo(() => {
+    type PairBucket = { shared: ScheduledItem[]; a: ScheduledItem[]; b: ScheduledItem[] };
+    const buckets = new Map<string, PairBucket>();
+
+    for (const item of schedule) {
+      const classKey = [...item.class_ids].sort().join(",");
+      const key = [item.subject_id, item.teacher_id, item.timeslot_id, item.day, String(item.period), classKey].join("|");
+      const bucket = buckets.get(key) ?? { shared: [], a: [], b: [] };
+      if (item.week_type === "A") {
+        bucket.a.push(item);
+      } else if (item.week_type === "B") {
+        bucket.b.push(item);
+      } else {
+        bucket.shared.push(item);
+      }
+      buckets.set(key, bucket);
+    }
+
+    const merged: ScheduledItem[] = [];
+    buckets.forEach((bucket) => {
+      if (bucket.shared.length > 0) {
+        merged.push(...bucket.shared);
+        return;
+      }
+
+      const pairCount = Math.min(bucket.a.length, bucket.b.length);
+      for (let i = 0; i < pairCount; i += 1) {
+        merged.push({ ...bucket.a[i], week_type: undefined });
+      }
+
+      if (bucket.a.length > pairCount) {
+        merged.push(...bucket.a.slice(pairCount));
+      }
+      if (bucket.b.length > pairCount) {
+        merged.push(...bucket.b.slice(pairCount));
+      }
+    });
+
+    return merged.sort((a, b) => {
+      const weekA = a.week_type ?? "";
+      const weekB = b.week_type ?? "";
+      if (weekA !== weekB) {
+        return weekA.localeCompare(weekB);
+      }
+      const dayCmp = dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
+      if (dayCmp !== 0) {
+        return dayCmp;
+      }
+      if (a.period !== b.period) {
+        return a.period - b.period;
+      }
+      return a.subject_name.localeCompare(b.subject_name);
+    });
+  }, [schedule]);
 
   // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
   // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
@@ -792,6 +1161,11 @@ export default function Home() {
       ...teacher,
       preferred_avoid_timeslots: Array.from(new Set(teacher.preferred_avoid_timeslots.map(remapId))),
       unavailable_timeslots: Array.from(new Set(teacher.unavailable_timeslots.map(remapId))),
+    })));
+
+    setMeetings((prev) => prev.map((meeting) => ({
+      ...meeting,
+      timeslot_id: remapId(meeting.timeslot_id),
     })));
 
     setSubjects((prev) => prev.map((subject) => ({
@@ -896,6 +1270,22 @@ export default function Home() {
     };
   }, [resizeState, editingTimeslotId]);
 
+  useEffect(() => {
+    setMeetingForm((prev) => {
+      if (prev.timeslot_id && sortedTimeslots.some((slot) => slot.id === prev.timeslot_id)) {
+        return prev;
+      }
+      const fallbackTimeslotId = sortedTimeslots[0]?.id ?? "";
+      if (prev.timeslot_id === fallbackTimeslotId) {
+        return prev;
+      }
+      return {
+        ...prev,
+        timeslot_id: fallbackTimeslotId,
+      };
+    });
+  }, [sortedTimeslots]);
+
   function addTeacher() {
     if (!teacherForm.name) {
       return;
@@ -906,6 +1296,7 @@ export default function Home() {
       {
         id,
         name: teacherForm.name,
+        avdeling: "",
         preferred_avoid_timeslots: [],
         unavailable_timeslots: splitCsv(teacherForm.unavailable_timeslots),
       },
@@ -915,6 +1306,10 @@ export default function Home() {
 
   function deleteTeacher(teacherId: string) {
     setTeachers((prev) => prev.filter((t) => t.id !== teacherId));
+    setMeetings((prev) => prev.map((meeting) => ({
+      ...meeting,
+      teacher_assignments: meeting.teacher_assignments.filter((assignment) => assignment.teacher_id !== teacherId),
+    })));
     if (expandedTeacherId === teacherId) {
       setExpandedTeacherId(null);
     }
@@ -941,6 +1336,7 @@ export default function Home() {
 
         jsonData.forEach((row) => {
           let name = "";
+          let avdeling = "";
 
           // Try Norwegian names first (Fornavn = first name, Etternavn = last name)
           const fornavnKey = Object.keys(row).find((key) => key.toLowerCase() === "fornavn");
@@ -966,10 +1362,16 @@ export default function Home() {
 
           if (!name) return;
 
+          const avdelingKey = Object.keys(row).find((key) => key.toLowerCase() === "avdeling");
+          if (avdelingKey) {
+            avdeling = extractAvdeling(String(row[avdelingKey] || ""));
+          }
+
           const id = makeUniqueId(`teacher_${toSlug(name) || "item"}`, [...existingIds, ...newTeachers.map((t) => t.id)]);
           newTeachers.push({
             id,
             name,
+            avdeling,
             preferred_avoid_timeslots: [],
             unavailable_timeslots: [],
           });
@@ -1397,6 +1799,48 @@ export default function Home() {
     setDuplicateTargetsByClass((prev) => ({ ...prev, [sourceClassId]: [] }));
   }
 
+  function addSubjectToClass(subject: Subject, classId: string, currentClassIds: string[]) {
+    if (!classId) {
+      return;
+    }
+
+    if (subject.subject_type === "fellesfag") {
+      addFellesfagToClass(classId, subject.id);
+      return;
+    }
+
+    if (currentClassIds.includes(classId)) {
+      return;
+    }
+
+    updateSubjectCard(subject.id, { class_ids: [...currentClassIds, classId] });
+    const className = classNameById[classId] ?? classId;
+    setStatusText(`Added ${subject.name} to ${className}.`);
+  }
+
+  function removeSubjectFromClass(subject: Subject, classId: string) {
+    if (subject.subject_type === "fellesfag") {
+      const copy = subjects.find(
+        (s) =>
+          s.subject_type === "fellesfag" &&
+          s.name === subject.name &&
+          s.class_ids.length === 1 &&
+          s.class_ids[0] === classId
+      );
+      if (!copy) {
+        return;
+      }
+      removeFellesfagFromClass(classId, copy.id);
+      return;
+    }
+
+    updateSubjectCard(subject.id, {
+      class_ids: subject.class_ids.filter((id) => id !== classId),
+    });
+    const className = classNameById[classId] ?? classId;
+    setStatusText(`Removed ${subject.name} from ${className}.`);
+  }
+
   function cloneWeekSetup(setupId: string) {
     const source = weekCalendarSetups.find((setup) => setup.id === setupId);
     if (!source) {
@@ -1646,6 +2090,13 @@ export default function Home() {
       ),
     })));
 
+    setMeetings((prev) => prev
+      .filter((meeting) => meeting.timeslot_id !== timeslotId)
+      .map((meeting) => ({
+        ...meeting,
+        timeslot_id: remapId(meeting.timeslot_id),
+      })));
+
     setSubjects((prev) => prev.map((subject) => ({
       ...subject,
       allowed_timeslots: subject.allowed_timeslots
@@ -1768,6 +2219,7 @@ export default function Home() {
       const payload = {
         subjects,
         teachers,
+        meetings,
         classes,
         timeslots,
         alternating_weeks_enabled: enableAlternatingWeeks,
@@ -1800,6 +2252,11 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
+  }
+
+  function clearGeneratedSchedule() {
+    setSchedule([]);
+    setStatusText("Generated schedule cleared.");
   }
 
   const activeTabIndex = workflowTabs.findIndex((tab) => tab.id === activeTab);
@@ -2528,98 +2985,80 @@ export default function Home() {
                           <option value="programfag">Programfag</option>
                         </select>
                       </div>
+
+                      <div className="subject-card-action">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => deleteSubjectCard(subject.id)}
+                        >
+                          Delete Subject
+                        </button>
+                      </div>
                     </div>
 
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => deleteSubjectCard(subject.id)}
-                    >
-                      Delete Subject
-                    </button>
+                    <div className="subject-class-manager">
+                      <span className="subject-teacher-section-title">Classes With Subject</span>
 
-                    {/* Teacher assignment per class entity */}
-                    {(subject.subject_type === "programfag" ||
-                      subjects.some(
-                        (s) =>
-                          s.subject_type === "fellesfag" &&
-                          s.class_ids.length === 1 &&
-                          s.name === subject.name
-                      )) && (
-                      <div className="subject-teacher-section">
-                        <span className="subject-teacher-section-title">Teachers</span>
-                        {subject.subject_type === "fellesfag" ? (
-                          subjects
-                            .filter(
-                              (s) =>
-                                s.subject_type === "fellesfag" &&
-                                s.class_ids.length === 1 &&
-                                s.name === subject.name
-                            )
-                            .sort((a, b) =>
-                              (classNameById[a.class_ids[0]] ?? "").localeCompare(
-                                classNameById[b.class_ids[0]] ?? ""
-                              )
-                            )
-                            .map((entity) => (
-                              <div key={entity.id} className="subject-teacher-row">
-                                <span className="subject-teacher-classname">
-                                  {classNameById[entity.class_ids[0]] ?? entity.class_ids[0]}
-                                </span>
-                                <div style={{ display: "grid", gap: "4px", flex: 1 }}>
-                                  <input
-                                    list={`teacher-options-${entity.id}`}
-                                    value={getTeacherInputValue(entity.id, entity.teacher_id)}
-                                    onChange={(e) => {
-                                      const nextValue = e.target.value;
-                                      setTeacherSearchBySubjectEntity((prev) => ({
-                                        ...prev,
-                                        [entity.id]: nextValue,
-                                      }));
-                                      const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
-                                      if (resolvedTeacherId !== null) {
-                                        updateSubjectCard(entity.id, { teacher_id: resolvedTeacherId });
-                                      }
-                                    }}
-                                    placeholder="Choose teacher"
-                                  />
-                                  <datalist id={`teacher-options-${entity.id}`}>
-                                    {filterTeachersForQuery(teacherSearchBySubjectEntity[entity.id] ?? "").map((t) => (
-                                      <option key={t.id} value={t.name} />
-                                    ))}
-                                  </datalist>
-                                </div>
-                              </div>
-                            ))
+                      <div className="subject-class-manager-chips">
+                        {derivedClassIds.length === 0 ? (
+                          <span className="subject-class-empty">No classes assigned</span>
                         ) : (
-                          <div className="subject-teacher-row">
-                            <div style={{ display: "grid", gap: "4px", flex: 1 }}>
-                              <input
-                                list={`teacher-options-${subject.id}`}
-                                value={getTeacherInputValue(subject.id, subject.teacher_id)}
-                                onChange={(e) => {
-                                  const nextValue = e.target.value;
-                                  setTeacherSearchBySubjectEntity((prev) => ({
-                                    ...prev,
-                                    [subject.id]: nextValue,
-                                  }));
-                                  const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
-                                  if (resolvedTeacherId !== null) {
-                                    updateSubjectCard(subject.id, { teacher_id: resolvedTeacherId });
-                                  }
-                                }}
-                                placeholder="Choose teacher"
-                              />
-                              <datalist id={`teacher-options-${subject.id}`}>
-                                {filterTeachersForQuery(teacherSearchBySubjectEntity[subject.id] ?? "").map((t) => (
-                                  <option key={t.id} value={t.name} />
-                                ))}
-                              </datalist>
-                            </div>
-                          </div>
+                          derivedClassIds
+                            .slice()
+                            .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
+                            .map((cid) => (
+                              <span key={cid} className="subject-class-chip subject-class-chip-editable">
+                                {classNameById[cid] ?? cid}
+                                <button
+                                  type="button"
+                                  className="subject-class-chip-remove"
+                                  onClick={() => removeSubjectFromClass(subject, cid)}
+                                  aria-label={`Remove ${classNameById[cid] ?? cid}`}
+                                >
+                                  x
+                                </button>
+                              </span>
+                            ))
                         )}
                       </div>
-                    )}
+
+                      <div className="subject-class-manager-add">
+                        <select
+                          value={subjectClassSelectionBySubject[subject.id] ?? ""}
+                          onChange={(e) =>
+                            setSubjectClassSelectionBySubject((prev) => ({
+                              ...prev,
+                              [subject.id]: e.target.value,
+                            }))
+                          }
+                        >
+                          <option value="">Select class to add</option>
+                          {sortedClasses
+                            .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
+                            .map((schoolClass) => (
+                              <option key={schoolClass.id} value={schoolClass.id}>
+                                {schoolClass.name}
+                              </option>
+                            ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const classId = subjectClassSelectionBySubject[subject.id] ?? "";
+                            addSubjectToClass(subject, classId, derivedClassIds);
+                            setSubjectClassSelectionBySubject((prev) => ({
+                              ...prev,
+                              [subject.id]: "",
+                            }));
+                          }}
+                          disabled={!subjectClassSelectionBySubject[subject.id]}
+                        >
+                          Add Class
+                        </button>
+                      </div>
+                    </div>
+
                   </div>
                 )}
               </article>
@@ -2632,7 +3071,7 @@ export default function Home() {
       {activeTab === "faggrupper" && (
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Faggrupper</h2>
+          <h2>Fellesfag</h2>
           <p>Select a class to view its subjects and set teachers.</p>
 
           <div className="faggrupper-layout">
@@ -2795,6 +3234,188 @@ export default function Home() {
       </section>
       )}
 
+      {activeTab === "meetings" && (
+      <section className="grid">
+        <article className="card">
+          <h2>Møter</h2>
+          <p>Add permanent meetings that reserve teacher time. Cycle teachers between available, preferred busy, and blocked.</p>
+
+          {!timeslots.length ? (
+            <p>Add timeslots in Week Calendar before creating meetings.</p>
+          ) : !teachers.length ? (
+            <p>Add teachers before assigning them to a meeting.</p>
+          ) : (
+            <form onSubmit={(e) => { e.preventDefault(); upsertMeeting(); }}>
+              <label>Meeting Name</label>
+              <input
+                value={meetingForm.name}
+                onChange={(e) => setMeetingForm((prev) => ({ ...prev, name: e.target.value }))}
+                placeholder="Team meeting, mentor hour, department meeting"
+              />
+
+              <label>Timeslot</label>
+              <select
+                value={meetingForm.timeslot_id}
+                onChange={(e) => setMeetingForm((prev) => ({ ...prev, timeslot_id: e.target.value }))}
+              >
+                {sortedTimeslots.map((slot) => (
+                  <option key={slot.id} value={slot.id}>
+                    {slot.day} {slot.start_time}-{slot.end_time} ({slot.id})
+                  </option>
+                ))}
+              </select>
+
+              <div className="meeting-legend">
+                <span className="meeting-badge available">Available</span>
+                <span className="meeting-badge preferred">Prefer busy</span>
+                <span className="meeting-badge unavailable">Busy</span>
+              </div>
+
+              <label>Teachers</label>
+              <div className="meeting-filter-row">
+                <input
+                  value={meetingTeacherSearchQuery}
+                  onChange={(e) => setMeetingTeacherSearchQuery(e.target.value)}
+                  placeholder="Search teachers"
+                />
+                <select
+                  value={meetingAvdelingFilter}
+                  onChange={(e) => setMeetingAvdelingFilter(e.target.value)}
+                >
+                  <option value="all">All avdelinger</option>
+                  {availableAvdelinger.map((avdeling) => (
+                    <option key={avdeling} value={avdeling}>{avdeling}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="meeting-bulk-actions">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => applyMeetingTeacherModeToVisible("unavailable")}
+                  disabled={filteredMeetingTeachers.length === 0}
+                >
+                  Select All Busy
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => applyMeetingTeacherModeToVisible("preferred")}
+                  disabled={filteredMeetingTeachers.length === 0}
+                >
+                  Select All Prefer Busy
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => applyMeetingTeacherModeToVisible(null)}
+                  disabled={filteredMeetingTeachers.length === 0}
+                >
+                  Clear Visible
+                </button>
+              </div>
+
+              <div className="meeting-teacher-list">
+                {filteredMeetingTeachers.map((teacher) => {
+                  const mode = meetingForm.teacher_modes[teacher.id];
+                  return (
+                    <button
+                      key={teacher.id}
+                      type="button"
+                      className={`meeting-teacher-toggle ${mode ?? "available"}`}
+                      onClick={() => cycleMeetingTeacherMode(teacher.id)}
+                    >
+                      <strong>{teacher.name}</strong>
+                      <small>{teacher.avdeling ? `Avdeling: ${teacher.avdeling}` : "No avdeling"}</small>
+                      <small>
+                        {mode === "unavailable"
+                          ? "Busy"
+                          : mode === "preferred"
+                            ? "Prefer busy"
+                            : "Available"}
+                      </small>
+                    </button>
+                  );
+                })}
+                {filteredMeetingTeachers.length === 0 ? (
+                  <p className="meeting-empty">No teachers match the current search.</p>
+                ) : null}
+              </div>
+
+              <div className="meeting-actions-row">
+                <button type="submit">{editingMeetingId ? "Update Meeting" : "Add Meeting"}</button>
+                <button type="button" className="secondary" onClick={resetMeetingForm}>
+                  {editingMeetingId ? "Cancel Edit" : "Reset"}
+                </button>
+              </div>
+            </form>
+          )}
+        </article>
+
+        <article className="card">
+          <h2>Permanent Meeting List</h2>
+          <p>These meetings are always rendered on the schedule and are sent to the solver as hard or soft teacher constraints.</p>
+
+          <div className="list meeting-list">
+            {sortedMeetings.length === 0 ? (
+              <p className="meeting-empty">No meetings created yet.</p>
+            ) : (
+              sortedMeetings.map((meeting) => {
+                const slot = timeslotById[meeting.timeslot_id];
+                const preferredTeachers = meeting.teacher_assignments
+                  .filter((assignment) => assignment.mode === "preferred")
+                  .map((assignment) => teacherNameById[assignment.teacher_id] ?? assignment.teacher_id);
+                const unavailableTeachers = meeting.teacher_assignments
+                  .filter((assignment) => assignment.mode === "unavailable")
+                  .map((assignment) => teacherNameById[assignment.teacher_id] ?? assignment.teacher_id);
+
+                return (
+                  <div key={meeting.id} className="meeting-item">
+                    <div className="meeting-item-header">
+                      <div>
+                        <strong>{meeting.name}</strong>
+                        <p>
+                          {slot ? `${slot.day} ${slot.start_time}-${slot.end_time}` : meeting.timeslot_id}
+                        </p>
+                      </div>
+                      <div className="meeting-item-actions">
+                        <button type="button" className="secondary" onClick={() => loadMeetingIntoForm(meeting)}>
+                          Edit
+                        </button>
+                        <button type="button" className="secondary" onClick={() => deleteMeeting(meeting.id)}>
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="meeting-summary-grid">
+                      <div>
+                        <span className="meeting-summary-label">Busy</span>
+                        <div className="meeting-chip-row">
+                          {unavailableTeachers.length ? unavailableTeachers.map((name) => (
+                            <span key={`${meeting.id}_${name}_busy`} className="meeting-chip unavailable">{name}</span>
+                          )) : <span className="meeting-chip neutral">None</span>}
+                        </div>
+                      </div>
+                      <div>
+                        <span className="meeting-summary-label">Prefer Busy</span>
+                        <div className="meeting-chip-row">
+                          {preferredTeachers.length ? preferredTeachers.map((name) => (
+                            <span key={`${meeting.id}_${name}_pref`} className="meeting-chip preferred">{name}</span>
+                          )) : <span className="meeting-chip neutral">None</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </article>
+      </section>
+      )}
+
       {activeTab === "teachers" && (
       <section className="grid">
         <article className="card">
@@ -2859,7 +3480,7 @@ export default function Home() {
                 <div className="list" style={{ flex: 1, overflowY: "auto", border: "1px solid #ddd", borderRadius: "4px", maxHeight: "none", marginTop: 0, paddingTop: 0, borderTop: "none" }}>
                 {filteredTeachers.length === 0 ? (
                   <p style={{ color: "#999", fontSize: "0.86em", padding: "8px" }}>
-                    No matches for "{teacherSearchQuery}".
+                    No matches for &quot;{teacherSearchQuery}&quot;.
                   </p>
                 ) : (
                 filteredTeachers.map((t) => (
@@ -2907,7 +3528,7 @@ export default function Home() {
 
                     {expandedTeacherId === t.id && (
                       <div style={{ padding: "8px", backgroundColor: "#fafafa", borderTop: "1px solid #eee" }}>
-                        <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Click to cycle: Available -> Preferred (orange) -> Blocked (red)</h4>
+                        <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Click to cycle: Available -&gt; Preferred (orange) -&gt; Blocked (red)</h4>
                         {(() => {
                           const slotsByDay: Record<string, Timeslot[]> = Object.fromEntries(
                             calendarDays.map((day) => [
@@ -3070,11 +3691,72 @@ export default function Home() {
           <button type="button" onClick={generateSchedule} disabled={loading}>
             {loading ? "Generating..." : "Generate Schedule"}
           </button>
+          <button
+            type="button"
+            onClick={clearGeneratedSchedule}
+            disabled={loading || schedule.length === 0}
+          >
+            Clear Generated Schedule
+          </button>
           <div className="status">{statusText}</div>
         </section>
 
         <section className="card">
           <h2>Schedule Timeline</h2>
+          <div className="compare-controls">
+            <div className="compare-group">
+              <label>Compare classes</label>
+              <select
+                multiple
+                value={selectedClassCompareIds}
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions, (option) => option.value);
+                  setSelectedClassCompareIds(values);
+                }}
+              >
+                {sortedClasses.map((schoolClass) => (
+                  <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="compare-group">
+              <label>Compare teachers</label>
+              <select
+                multiple
+                value={selectedTeacherCompareIds}
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions, (option) => option.value);
+                  setSelectedTeacherCompareIds(values);
+                }}
+              >
+                {sortedTeachersByFirstName.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="compare-actions">
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedClassCompareIds([]);
+                  setSelectedTeacherCompareIds([]);
+                }}
+                disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0}
+              >
+                Clear compare
+              </button>
+            </div>
+          </div>
+          {compareEntities.length > 0 ? (
+            <div className="compare-legend">
+              {compareEntities.map((entity) => (
+                <span key={entity.id} className="compare-pill" style={{ borderColor: entity.color }}>
+                  <span className="dot" style={{ backgroundColor: entity.color }} />
+                  {entity.kind === "class" ? "Class" : "Teacher"}: {entity.label}
+                </span>
+              ))}
+            </div>
+          ) : null}
           <div className="weekly-timeline">
             <div className="weekly-head">
               <div className="weekly-corner" />
@@ -3103,45 +3785,257 @@ export default function Home() {
                       return <div key={`${day}_${minutes}`} className="weekly-line" style={{ top: `${topPct}%` }} />;
                     })}
 
-                    {schedule
-                      .filter((item) => item.day === day)
-                      .filter((item) => {
-                        if (!enableAlternatingWeeks || weekView === "both") {
-                          return true;
-                        }
-                        return item.week_type === weekView;
-                      })
-                      .map((item) => {
-                        const ts = timeslotById[item.timeslot_id];
-                        const start = toMinutes(ts?.start_time);
-                        const end = toMinutes(ts?.end_time);
-                        if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
-                          return null;
+                    {(() => {
+                      type RenderEvent = {
+                        key: string;
+                        kind: "subject" | "meeting";
+                        title: string;
+                        weekType?: "A" | "B";
+                        ts: Timeslot | undefined;
+                        classLabel: string;
+                        teacherLabel: string;
+                        laneIndex: number;
+                        laneCount: number;
+                        laneEntityLabel: string;
+                        laneColor: string;
+                        topPct: number;
+                        heightPct: number;
+                        startMin: number;
+                        endMin: number;
+                        overlapCol: number;
+                        overlapCols: number;
+                        fillColor?: string;
+                      };
+
+                      const subjectEvents: RenderEvent[] = displaySchedule
+                          .filter((item) => item.day === day)
+                          .filter((item) => {
+                            if (!enableAlternatingWeeks || weekView === "both") {
+                              return true;
+                            }
+                            return !item.week_type || item.week_type === weekView;
+                          })
+                          .flatMap((item) => {
+                            const ts = timeslotById[item.timeslot_id];
+                            const start = toMinutes(ts?.start_time);
+                            const end = toMinutes(ts?.end_time);
+                            if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const clampedStart = Math.max(DAY_START_MINUTES, start);
+                            const clampedEnd = Math.min(DAY_END_MINUTES, end);
+                            if (clampedEnd <= clampedStart) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
+                            const teacherLabel = teacherNameById[item.teacher_id] ?? item.teacher_id;
+
+                            const matchedEntityIds = compareEntities.length
+                              ? [
+                                  ...item.class_ids
+                                    .filter((id) => selectedClassCompareIds.includes(id))
+                                    .map((id) => `class:${id}`),
+                                  ...(selectedTeacherCompareIds.includes(item.teacher_id)
+                                    ? [`teacher:${item.teacher_id}`]
+                                    : []),
+                                ]
+                              : ["all"];
+
+                            if (matchedEntityIds.length === 0) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const laneCount = compareEntities.length > 0 ? compareEntities.length : 1;
+
+                            return matchedEntityIds.map<RenderEvent>((entityId, entityRenderIndex) => {
+                              const laneIndex = compareEntities.length > 0
+                                ? (compareEntityIndex[entityId] ?? 0)
+                                : 0;
+                              const laneEntity = compareEntities[laneIndex];
+                              const laneColor = laneEntity?.color ?? "#355070";
+                              return {
+                                key: `${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}_${entityId}_${entityRenderIndex}`,
+                                kind: "subject",
+                                title: item.subject_name,
+                                weekType: item.week_type,
+                                ts,
+                                classLabel,
+                                teacherLabel,
+                                laneIndex,
+                                laneCount,
+                                laneEntityLabel: laneEntity?.label ?? "Selection",
+                                laneColor,
+                                topPct,
+                                heightPct,
+                                startMin: clampedStart,
+                                endMin: clampedEnd,
+                                overlapCol: 0,
+                                overlapCols: 1,
+                                fillColor: compareEntities.length > 0 ? toOpaqueTint(laneColor) : undefined,
+                              };
+                            });
+                          });
+
+                      const meetingEvents: RenderEvent[] = meetings
+                          .filter((meeting) => timeslotById[meeting.timeslot_id]?.day === day)
+                          .flatMap((meeting) => {
+                            const ts = timeslotById[meeting.timeslot_id];
+                            const start = toMinutes(ts?.start_time);
+                            const end = toMinutes(ts?.end_time);
+                            if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const clampedStart = Math.max(DAY_START_MINUTES, start);
+                            const clampedEnd = Math.min(DAY_END_MINUTES, end);
+                            if (clampedEnd <= clampedStart) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const teacherIds = meeting.teacher_assignments.map((assignment) => assignment.teacher_id);
+                            const teacherLabel = teacherIds
+                              .map((teacherId) => teacherNameById[teacherId] ?? teacherId)
+                              .join(", ");
+
+                            const matchedEntityIds = compareEntities.length
+                              ? Array.from(new Set(
+                                  teacherIds
+                                    .filter((teacherId) => selectedTeacherCompareIds.includes(teacherId))
+                                    .map((teacherId) => `teacher:${teacherId}`)
+                                ))
+                              : ["all"];
+
+                            if (matchedEntityIds.length === 0) {
+                              return [] as RenderEvent[];
+                            }
+
+                            const laneCount = compareEntities.length > 0 ? compareEntities.length : 1;
+
+                            return matchedEntityIds.map<RenderEvent>((entityId, entityRenderIndex) => {
+                              const laneIndex = compareEntities.length > 0
+                                ? (compareEntityIndex[entityId] ?? 0)
+                                : 0;
+                              const laneEntity = compareEntities[laneIndex];
+                              const laneColor = laneEntity?.color ?? "#7b6848";
+                              return {
+                                key: `${meeting.id}_${meeting.timeslot_id}_${entityId}_${entityRenderIndex}`,
+                                kind: "meeting",
+                                title: meeting.name,
+                                ts,
+                                classLabel: "Meeting",
+                                teacherLabel,
+                                laneIndex,
+                                laneCount,
+                                laneEntityLabel: laneEntity?.label ?? "Meeting",
+                                laneColor,
+                                topPct,
+                                heightPct,
+                                startMin: clampedStart,
+                                endMin: clampedEnd,
+                                overlapCol: 0,
+                                overlapCols: 1,
+                                fillColor: compareEntities.length > 0 ? toOpaqueTint(laneColor, 0.86) : "#efe7d9",
+                              };
+                            });
+                          });
+
+                      const baseEvents: RenderEvent[] = [...subjectEvents, ...meetingEvents];
+
+                      const byLane = new Map<number, number[]>();
+                      baseEvents.forEach((event, idx) => {
+                        const list = byLane.get(event.laneIndex) ?? [];
+                        list.push(idx);
+                        byLane.set(event.laneIndex, list);
+                      });
+
+                      byLane.forEach((indices) => {
+                        indices.sort((a, b) => {
+                          const startCmp = baseEvents[a].startMin - baseEvents[b].startMin;
+                          if (startCmp !== 0) {
+                            return startCmp;
+                          }
+                          return baseEvents[a].endMin - baseEvents[b].endMin;
+                        });
+
+                        type ActiveEvent = { idx: number; endMin: number; col: number };
+                        let active: ActiveEvent[] = [];
+                        let clusterIndices: number[] = [];
+                        let clusterMaxCols = 1;
+
+                        const commitCluster = () => {
+                          for (const eventIdx of clusterIndices) {
+                            baseEvents[eventIdx].overlapCols = Math.max(1, clusterMaxCols);
+                          }
+                          clusterIndices = [];
+                          clusterMaxCols = 1;
+                        };
+
+                        for (const eventIdx of indices) {
+                          const event = baseEvents[eventIdx];
+
+                          active = active.filter((entry) => entry.endMin > event.startMin);
+
+                          if (active.length === 0 && clusterIndices.length > 0) {
+                            commitCluster();
+                          }
+
+                          const usedCols = new Set(active.map((entry) => entry.col));
+                          let nextCol = 0;
+                          while (usedCols.has(nextCol)) {
+                            nextCol += 1;
+                          }
+
+                          event.overlapCol = nextCol;
+                          active.push({ idx: eventIdx, endMin: event.endMin, col: nextCol });
+                          clusterIndices.push(eventIdx);
+                          clusterMaxCols = Math.max(clusterMaxCols, active.length);
                         }
 
-                        const clampedStart = Math.max(DAY_START_MINUTES, start);
-                        const clampedEnd = Math.min(DAY_END_MINUTES, end);
-                        if (clampedEnd <= clampedStart) {
-                          return null;
+                        if (clusterIndices.length > 0) {
+                          commitCluster();
                         }
+                      });
 
-                        const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
-                        const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
-                        const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
+                      return baseEvents.map((event) => {
+                        const laneWidth = 100 / Math.max(1, event.laneCount);
+                        const laneLeft = event.laneIndex * laneWidth;
+                        const overlapWidth = laneWidth / Math.max(1, event.overlapCols);
+                        const overlapLeft = laneLeft + event.overlapCol * overlapWidth;
 
                         return (
                           <article
-                            key={`${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}`}
-                            className={`weekly-event ${getSlotToneClass(ts)}`}
-                            style={{ top: `${topPct}%`, height: `${Math.max(heightPct, 4)}%` }}
+                            key={event.key}
+                            className={`weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}`}
+                            style={{
+                              top: `${event.topPct}%`,
+                              height: `${Math.max(event.heightPct, 4)}%`,
+                              left: `calc(${overlapLeft}% + 2px)`,
+                              width: `calc(${Math.max(overlapWidth, 2)}% - 4px)`,
+                              right: "auto",
+                              borderColor: event.laneColor,
+                              backgroundColor: event.fillColor,
+                            }}
                           >
-                            <strong>{item.subject_name}</strong>
-                            {enableAlternatingWeeks && item.week_type ? <small>Week {item.week_type}</small> : null}
-                            <small>{classLabel}</small>
-                            <small>{ts?.start_time}-{ts?.end_time}</small>
+                            <strong>{event.title}</strong>
+                            {enableAlternatingWeeks && event.weekType ? <small>Week {event.weekType}</small> : null}
+                            {compareEntities.length > 0 ? (
+                              <small>{event.laneEntityLabel}</small>
+                            ) : (
+                              <small>{event.classLabel}</small>
+                            )}
+                            {compareEntities.length > 0 ? <small>{event.classLabel}</small> : null}
+                            <small>{event.teacherLabel}</small>
+                            <small>{event.ts?.start_time}-{event.ts?.end_time}</small>
                           </article>
                         );
-                      })}
+                      });
+                    })()}
                   </div>
                 ))}
               </div>
