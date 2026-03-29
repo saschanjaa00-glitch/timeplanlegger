@@ -37,6 +37,7 @@ type Meeting = {
 type SchoolClass = {
   id: string;
   name: string;
+  base_room_id?: string;
 };
 
 type Timeslot = {
@@ -61,7 +62,12 @@ type Block = {
   subject_ids?: string[];
 };
 
-type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "teachers" | "generate";
+type Room = {
+  id: string;
+  name: string;
+};
+
+type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate";
 
 type WeekMode = "A" | "B";
 
@@ -96,6 +102,7 @@ type ScheduledItem = {
   day: string;
   period: number;
   week_type?: "A" | "B";
+  room_id?: string;
 };
 
 type GenerateResponse = {
@@ -141,6 +148,7 @@ const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "faggrupper", label: "Fellesfag" },
   { id: "blocks", label: "Blocks" },
   { id: "meetings", label: "Møter" },
+  { id: "rom", label: "Rom" },
   { id: "teachers", label: "Teachers" },
   { id: "generate", label: "Generate" },
 ];
@@ -520,6 +528,7 @@ export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
+  const [rooms, setRooms] = useState<Room[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
   const [weekCalendarSetups, setWeekCalendarSetups] = useState<WeekCalendarSetup[]>([]);
@@ -542,8 +551,11 @@ export default function Home() {
     teacher_modes: {},
   });
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
+  const [expandedMeetings, setExpandedMeetings] = useState<Set<string>>(new Set());
   const [meetingTeacherSearchQuery, setMeetingTeacherSearchQuery] = useState("");
   const [meetingAvdelingFilter, setMeetingAvdelingFilter] = useState("all");
+  const [roomForm, setRoomForm] = useState({ name: "" });
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [subjectClassSelectionBySubject, setSubjectClassSelectionBySubject] = useState<Record<string, string>>({});
@@ -609,6 +621,7 @@ export default function Home() {
         subjects: Subject[];
         teachers: Teacher[];
         meetings: Meeting[];
+        rooms: Room[];
         classes: SchoolClass[];
         timeslots: Timeslot[];
         weekCalendarSetups: WeekCalendarSetup[];
@@ -630,6 +643,9 @@ export default function Home() {
       }
       if (Array.isArray(parsed.meetings)) {
         setMeetings(parsed.meetings.map((meeting) => normalizeMeeting(meeting)));
+      }
+      if (Array.isArray(parsed.rooms)) {
+        setRooms(parsed.rooms);
       }
       if (Array.isArray(parsed.classes)) {
         setClasses(parsed.classes);
@@ -676,6 +692,7 @@ export default function Home() {
       subjects,
       teachers,
       meetings,
+      rooms,
       classes,
       timeslots,
       weekCalendarSetups,
@@ -695,6 +712,7 @@ export default function Home() {
     subjects,
     teachers,
     meetings,
+    rooms,
     classes,
     timeslots,
     weekCalendarSetups,
@@ -755,6 +773,10 @@ export default function Home() {
   const sortedClasses = useMemo(() => {
     return [...classes].sort((a, b) => a.name.localeCompare(b.name));
   }, [classes]);
+
+  const sortedRooms = useMemo(() => {
+    return [...rooms].sort((a, b) => a.name.localeCompare(b.name));
+  }, [rooms]);
 
   const sortedTeachersByFirstName = useMemo(() => {
     return [...teachers].sort((a, b) => {
@@ -921,6 +943,51 @@ export default function Home() {
       resetMeetingForm();
     }
     setStatusText(`Deleted meeting ${meetingName}.`);
+  }
+
+  function upsertRoom() {
+    const name = roomForm.name.trim();
+    if (!name) {
+      setStatusText("Room name is required.");
+      return;
+    }
+
+    if (editingRoomId) {
+      setRooms((prev) => prev.map((room) => (
+        room.id === editingRoomId
+          ? { ...room, name }
+          : room
+      )));
+      setStatusText(`Updated room ${name}.`);
+      setRoomForm({ name: "" });
+      setEditingRoomId(null);
+      return;
+    }
+
+    const id = makeUniqueId(`room_${toSlug(name) || "item"}`, rooms.map((room) => room.id));
+    setRooms((prev) => [...prev, { id, name }]);
+    setStatusText(`Added room ${name}.`);
+    setRoomForm({ name: "" });
+  }
+
+  function deleteRoom(roomId: string) {
+    const roomName = rooms.find((room) => room.id === roomId)?.name ?? roomId;
+    setRooms((prev) => prev.filter((room) => room.id !== roomId));
+    setClasses((prev) => prev.map((cls) => (
+      cls.base_room_id === roomId
+        ? { ...cls, base_room_id: undefined }
+        : cls
+    )));
+    if (editingRoomId === roomId) {
+      setRoomForm({ name: "" });
+      setEditingRoomId(null);
+    }
+    setStatusText(`Deleted room ${roomName}.`);
+  }
+
+  function loadRoomIntoForm(room: Room) {
+    setRoomForm({ name: room.name });
+    setEditingRoomId(room.id);
   }
 
   function resolveTeacherIdFromInput(inputValue: string): string | null {
@@ -2220,6 +2287,7 @@ export default function Home() {
         subjects,
         teachers,
         meetings,
+        rooms,
         classes,
         timeslots,
         alternating_weeks_enabled: enableAlternatingWeeks,
@@ -3326,15 +3394,7 @@ export default function Home() {
                       className={`meeting-teacher-toggle ${mode ?? "available"}`}
                       onClick={() => cycleMeetingTeacherMode(teacher.id)}
                     >
-                      <strong>{teacher.name}</strong>
-                      <small>{teacher.avdeling ? `Avdeling: ${teacher.avdeling}` : "No avdeling"}</small>
-                      <small>
-                        {mode === "unavailable"
-                          ? "Busy"
-                          : mode === "preferred"
-                            ? "Prefer busy"
-                            : "Available"}
-                      </small>
+                      {teacher.name}{teacher.avdeling ? ` (${teacher.avdeling})` : ""}
                     </button>
                   );
                 })}
@@ -3370,6 +3430,8 @@ export default function Home() {
                   .filter((assignment) => assignment.mode === "unavailable")
                   .map((assignment) => teacherNameById[assignment.teacher_id] ?? assignment.teacher_id);
 
+                const isExpanded = expandedMeetings.has(meeting.id);
+                const totalAssigned = meeting.teacher_assignments.length;
                 return (
                   <div key={meeting.id} className="meeting-item">
                     <div className="meeting-item-header">
@@ -3380,6 +3442,17 @@ export default function Home() {
                         </p>
                       </div>
                       <div className="meeting-item-actions">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => setExpandedMeetings((prev) => {
+                            const next = new Set(prev);
+                            if (next.has(meeting.id)) next.delete(meeting.id); else next.add(meeting.id);
+                            return next;
+                          })}
+                        >
+                          {isExpanded ? "▲ Hide" : `▼ Show (${totalAssigned})`}
+                        </button>
                         <button type="button" className="secondary" onClick={() => loadMeetingIntoForm(meeting)}>
                           Edit
                         </button>
@@ -3389,6 +3462,7 @@ export default function Home() {
                       </div>
                     </div>
 
+                    {isExpanded && (
                     <div className="meeting-summary-grid">
                       <div>
                         <span className="meeting-summary-label">Busy</span>
@@ -3407,10 +3481,110 @@ export default function Home() {
                         </div>
                       </div>
                     </div>
+                    )}
                   </div>
                 );
               })
             )}
+          </div>
+        </article>
+      </section>
+      )}
+
+      {activeTab === "rom" && (
+      <section className="grid">
+        <article className="card">
+          <h2>Rooms (Rom)</h2>
+          <p>Add rooms and assign a base room to each class for their common subjects (fellesfag).</p>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", marginBottom: "12px", alignItems: "end" }}>
+            <input
+              type="text"
+              placeholder="Room name (e.g. 101, A301, Sal)"
+              value={roomForm.name}
+              onChange={(e) => setRoomForm({ name: e.target.value })}
+              onKeyDown={(e) => { if (e.key === "Enter") upsertRoom(); }}
+              style={{ fontSize: "0.86em", padding: "6px 8px", border: "1px solid #ccc" }}
+            />
+            <button
+              type="button"
+              onClick={() => {
+                upsertRoom();
+              }}
+              style={{ padding: "6px 12px", whiteSpace: "nowrap" }}
+            >
+              {editingRoomId ? "Update Room" : "Add Room"}
+            </button>
+            {editingRoomId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRoomForm({ name: "" });
+                  setEditingRoomId(null);
+                }}
+                className="secondary"
+                style={{ gridColumn: "2", padding: "6px 12px", whiteSpace: "nowrap" }}
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+
+          <div className="list" style={{ maxHeight: "150px" }}>
+            {sortedRooms.length === 0 ? (
+              <p className="meeting-empty">No rooms added yet.</p>
+            ) : (
+              sortedRooms.map((room) => (
+                <div key={room.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px", borderBottom: "1px solid #eee" }}>
+                  <span>{room.name}</span>
+                  <div style={{ display: "flex", gap: "6px" }}>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => loadRoomIntoForm(room)}
+                      style={{ padding: "4px 8px", fontSize: "0.75em" }}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => deleteRoom(room.id)}
+                      style={{ padding: "4px 8px", fontSize: "0.75em", color: "#c53" }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <h3 style={{ marginTop: "16px" }}>Base Room per Class</h3>
+          <p style={{ fontSize: "0.85em", color: "#666" }}>Assign a base room for each class, which will be used for their fellesfag (common subjects).</p>
+          <div style={{ display: "grid", gap: "12px" }}>
+            {sortedClasses.map((cls) => (
+              <div key={cls.id} style={{ display: "grid", gridTemplateColumns: "150px 1fr", gap: "8px", alignItems: "center", padding: "8px", border: "1px solid #ddd", borderRadius: "4px" }}>
+                <label style={{ fontWeight: 500, fontSize: "0.9em" }}>{cls.name}</label>
+                <select
+                  value={cls.base_room_id ?? ""}
+                  onChange={(e) => {
+                    const newRoomId = e.target.value || undefined;
+                    setClasses((prev) => prev.map((c) => (
+                      c.id === cls.id
+                        ? { ...c, base_room_id: newRoomId }
+                        : c
+                    )));
+                  }}
+                  style={{ padding: "6px 8px", fontSize: "0.86em", border: "1px solid #ccc", borderRadius: "3px" }}
+                >
+                  <option value="">— No base room —</option>
+                  {sortedRooms.map((room) => (
+                    <option key={room.id} value={room.id}>{room.name}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
           </div>
         </article>
       </section>

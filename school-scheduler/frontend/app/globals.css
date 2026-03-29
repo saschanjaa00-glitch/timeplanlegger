@@ -102,7 +102,6 @@ p {
   display: inline-flex;
   align-items: center;
   border: 1px solid #c8c0b2;
-  padding: 0.16rem 0.42rem;
   font-size: 0.72rem;
   letter-spacing: 0.02em;
   background: #f5f2eb;
@@ -131,9 +130,9 @@ p {
 }
 
 .meeting-teacher-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
   max-height: 360px;
   overflow-y: auto;
   padding-right: 0.12rem;
@@ -158,10 +157,8 @@ p {
   background: #fffdfa;
   color: #1f1f1d;
   text-align: left;
-  padding: 0.45rem 0.5rem;
-  min-height: 64px;
-  display: grid;
-  gap: 0.15rem;
+  padding: 0.2rem 0.5rem;
+  font-size: 0.82rem;
 }
 
 .meeting-teacher-toggle.available {
@@ -178,14 +175,7 @@ p {
   background: #f5c4c4;
 }
 
-.meeting-teacher-toggle strong {
-  font-size: 0.82rem;
-}
 
-.meeting-teacher-toggle small {
-  font-size: 0.7rem;
-  color: #5a5347;
-}
 
 .meeting-actions-row {
   display: grid;
@@ -202,7 +192,8 @@ p {
   border: 1px solid #d7d1c6;
   background: #faf7f0;
   padding: 0.5rem;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 0.45rem;
 }
 
@@ -1154,6 +1145,10 @@ button.secondary {
 .list.classes-setup-list {
   height: 510px;
   max-height: 510px;
+}
+
+.list.meeting-list {
+  max-height: 600px;
 }
 
 .list.subject-card-list {
