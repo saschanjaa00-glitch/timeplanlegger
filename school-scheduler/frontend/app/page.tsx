@@ -51,14 +51,31 @@ type Timeslot = {
   is_lunch?: boolean;
 };
 
+type BlockOccurrence = {
+  id: string;
+  day: string;
+  start_time: string;
+  end_time: string;
+  week_type: "A" | "B" | "both";
+};
+
+type BlockSubjectEntry = {
+  subject_id: string;
+  teacher_id: string;
+  preferred_room_id: string;
+};
+
 type Block = {
   id: string;
   name: string;
-  timeslot_ids: string[];
+  occurrences: BlockOccurrence[];
+  class_ids: string[];
+  subject_entries: BlockSubjectEntry[];
+  // Legacy fields kept for backwards compatibility
+  timeslot_ids?: string[];
   week_pattern?: "both" | "A" | "B";
   a_week_lessons?: number;
   b_week_lessons?: number;
-  class_ids?: string[];
   subject_ids?: string[];
 };
 
@@ -165,11 +182,28 @@ function normalizeBlock(block: Partial<Block>): Block {
   return {
     id: block.id ?? "",
     name: block.name ?? "",
+    occurrences: Array.isArray(block.occurrences)
+      ? block.occurrences.map((o, i) => ({
+          id: typeof o.id === "string" && o.id ? o.id : `occ_${i}_${block.id ?? "x"}`,
+          day: typeof o.day === "string" ? o.day : "Monday",
+          start_time: typeof o.start_time === "string" ? o.start_time : "",
+          end_time: typeof o.end_time === "string" ? o.end_time : "",
+          week_type: o.week_type === "A" || o.week_type === "B" ? o.week_type : "both",
+        }))
+      : [],
+    class_ids: Array.isArray(block.class_ids) ? block.class_ids : [],
+    subject_entries: Array.isArray(block.subject_entries)
+      ? block.subject_entries.map((se) => ({
+          subject_id: se.subject_id ?? "",
+          teacher_id: se.teacher_id ?? "",
+          preferred_room_id: se.preferred_room_id ?? "",
+        }))
+      : [],
+    // Legacy fields
     timeslot_ids: Array.isArray(block.timeslot_ids) ? block.timeslot_ids : [],
     week_pattern: block.week_pattern === "A" || block.week_pattern === "B" ? block.week_pattern : "both",
     a_week_lessons: typeof block.a_week_lessons === "number" ? block.a_week_lessons : 5,
     b_week_lessons: typeof block.b_week_lessons === "number" ? block.b_week_lessons : 5,
-    class_ids: Array.isArray(block.class_ids) ? block.class_ids : [],
     subject_ids: Array.isArray(block.subject_ids) ? block.subject_ids : [],
   };
 }
@@ -595,17 +629,34 @@ export default function Home() {
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
   const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
-  const [blockForm, setBlockForm] = useState({
+  const [blockForm, setBlockForm] = useState<{
+    name: string;
+    occurrences: BlockOccurrence[];
+    class_ids: string[];
+    subject_entries: BlockSubjectEntry[];
+  }>({
     name: "",
-    timeslot_ids: "",
-    week_pattern: "both" as WeekView,
-    a_week_lessons: "5",
-    b_week_lessons: "5",
-    class_ids: [] as string[],
-    subject_ids: [] as string[],
+    occurrences: [],
+    class_ids: [],
+    subject_entries: [],
+  });
+  const [editingBlockId, setEditingBlockId] = useState<string | null>(null);
+  const [blockOccForm, setBlockOccForm] = useState({
+    day: "Monday",
+    start_time: "08:20",
+    end_time: "09:50",
+    week_type: "both" as WeekView,
+  });
+  const [blockSubjForm, setBlockSubjForm] = useState({
+    subject_id: "",
+    teacher_id: "",
+    preferred_room_id: "",
+    new_subject_name: "",
   });
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const [expandedTeacherId, setExpandedTeacherId] = useState<string | null>(null);
+  const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
+  const [blockInlineSubjNames, setBlockInlineSubjNames] = useState<Record<string, string>>({});
   const excelFileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -1245,6 +1296,20 @@ export default function Home() {
     return marks;
   }, []);
 
+  // Build a map: subject_id → block info (for displaying block name in schedules)
+  const subjectToBlockInfo = useMemo(() => {
+    const map = new Map<string, { block_id: string; block_name: string }>();
+    for (const block of blocks) {
+      for (const entry of block.subject_entries ?? []) {
+        map.set(entry.subject_id, { block_id: block.id, block_name: block.name });
+      }
+      for (const subject_id of block.subject_ids ?? []) {
+        map.set(subject_id, { block_id: block.id, block_name: block.name });
+      }
+    }
+    return map;
+  }, [blocks]);
+
   useEffect(() => {
     timeslotsRef.current = timeslots;
   }, [timeslots]);
@@ -1257,7 +1322,7 @@ export default function Home() {
 
     setBlocks((prev) => prev.map((block) => ({
       ...block,
-      timeslot_ids: Array.from(new Set(block.timeslot_ids.map(remapId))),
+      timeslot_ids: Array.from(new Set((block.timeslot_ids ?? []).map(remapId))),
     })));
 
     setTeachers((prev) => prev.map((teacher) => ({
@@ -1833,6 +1898,7 @@ export default function Home() {
     setBlocks((prev) => prev.map((block) => ({
       ...block,
       subject_ids: (block.subject_ids ?? []).filter((id) => id !== subjectId),
+      subject_entries: (block.subject_entries ?? []).filter((se) => se.subject_id !== subjectId),
     })));
 
     setStatusText(`Removed fellesfag ${subjectName} from ${className}.`);
@@ -2136,36 +2202,170 @@ export default function Home() {
     setStatusText(`Updated timeslot ${normalizedId}.`);
   }
 
-  function addBlock() {
-    if (!blockForm.name) {
-      return;
-    }
-    const selectedClassIds = blockForm.class_ids.filter((id) => classes.some((c) => c.id === id));
-    const selectedSubjectIds = blockForm.subject_ids.filter((id) => subjects.some((s) => s.id === id));
+  function resetBlockForm() {
+    setBlockForm({ name: "", occurrences: [], class_ids: [], subject_entries: [] });
+    setBlockOccForm({ day: "Monday", start_time: "08:20", end_time: "09:50", week_type: "both" });
+    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
+    setEditingBlockId(null);
+  }
 
-    const id = makeUniqueId(`block_${toSlug(blockForm.name) || "item"}`, blocks.map((b) => b.id));
-    setBlocks((prev) => [
+  function addOccurrenceToBlockForm() {
+    if (!blockOccForm.start_time || !blockOccForm.end_time) return;
+    const occ: BlockOccurrence = {
+      id: `occ_${Date.now()}`,
+      day: blockOccForm.day,
+      start_time: blockOccForm.start_time,
+      end_time: blockOccForm.end_time,
+      week_type: blockOccForm.week_type,
+    };
+    setBlockForm((prev) => ({ ...prev, occurrences: [...prev.occurrences, occ] }));
+  }
+
+  function removeOccurrenceFromBlockForm(occId: string) {
+    setBlockForm((prev) => ({ ...prev, occurrences: prev.occurrences.filter((o) => o.id !== occId) }));
+  }
+
+  function toggleBlockClass(classId: string) {
+    setBlockForm((prev) => ({
       ...prev,
-      {
-        id,
-        name: blockForm.name,
-        timeslot_ids: splitCsv(blockForm.timeslot_ids),
-        week_pattern: blockForm.week_pattern,
-        a_week_lessons: Number(blockForm.a_week_lessons) || 0,
-        b_week_lessons: Number(blockForm.b_week_lessons) || 0,
-        class_ids: selectedClassIds,
-        subject_ids: selectedSubjectIds,
-      },
-    ]);
-    setBlockForm({
-      name: "",
-      timeslot_ids: "",
-      week_pattern: "both",
-      a_week_lessons: "5",
-      b_week_lessons: "5",
+      class_ids: prev.class_ids.includes(classId)
+        ? prev.class_ids.filter((id) => id !== classId)
+        : [...prev.class_ids, classId],
+    }));
+  }
+
+  function blockOccurrenceSessionCount(occurrences: BlockOccurrence[] | undefined): number {
+    return Math.max(1, occurrences?.length ?? 0);
+  }
+
+  function addSubjectToBlockForm() {
+    if (!blockSubjForm.subject_id) return;
+    if (blockForm.subject_entries.some((se) => se.subject_id === blockSubjForm.subject_id)) return;
+    const nextSessions = blockOccurrenceSessionCount(blockForm.occurrences);
+    setSubjects((prev) => prev.map((subject) => (
+      subject.id === blockSubjForm.subject_id
+        ? { ...subject, sessions_per_week: nextSessions }
+        : subject
+    )));
+    setBlockForm((prev) => ({
+      ...prev,
+      subject_entries: [
+        ...prev.subject_entries,
+        { subject_id: blockSubjForm.subject_id, teacher_id: blockSubjForm.teacher_id, preferred_room_id: blockSubjForm.preferred_room_id },
+      ],
+    }));
+    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
+  }
+
+  function createAndAddSubjectToBlock() {
+    const name = blockSubjForm.new_subject_name.trim();
+    if (!name) return;
+    const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
+    const occurrenceCount = blockOccurrenceSessionCount(blockForm.occurrences);
+    const newSubject: Subject = {
+      id,
+      name,
+      teacher_id: blockSubjForm.teacher_id,
       class_ids: [],
-      subject_ids: [],
+      subject_type: "programfag",
+      sessions_per_week: occurrenceCount,
+    };
+    setSubjects((prev) => [...prev, newSubject]);
+    if (!blockForm.subject_entries.some((se) => se.subject_id === id)) {
+      setBlockForm((prev) => ({
+        ...prev,
+        subject_entries: [
+          ...prev.subject_entries,
+          { subject_id: id, teacher_id: blockSubjForm.teacher_id, preferred_room_id: blockSubjForm.preferred_room_id },
+        ],
+      }));
+    }
+    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
+  }
+
+  function createAndAddSubjectToSavedBlock(blockId: string) {
+    const name = (blockInlineSubjNames[blockId] ?? "").trim();
+    if (!name) return;
+    const block = blocks.find((b) => b.id === blockId);
+    const occurrenceCount = blockOccurrenceSessionCount(block?.occurrences);
+    const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
+    setSubjects((prev) => [...prev, { id, name, teacher_id: "", class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount }]);
+    setBlocks((prev) => prev.map((b) =>
+      b.id !== blockId ? b : {
+        ...b,
+        subject_entries: b.subject_entries.some((se) => se.subject_id === id)
+          ? b.subject_entries
+          : [...b.subject_entries, { subject_id: id, teacher_id: "", preferred_room_id: "" }],
+      }
+    ));
+    setBlockInlineSubjNames((prev) => ({ ...prev, [blockId]: "" }));
+  }
+
+  function removeSubjectFromBlockForm(subjectId: string) {
+    setBlockForm((prev) => ({
+      ...prev,
+      subject_entries: prev.subject_entries.filter((se) => se.subject_id !== subjectId),
+    }));
+  }
+
+  function updateBlockSubjectEntry(blockId: string, subjectId: string, patch: Partial<BlockSubjectEntry>) {
+    setBlocks((prev) => prev.map((b) =>
+      b.id !== blockId ? b : {
+        ...b,
+        subject_entries: b.subject_entries.map((se) =>
+          se.subject_id !== subjectId ? se : { ...se, ...patch }
+        ),
+      }
+    ));
+  }
+
+  function loadBlockIntoForm(block: Block) {
+    setBlockForm({
+      name: block.name,
+      occurrences: block.occurrences ?? [],
+      class_ids: block.class_ids ?? [],
+      subject_entries: block.subject_entries ?? [],
     });
+    setEditingBlockId(block.id);
+  }
+
+  function deleteBlock(blockId: string) {
+    setBlocks((prev) => prev.filter((b) => b.id !== blockId));
+    if (editingBlockId === blockId) resetBlockForm();
+  }
+
+  function upsertBlock() {
+    if (!blockForm.name) return;
+    const nextSessions = blockOccurrenceSessionCount(blockForm.occurrences);
+    const blockSubjectIds = new Set(blockForm.subject_entries.map((se) => se.subject_id));
+    if (blockSubjectIds.size > 0) {
+      setSubjects((prev) => prev.map((subject) => (
+        blockSubjectIds.has(subject.id)
+          ? { ...subject, sessions_per_week: nextSessions }
+          : subject
+      )));
+    }
+    if (editingBlockId) {
+      setBlocks((prev) => prev.map((b) =>
+        b.id === editingBlockId
+          ? { ...b, name: blockForm.name, occurrences: blockForm.occurrences, class_ids: blockForm.class_ids, subject_entries: blockForm.subject_entries }
+          : b
+      ));
+    } else {
+      const id = makeUniqueId(`block_${toSlug(blockForm.name) || "item"}`, blocks.map((b) => b.id));
+      setBlocks((prev) => [
+        ...prev,
+        {
+          id,
+          name: blockForm.name,
+          occurrences: blockForm.occurrences,
+          class_ids: blockForm.class_ids,
+          subject_entries: blockForm.subject_entries,
+          timeslot_ids: [],
+        },
+      ]);
+    }
+    resetBlockForm();
   }
 
   function removeTimeslot(timeslotId: string) {
@@ -2180,7 +2380,7 @@ export default function Home() {
 
     setBlocks((prev) => prev.map((block) => ({
       ...block,
-      timeslot_ids: Array.from(new Set(block.timeslot_ids.filter((id) => id !== timeslotId).map(remapId))),
+      timeslot_ids: Array.from(new Set((block.timeslot_ids ?? []).filter((id) => id !== timeslotId).map(remapId))),
     })));
 
     setTeachers((prev) => prev.map((teacher) => ({
@@ -2309,6 +2509,7 @@ export default function Home() {
     setBlocks((prev) => prev.map((block) => ({
       ...block,
       subject_ids: (block.subject_ids ?? []).filter((id) => !toRemove.has(id)),
+      subject_entries: (block.subject_entries ?? []).filter((se) => !toRemove.has(se.subject_id)),
     })));
     setStatusText(`Deleted subject and ${toRemove.size - 1} class assignment(s).`);
   }
@@ -2319,32 +2520,54 @@ export default function Home() {
     setSchedule([]);
 
     try {
+      // Ensure all arrays are properly defined
+      const cleanSubjects = subjects.map(s => ({
+        ...s,
+        class_ids: s.class_ids ?? [],
+        sessions_per_week: s.sessions_per_week || 1,
+        allowed_block_ids: s.allowed_block_ids ?? undefined,
+        allowed_timeslots: s.allowed_timeslots ?? undefined,
+      })).filter(s => s.id); // Remove entries with no id
+
       const payload = {
-        subjects,
-        teachers,
-        meetings,
-        rooms,
-        classes,
-        timeslots,
+        subjects: cleanSubjects,
+        teachers: teachers ?? [],
+        meetings: meetings ?? [],
+        rooms: rooms ?? [],
+        classes: classes ?? [],
+        timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
-        blocks: blocks.map((block) => ({
+        blocks: (blocks ?? []).map((block) => ({
           id: block.id,
           name: block.name,
-          timeslot_ids: block.timeslot_ids,
-          week_pattern: block.week_pattern,
+          occurrences: block.occurrences ?? [],
           class_ids: block.class_ids ?? [],
+          subject_entries: block.subject_entries ?? [],
+          timeslot_ids: block.timeslot_ids ?? [],
           subject_ids: block.subject_ids ?? [],
         })),
       };
 
+      let bodyStr: string;
+      try {
+        bodyStr = JSON.stringify(payload);
+      } catch (err) {
+        throw new Error(`Could not serialize payload: ${err instanceof Error ? err.message : String(err)}`);
+      }
+
       const res = await fetch(`${API_BASE}/generate-schedule`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: bodyStr,
       });
 
       if (!res.ok) {
-        throw new Error(`Server error ${res.status}`);
+        let detail = `Server error ${res.status}`;
+        try {
+          const errBody = await res.json();
+          if (errBody?.detail) detail = `Error: ${errBody.detail}`;
+        } catch (_) { /* ignore parse failure */ }
+        throw new Error(detail);
       }
 
       const data: GenerateResponse = await res.json();
@@ -3258,82 +3481,226 @@ export default function Home() {
       {activeTab === "blocks" && (
       <section className="grid">
         <article className="card">
-          <h2>Blocks</h2>
-          <p>Assign block timing, A/B week lesson count, and connected classes/subjects.</p>
-          <form onSubmit={(e) => { e.preventDefault(); addBlock(); }}>
-            <label>Name</label>
-            <input value={blockForm.name} onChange={(e) => setBlockForm((s) => ({ ...s, name: e.target.value }))} />
-            <label>Timeslot IDs in Block (comma-separated)</label>
+          <h2>Blokker</h2>
+          <p>Define program blocks (e.g. Blokk 1, 2, 3) with their scheduled times, participating classes, and subjects.</p>
+          <form onSubmit={(e) => { e.preventDefault(); upsertBlock(); }}>
+            <label>Block Name</label>
             <input
-              value={blockForm.timeslot_ids}
-              onChange={(e) => setBlockForm((s) => ({ ...s, timeslot_ids: e.target.value }))}
+              value={blockForm.name}
+              onChange={(e) => setBlockForm((s) => ({ ...s, name: e.target.value }))}
+              placeholder="Blokk 1"
             />
-            <label>Week Pattern</label>
-            <select
-              value={blockForm.week_pattern}
-              onChange={(e) => setBlockForm((s) => ({ ...s, week_pattern: parseWeekView(e.target.value) }))}
-            >
-              <option value="both">Both weeks</option>
-              <option value="A">A-week only</option>
-              <option value="B">B-week only</option>
-            </select>
-            <label>A-week lessons (x45m)</label>
-            <input
-              type="number"
-              min={0}
-              value={blockForm.a_week_lessons}
-              onChange={(e) => setBlockForm((s) => ({ ...s, a_week_lessons: e.target.value }))}
-            />
-            <label>B-week lessons (x45m)</label>
-            <input
-              type="number"
-              min={0}
-              value={blockForm.b_week_lessons}
-              onChange={(e) => setBlockForm((s) => ({ ...s, b_week_lessons: e.target.value }))}
-            />
-            <label>Classes in Block</label>
-            <select
-              multiple
-              value={blockForm.class_ids}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                setBlockForm((s) => ({ ...s, class_ids: selected }));
-              }}
-            >
-              {sortedClasses.map((cls) => (
-                <option key={cls.id} value={cls.id}>
-                  {cls.name}
-                </option>
-              ))}
-            </select>
-            <label>Subjects in Block</label>
-            <select
-              multiple
-              value={blockForm.subject_ids}
-              onChange={(e) => {
-                const selected = Array.from(e.target.selectedOptions).map((option) => option.value);
-                setBlockForm((s) => ({ ...s, subject_ids: selected }));
-              }}
-            >
-              {subjects.map((subject) => (
-                <option key={subject.id} value={subject.id}>
-                  {subject.name} ({subject.id})
-                </option>
-              ))}
-            </select>
-            <button type="submit">Add Block</button>
-          </form>
-          <div className="list">
-            {blocks
-              .filter((block) => weekView === "both" || block.week_pattern === "both" || block.week_pattern === weekView)
-              .map((b) => (
-              <div key={b.id} className="item">
-                {b.id} - {b.name} | {b.week_pattern ?? "both"} | A:{b.a_week_lessons ?? 0} x45 | B:{b.b_week_lessons ?? 0} x45
-                {b.class_ids?.length ? ` | classes: ${b.class_ids.join(", ")}` : ""}
-                {b.subject_ids?.length ? ` | subjects: ${b.subject_ids.join(", ")}` : ""}
+
+            <label style={{ marginTop: "12px" }}>Times</label>
+            <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "6px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Day</span>
+                <select
+                  value={blockOccForm.day}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, day: e.target.value }))}
+                  style={{ fontSize: "0.86em" }}
+                >
+                  {calendarDays.map((day) => (
+                    <option key={day} value={day}>{day}</option>
+                  ))}
+                </select>
               </div>
-            ))}
-          </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Start</span>
+                <input
+                  type="time"
+                  value={blockOccForm.start_time}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, start_time: e.target.value }))}
+                  style={{ fontSize: "0.86em", width: "105px" }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>End</span>
+                <input
+                  type="time"
+                  value={blockOccForm.end_time}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, end_time: e.target.value }))}
+                  style={{ fontSize: "0.86em", width: "105px" }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Week</span>
+                <select
+                  value={blockOccForm.week_type}
+                  onChange={(e) => setBlockOccForm((s) => ({ ...s, week_type: parseWeekView(e.target.value) }))}
+                  style={{ fontSize: "0.86em" }}
+                >
+                  <option value="both">Both</option>
+                  <option value="A">A week</option>
+                  <option value="B">B week</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={addOccurrenceToBlockForm}
+                disabled={!blockOccForm.start_time || !blockOccForm.end_time}
+                style={{ padding: "4px 10px", fontSize: "0.85em", whiteSpace: "nowrap" }}
+              >
+                + Add Time
+              </button>
+            </div>
+            {blockForm.occurrences.length > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginBottom: "8px" }}>
+                {blockForm.occurrences.map((occ) => (
+                  <div key={occ.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", fontSize: "0.85em" }}>
+                    <span>{occ.day} {occ.start_time}–{occ.end_time} · {occ.week_type === "both" ? "Both weeks" : occ.week_type + " week"}</span>
+                    <button type="button" className="secondary" onClick={() => removeOccurrenceFromBlockForm(occ.id)} style={{ padding: "2px 6px", fontSize: "0.78em", color: "#c53" }}>✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <label style={{ marginTop: "8px" }}>Classes (who can pick subjects from this block)</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "8px" }}>
+              {sortedClasses.length === 0 ? (
+                <span style={{ fontSize: "0.85em", color: "#999" }}>No classes added yet.</span>
+              ) : (
+                sortedClasses.map((cls) => (
+                  <button
+                    key={cls.id}
+                    type="button"
+                    onClick={() => toggleBlockClass(cls.id)}
+                    style={{
+                      padding: "3px 10px",
+                      fontSize: "0.82em",
+                      borderRadius: "12px",
+                      border: "1px solid",
+                      borderColor: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#ccc",
+                      background: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#fff",
+                      color: blockForm.class_ids.includes(cls.id) ? "#fff" : "#333",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {cls.name}
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
+              <button type="submit">{editingBlockId ? "Update Block" : "Add Block"}</button>
+              {editingBlockId && (
+                <button type="button" className="secondary" onClick={resetBlockForm}>Cancel</button>
+              )}
+            </div>
+          </form>
+        </article>
+
+        <article className="card">
+          <h2>Block List</h2>
+          {blocks.length === 0 ? (
+            <p style={{ color: "#999" }}>No blocks added yet.</p>
+          ) : (
+            <div className="list" style={{ maxHeight: "600px" }}>
+              {blocks.map((block) => {
+                const classNames = (block.class_ids ?? []).map((id) => classes.find((c) => c.id === id)?.name ?? id).join(", ");
+                const isExpanded = expandedBlockId === block.id;
+                const subjectEntries = block.subject_entries ?? [];
+                return (
+                  <div key={block.id} className="item" style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <strong>{block.name}</strong>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button type="button" className="secondary" onClick={() => loadBlockIntoForm(block)} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Edit</button>
+                        <button type="button" className="secondary" onClick={() => deleteBlock(block.id)} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Delete</button>
+                      </div>
+                    </div>
+                    {(block.occurrences ?? []).length > 0 && (
+                      <div style={{ fontSize: "0.82em", color: "#555", display: "flex", flexWrap: "wrap", gap: "6px" }}>
+                        {block.occurrences.map((occ) => (
+                          <span key={occ.id} style={{ background: "#e8f4f8", padding: "1px 6px", borderRadius: "3px" }}>
+                            {occ.day} {occ.start_time}–{occ.end_time}{occ.week_type !== "both" ? ` (${occ.week_type})` : ""}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {classNames && <div style={{ fontSize: "0.82em", color: "#666" }}>Classes: {classNames}</div>}
+                    <div>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => setExpandedBlockId((prev) => prev === block.id ? null : block.id)}
+                        style={{ fontSize: "0.8em", padding: "2px 8px", width: "100%", textAlign: "left" }}
+                      >
+                        {isExpanded ? "▲ Hide" : `▼ Subjects (${subjectEntries.length})`}
+                      </button>
+                      {isExpanded && (
+                        <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "6px" }}>
+                          {subjectEntries.map((se) => {
+                            const subj = subjects.find((s) => s.id === se.subject_id);
+                            const searchKey = `block_${block.id}_${se.subject_id}`;
+                            return (
+                              <div key={se.subject_id} className="subject-teacher-row" style={{ background: "#fafafa", borderRadius: "4px", padding: "4px 8px" }}>
+                                <span className="subject-teacher-classname" style={{ fontSize: "0.85em", fontWeight: 600 }}>
+                                  {subj?.name ?? se.subject_id}
+                                </span>
+                                <div style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+                                  <div className="faggrupper-teacher-picker">
+                                    <input
+                                      list={`block-teacher-opts-${block.id}-${se.subject_id}`}
+                                      value={getTeacherInputValue(searchKey, se.teacher_id)}
+                                      onChange={(e) => {
+                                        const nextValue = e.target.value;
+                                        setTeacherSearchBySubjectEntity((prev) => ({ ...prev, [searchKey]: nextValue }));
+                                        const resolvedId = resolveTeacherIdFromInput(nextValue);
+                                        if (resolvedId !== null) {
+                                          updateBlockSubjectEntry(block.id, se.subject_id, { teacher_id: resolvedId });
+                                        }
+                                      }}
+                                      placeholder="Assign teacher"
+                                      style={{ fontSize: "0.85em" }}
+                                    />
+                                    <datalist id={`block-teacher-opts-${block.id}-${se.subject_id}`}>
+                                      {filterTeachersForQuery(teacherSearchBySubjectEntity[searchKey] ?? "").map((t) => (
+                                        <option key={t.id} value={t.name} />
+                                      ))}
+                                    </datalist>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="secondary"
+                                    onClick={() => {
+                                      setBlocks((prev) => prev.map((b) =>
+                                        b.id !== block.id ? b : { ...b, subject_entries: b.subject_entries.filter((s) => s.subject_id !== se.subject_id) }
+                                      ));
+                                    }}
+                                    style={{ padding: "2px 6px", fontSize: "0.78em", color: "#c53", flexShrink: 0 }}
+                                  >✕</button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div style={{ display: "flex", gap: "6px", alignItems: "center", marginTop: "4px" }}>
+                            <input
+                              type="text"
+                              placeholder="New subject name"
+                              value={blockInlineSubjNames[block.id] ?? ""}
+                              onChange={(e) => setBlockInlineSubjNames((prev) => ({ ...prev, [block.id]: e.target.value }))}
+                              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createAndAddSubjectToSavedBlock(block.id); } }}
+                              style={{ fontSize: "0.84em", padding: "3px 6px", border: "1px solid #ccc", flex: 1 }}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => createAndAddSubjectToSavedBlock(block.id)}
+                              disabled={!(blockInlineSubjNames[block.id] ?? "").trim()}
+                              style={{ padding: "3px 10px", fontSize: "0.82em", whiteSpace: "nowrap" }}
+                            >
+                              + Add
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </article>
       </section>
       )}
@@ -4132,10 +4499,19 @@ export default function Home() {
                                 : 0;
                               const laneEntity = compareEntities[laneIndex];
                               const laneColor = laneEntity?.color ?? "#355070";
+                              
+                              // For class view, show block name instead of subject name if it's a block subject
+                              let displayTitle = item.subject_name;
+                              const isClassView = entityId.startsWith("class:");
+                              const blockInfo = subjectToBlockInfo.get(item.subject_id);
+                              if (isClassView && blockInfo) {
+                                displayTitle = blockInfo.block_name;
+                              }
+                              
                               return {
                                 key: `${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}_${entityId}_${entityRenderIndex}`,
                                 kind: "subject",
-                                title: item.subject_name,
+                                title: displayTitle,
                                 weekType: item.week_type,
                                 ts,
                                 classLabel,

@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 from .models import ScheduleRequest, ScheduleResponse
@@ -25,4 +25,7 @@ def health() -> dict[str, str]:
 
 @app.post("/generate-schedule", response_model=ScheduleResponse)
 def generate_schedule_endpoint(payload: ScheduleRequest) -> ScheduleResponse:
-    return generate_schedule(payload)
+    try:
+        return generate_schedule(payload)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

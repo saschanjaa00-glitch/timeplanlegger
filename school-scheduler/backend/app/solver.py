@@ -5,7 +5,7 @@ from typing import Dict, List, Set, Tuple
 
 from ortools.sat.python import cp_model
 
-from .models import Block, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
+from .models import Block, BlockOccurrence, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
 
 
 def _to_minutes(value: str | None) -> int | None:
@@ -25,14 +25,35 @@ def _to_minutes(value: str | None) -> int | None:
 
 
 def _timeslot_45m_units(timeslot: Timeslot) -> int:
-    start = _to_minutes(timeslot.start_time)
-    end = _to_minutes(timeslot.end_time)
-    if start is None or end is None or end <= start:
-        return 1
-    duration = end - start
-    # Convert slot duration to 45-minute session units.
-    # Typical 90-minute school slots become 2 units.
-    return max(1, int(round(duration / 45.0)))
+    # Scheduling units are slot-based in this project: one selected timeslot equals one unit.
+    # This keeps weekly load behavior intuitive in alternating weeks (e.g. 2 each week + 1 every second week).
+    return 1
+
+
+def _timeslots_overlapping_occurrence(
+    occurrence: BlockOccurrence,
+    all_timeslots: List[Timeslot],
+) -> Set[str]:
+    """
+    Return timeslot IDs whose day and time window overlaps the given block occurrence.
+    Overlap means: the timeslot starts before the occurrence ends AND ends after the occurrence starts.
+    """
+    occ_start = _to_minutes(occurrence.start_time)
+    occ_end = _to_minutes(occurrence.end_time)
+    matched: Set[str] = set()
+    for ts in all_timeslots:
+        if ts.day.lower() != occurrence.day.lower():
+            continue
+        ts_start = _to_minutes(ts.start_time)
+        ts_end = _to_minutes(ts.end_time)
+        if ts_start is None or ts_end is None or occ_start is None or occ_end is None:
+            # Fall back: if any time is missing, match by day only
+            matched.add(ts.id)
+            continue
+        # Overlap: ts starts before occ ends AND ts ends after occ starts
+        if ts_start < occ_end and ts_end > occ_start:
+            matched.add(ts.id)
+    return matched
 
 
 def _compute_allowed_timeslots(
@@ -68,6 +89,93 @@ def _compute_allowed_weeks(
 
     if not relevant_block_ids:
         return {"A", "B"}
+
+    allowed_weeks: Set[str] = set()
+    for block_id in relevant_block_ids:
+        block = blocks_by_id.get(block_id)
+        if not block:
+            continue
+        # Use occurrence week_types if available, else fall back to legacy week_pattern
+        if block.occurrences:
+            for occ in block.occurrences:
+                wt = (occ.week_type or "both").lower()
+                if wt == "a":
+                    allowed_weeks.add("A")
+                elif wt == "b":
+                    allowed_weeks.add("B")
+                else:
+                    allowed_weeks.update({"A", "B"})
+        else:
+            week_pattern = (block.week_pattern or "both").upper()
+            if week_pattern == "A":
+                allowed_weeks.add("A")
+            elif week_pattern == "B":
+                allowed_weeks.add("B")
+            else:
+                allowed_weeks.update({"A", "B"})
+
+    return allowed_weeks or {"A", "B"}
+
+
+def _minimum_required_units_from_blocks(
+    subject: Subject,
+    all_timeslot_ids: Set[str],
+    all_timeslots: List[Timeslot],
+    alternating_weeks_enabled: bool,
+    blocks_by_id: Dict[str, Block],
+    linked_block_ids: Dict[str, Set[str]],
+) -> int:
+    relevant_block_ids: Set[str] = set(subject.allowed_block_ids or [])
+    relevant_block_ids |= linked_block_ids.get(subject.id, set())
+    if not relevant_block_ids:
+        return 0
+
+    if not alternating_weeks_enabled:
+        forced_base_slots: Set[str] = set()
+        for block_id in relevant_block_ids:
+            block = blocks_by_id.get(block_id)
+            if not block:
+                continue
+            for occ in block.occurrences:
+                wt = (occ.week_type or "both").upper()
+                if wt in {"A", "B"}:
+                    # In non-alternating mode, A/B distinctions collapse into base week.
+                    forced_base_slots |= (_timeslots_overlapping_occurrence(occ, all_timeslots) & all_timeslot_ids)
+                else:
+                    forced_base_slots |= (_timeslots_overlapping_occurrence(occ, all_timeslots) & all_timeslot_ids)
+            for ts_id in block.timeslot_ids:
+                if ts_id in all_timeslot_ids:
+                    forced_base_slots.add(ts_id)
+        return len(forced_base_slots)
+
+    forced_a_slots: Set[str] = set()
+    forced_b_slots: Set[str] = set()
+    for block_id in relevant_block_ids:
+        block = blocks_by_id.get(block_id)
+        if not block:
+            continue
+
+        for occ in block.occurrences:
+            matched_slots = _timeslots_overlapping_occurrence(occ, all_timeslots) & all_timeslot_ids
+            wt = (occ.week_type or "both").upper()
+            if wt == "A":
+                forced_a_slots |= matched_slots
+            elif wt == "B":
+                forced_b_slots |= matched_slots
+            else:
+                forced_a_slots |= matched_slots
+                forced_b_slots |= matched_slots
+
+        legacy_weeks = _block_active_weeks(block, True)
+        for ts_id in block.timeslot_ids:
+            if ts_id not in all_timeslot_ids:
+                continue
+            if "A" in legacy_weeks:
+                forced_a_slots.add(ts_id)
+            if "B" in legacy_weeks:
+                forced_b_slots.add(ts_id)
+
+    return max(len(forced_a_slots), len(forced_b_slots))
 
 
 def _assign_rooms_to_schedule(
@@ -147,21 +255,6 @@ def _assign_rooms_to_schedule(
     
     return result_items
 
-    allowed_weeks: Set[str] = set()
-    for block_id in relevant_block_ids:
-        block = blocks_by_id.get(block_id)
-        if not block:
-            continue
-        week_pattern = (block.week_pattern or "both").upper()
-        if week_pattern == "A":
-            allowed_weeks.add("A")
-        elif week_pattern == "B":
-            allowed_weeks.add("B")
-        else:
-            allowed_weeks.update({"A", "B"})
-
-    return allowed_weeks or {"A", "B"}
-
 
 def _block_active_weeks(block: Block, alternating_weeks_enabled: bool) -> Set[str]:
     if not alternating_weeks_enabled:
@@ -213,13 +306,71 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             elif assignment.mode == "preferred":
                 teacher_meeting_preferred[assignment.teacher_id].add(meeting.timeslot_id)
 
-    block_to_timeslots = {b.id: set(b.timeslot_ids) for b in data.blocks}
+    block_to_timeslots: Dict[str, Set[str]] = {}
+    for b in data.blocks:
+        slot_set: Set[str] = set()
+        # New format: occurrences with day/time
+        for occ in b.occurrences:
+            slot_set |= _timeslots_overlapping_occurrence(occ, data.timeslots)
+        # Legacy format: explicit timeslot_ids
+        for ts_id in b.timeslot_ids:
+            if ts_id in all_timeslot_ids:
+                slot_set.add(ts_id)
+        block_to_timeslots[b.id] = slot_set
+
     blocks_by_id: Dict[str, Block] = {b.id: b for b in data.blocks}
 
     linked_block_ids: Dict[str, Set[str]] = defaultdict(set)
     for block in data.blocks:
+        # New format: subject_entries
+        for se in block.subject_entries:
+            linked_block_ids[se.subject_id].add(block.id)
+        # Legacy format: subject_ids
         for subject_id in block.subject_ids:
             linked_block_ids[subject_id].add(block.id)
+
+    # Augment block subjects: inject class_ids from block, teacher override from subject_entry,
+    # and set allowed_block_ids so they are forced into block timeslots.
+    # Don't override sessions_per_week - let the solver use the subject's pre-defined value
+    # and choose from the available block timeslots.
+    block_subject_ids: Set[str] = set(linked_block_ids.keys())
+    augmented_subjects: List[Subject] = []
+    for subject in data.subjects:
+        if subject.id not in block_subject_ids:
+            augmented_subjects.append(subject)
+            continue
+        merged_class_ids: Set[str] = set(subject.class_ids)
+        merged_block_ids: List[str] = list(subject.allowed_block_ids or [])
+        teacher_override: str = subject.teacher_id
+        for block in data.blocks:
+            for se in block.subject_entries:
+                if se.subject_id != subject.id:
+                    continue
+                merged_class_ids |= set(block.class_ids)
+                if block.id not in merged_block_ids:
+                    merged_block_ids.append(block.id)
+                if se.teacher_id and not teacher_override:
+                    teacher_override = se.teacher_id
+        augmented_subjects.append(Subject(
+            id=subject.id,
+            name=subject.name,
+            teacher_id=teacher_override,
+            class_ids=sorted(merged_class_ids),
+            subject_type=subject.subject_type,
+            sessions_per_week=subject.sessions_per_week,
+            allowed_timeslots=subject.allowed_timeslots,
+            allowed_block_ids=merged_block_ids if merged_block_ids else None,
+        ))
+    data = ScheduleRequest(
+        subjects=augmented_subjects,
+        teachers=data.teachers,
+        classes=data.classes,
+        timeslots=data.timeslots,
+        blocks=data.blocks,
+        meetings=data.meetings,
+        rooms=data.rooms,
+        alternating_weeks_enabled=data.alternating_weeks_enabled,
+    )
 
     week_labels = ["A", "B"] if data.alternating_weeks_enabled else ["base"]
 
@@ -231,7 +382,16 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     subject_sessions_required: Dict[str, int] = {}
     subject_total_units_across_weeks: Dict[str, int] = {}
     for subject in data.subjects:
-        required_units = max(1, int(subject.sessions_per_week or 1))
+        requested_units = max(1, int(subject.sessions_per_week or 1))
+        block_min_units = _minimum_required_units_from_blocks(
+            subject,
+            all_timeslot_ids,
+            data.timeslots,
+            data.alternating_weeks_enabled,
+            blocks_by_id,
+            linked_block_ids,
+        )
+        required_units = max(requested_units, block_min_units)
         subject_sessions_required[subject.id] = required_units
 
         allowed = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
@@ -256,8 +416,13 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
         allowed_weeks_set = set(allowed_weeks)
         if data.alternating_weeks_enabled and allowed_weeks_set == {"A", "B"}:
-            # In alternating mode with both weeks available, subjects run in both weeks.
-            subject_total_units_across_weeks[subject.id] = required_units * 2
+            # In alternating mode with both weeks available:
+            # - even n: n units in A and n in B (2n total)
+            # - odd n: n units in heavy week, n-1 in light week (2n-1 total)
+            if required_units % 2 == 0:
+                subject_total_units_across_weeks[subject.id] = required_units * 2
+            else:
+                subject_total_units_across_weeks[subject.id] = required_units * 2 - 1
         else:
             subject_total_units_across_weeks[subject.id] = required_units
 
@@ -284,9 +449,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 )
 
     # Constraint 1: session load per subject.
+
     # When alternating weeks are enabled and both weeks are available:
     # - even load n (45-min units): same load in A and B weeks (fully mirrored)
-    # - odd load n: one heavy week (n+1) and one light week (n-1),
+    # - odd load n: one heavy week n and one light week n-1,
     #   where light-week slots must be a subset of heavy-week slots.
     for subject in data.subjects:
         required_units = subject_sessions_required[subject.id]
@@ -313,7 +479,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     status="infeasible",
                     message=(
                         f"Not enough valid load capacity for subject '{subject.name}' ({subject.id}) "
-                        f"to place {required_units}x45 in both A and B weeks."
+                        f"to place {required_units}x45 in alternating weeks."
                     ),
                     schedule=[],
                 )
@@ -339,7 +505,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 model.Add(units_sum_a == required_units)
                 model.Add(units_sum_b == required_units)
             else:
-                # Odd load: heavy week has n+1, light week has n-1 (45-min units).
+                # Odd load: heavy week has n, light week has n-1 (45-min units).
                 # Light-week slots are constrained to be a subset of heavy-week slots.
                 heavy_week_is_a = model.NewBoolVar(f"heavy_week_A_{subject.id}")
                 for timeslot_id in allowed_slot_ids:
@@ -350,10 +516,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     model.Add(x[key_b] <= x[key_a]).OnlyEnforceIf(heavy_week_is_a)
                     model.Add(x[key_a] <= x[key_b]).OnlyEnforceIf(heavy_week_is_a.Not())
 
-                model.Add(units_sum_a == required_units + 1).OnlyEnforceIf(heavy_week_is_a)
+                model.Add(units_sum_a == required_units).OnlyEnforceIf(heavy_week_is_a)
                 model.Add(units_sum_a == required_units - 1).OnlyEnforceIf(heavy_week_is_a.Not())
                 model.Add(units_sum_b == required_units - 1).OnlyEnforceIf(heavy_week_is_a)
-                model.Add(units_sum_b == required_units + 1).OnlyEnforceIf(heavy_week_is_a.Not())
+                model.Add(units_sum_b == required_units).OnlyEnforceIf(heavy_week_is_a.Not())
         else:
             vars_for_subject = [
                 x[(subject.id, t_id, week_label)]
@@ -415,23 +581,55 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     # Constraint 7: block lock.
     # For classes attached to a block, non-block subjects are not allowed in that block's slots/weeks.
+    # Also, block subject_entries fix their subjects to those slots.
     for block in data.blocks:
-        active_block_weeks = _block_active_weeks(block, data.alternating_weeks_enabled)
-        block_subject_set = set(block.subject_ids)
+        block_timeslot_ids = block_to_timeslots.get(block.id, set())
+        if not block_timeslot_ids:
+            continue
+
+        # Build set of which week_labels are covered, per timeslot (from occurrences)
+        # occ_week_by_slot: slot_id -> set of week_labels blocked by this block
+        occ_week_by_slot: Dict[str, Set[str]] = defaultdict(set)
+        for occ in block.occurrences:
+            matched_slots = _timeslots_overlapping_occurrence(occ, data.timeslots)
+            wt = (occ.week_type or "both").upper()
+            if wt == "A":
+                weeks_for_occ = {"A"} if data.alternating_weeks_enabled else {"base"}
+            elif wt == "B":
+                weeks_for_occ = {"B"} if data.alternating_weeks_enabled else set()
+            else:
+                weeks_for_occ = {"A", "B"} if data.alternating_weeks_enabled else {"base"}
+            for ts_id in matched_slots:
+                occ_week_by_slot[ts_id] |= weeks_for_occ
+
+        # Legacy timeslot_ids: block all week_labels active for this block
+        legacy_active_weeks = _block_active_weeks(block, data.alternating_weeks_enabled)
+        for ts_id in block.timeslot_ids:
+            occ_week_by_slot[ts_id] |= legacy_active_weeks
+
+        # Subject IDs that belong to this block (new + legacy)
+        block_subject_set = {se.subject_id for se in block.subject_entries} | set(block.subject_ids)
+
+        # Force block-linked subjects into all block-covered slot/week pairs.
+        # This guarantees that each occurrence is filled by the block subject.
+        for subject_id in block_subject_set:
+            for timeslot_id, blocked_weeks in occ_week_by_slot.items():
+                if timeslot_id not in all_timeslot_ids:
+                    continue
+                for week_label in blocked_weeks:
+                    key = (subject_id, timeslot_id, week_label)
+                    if key in x:
+                        model.Add(x[key] == 1)
 
         for class_id in block.class_ids:
             class_subjects = [s for s in data.subjects if class_id in s.class_ids]
-            disallowed_subjects = [
-                s
-                for s in class_subjects
-                if s.id not in block_subject_set and block.id not in (s.allowed_block_ids or [])
-            ]
+            disallowed_subjects = [s for s in class_subjects if s.id not in block_subject_set]
 
             for subject in disallowed_subjects:
-                for timeslot_id in block.timeslot_ids:
+                for timeslot_id, blocked_weeks in occ_week_by_slot.items():
                     if timeslot_id not in all_timeslot_ids:
                         continue
-                    for week_label in active_block_weeks:
+                    for week_label in blocked_weeks:
                         key = (subject.id, timeslot_id, week_label)
                         if key in x:
                             model.Add(x[key] == 0)
@@ -626,15 +824,15 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         1
         for item in schedule_items
         if item.timeslot_id in preferred_avoid_by_teacher.get(item.teacher_id, set())
-        # Assign rooms to schedule items
-        subjects_by_id = {s.id: s for s in data.subjects}
-        schedule_items = _assign_rooms_to_schedule(
-            schedule_items,
-            data,
-            subjects_by_id,
-            class_to_base_room,
-        )
+    )
 
+    # Assign rooms to schedule items
+    subjects_by_id = {s.id: s for s in data.subjects}
+    schedule_items = _assign_rooms_to_schedule(
+        schedule_items,
+        data,
+        subjects_by_id,
+        class_to_base_room,
     )
 
     return ScheduleResponse(

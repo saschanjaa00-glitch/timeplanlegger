@@ -50,12 +50,29 @@ class Timeslot(BaseModel):
     end_time: Optional[str] = None
 
 
+class BlockOccurrence(BaseModel):
+    id: str
+    day: str
+    start_time: str
+    end_time: str
+    week_type: str = "both"  # "both", "A", or "B"
+
+
+class BlockSubjectEntry(BaseModel):
+    subject_id: str
+    teacher_id: str = ""
+    preferred_room_id: str = ""
+
+
 class Block(BaseModel):
     id: str
     name: str
-    timeslot_ids: List[str]
-    week_pattern: Optional[str] = None
+    occurrences: List[BlockOccurrence] = Field(default_factory=list)
     class_ids: List[str] = Field(default_factory=list)
+    subject_entries: List[BlockSubjectEntry] = Field(default_factory=list)
+    # Legacy fields kept for backwards compatibility
+    timeslot_ids: List[str] = Field(default_factory=list)
+    week_pattern: Optional[str] = None
     subject_ids: List[str] = Field(default_factory=list)
 
 
