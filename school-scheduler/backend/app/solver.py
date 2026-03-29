@@ -69,6 +69,84 @@ def _compute_allowed_weeks(
     if not relevant_block_ids:
         return {"A", "B"}
 
+
+def _assign_rooms_to_schedule(
+    schedule_items: List[ScheduledItem],
+    data: ScheduleRequest,
+    subjects_by_id: Dict[str, Subject],
+    class_to_base_room: Dict[str, str],
+) -> List[ScheduledItem]:
+    """
+    Assign rooms to scheduled items with the following priorities:
+    1. Fellesfag subjects with a base room for their class
+    2. Other subjects using available rooms
+    3. Handle conflicts by ensuring no room double-booking
+    """
+    if not data.rooms:
+        return schedule_items
+
+    rooms_by_id = {r.id: r for r in data.rooms}
+    result_items: List[ScheduledItem] = []
+    
+    # Group items by (timeslot_id, week_type)
+    items_by_slot: Dict[Tuple[str, str | None], List[ScheduledItem]] = defaultdict(list)
+    for item in schedule_items:
+        key = (item.timeslot_id, item.week_type)
+        items_by_slot[key].append(item)
+    
+    # Assign rooms slot by slot, giving priority to fellesfag with base rooms
+    room_usage: Dict[Tuple[str, str | None], Set[str]] = defaultdict(set)  # (timeslot, week) -> used room ids
+    
+    for (timeslot_id, week_type), items in items_by_slot.items():
+        # Sort items: fellesfag with base room first
+        def item_priority(item: ScheduledItem) -> Tuple[int, str]:
+            subject = subjects_by_id.get(item.subject_id)
+            if subject and subject.subject_type == "fellesfag" and item.class_ids:
+                # Check if first class has a base room
+                first_class_id = item.class_ids[0]
+                if first_class_id in class_to_base_room:
+                    return (0, item.subject_id)  # Priority 0: fellesfag with base room
+            return (1, item.subject_id)  # Priority 1: other subjects
+        
+        sorted_items = sorted(items, key=item_priority)
+        
+        for item in sorted_items:
+            subject = subjects_by_id.get(item.subject_id)
+            assigned_room_id: str | None = None
+            
+            # First, try to assign base room if it's fellesfag
+            if subject and subject.subject_type == "fellesfag" and item.class_ids:
+                first_class_id = item.class_ids[0]
+                if first_class_id in class_to_base_room:
+                    base_room_id = class_to_base_room[first_class_id]
+                    if base_room_id not in room_usage[(timeslot_id, week_type)]:
+                        assigned_room_id = base_room_id
+                        room_usage[(timeslot_id, week_type)].add(base_room_id)
+            
+            # If not assigned yet, try any available room
+            if not assigned_room_id:
+                for room_id in rooms_by_id.keys():
+                    if room_id not in room_usage[(timeslot_id, week_type)]:
+                        assigned_room_id = room_id
+                        room_usage[(timeslot_id, week_type)].add(room_id)
+                        break
+            
+            # Create new item with assigned room
+            new_item = ScheduledItem(
+                subject_id=item.subject_id,
+                subject_name=item.subject_name,
+                teacher_id=item.teacher_id,
+                class_ids=item.class_ids,
+                timeslot_id=item.timeslot_id,
+                day=item.day,
+                period=item.period,
+                week_type=item.week_type,
+                room_id=assigned_room_id,
+            )
+            result_items.append(new_item)
+    
+    return result_items
+
     allowed_weeks: Set[str] = set()
     for block_id in relevant_block_ids:
         block = blocks_by_id.get(block_id)
@@ -548,6 +626,15 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         1
         for item in schedule_items
         if item.timeslot_id in preferred_avoid_by_teacher.get(item.teacher_id, set())
+        # Assign rooms to schedule items
+        subjects_by_id = {s.id: s for s in data.subjects}
+        schedule_items = _assign_rooms_to_schedule(
+            schedule_items,
+            data,
+            subjects_by_id,
+            class_to_base_room,
+        )
+
     )
 
     return ScheduleResponse(
