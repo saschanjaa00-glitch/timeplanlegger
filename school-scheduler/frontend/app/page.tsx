@@ -10,6 +10,7 @@ type Subject = {
   class_ids: string[];
   subject_type: "fellesfag" | "programfag";
   sessions_per_week: number;
+  alternating_week_split?: string;
   allowed_timeslots?: string[];
   allowed_block_ids?: string[];
 };
@@ -180,18 +181,21 @@ function parseWeekView(value: unknown): WeekView {
 }
 
 function normalizeBlock(block: Partial<Block>): Block {
+  const normalizedOccurrences = Array.isArray(block.occurrences)
+    ? block.occurrences.map((o, i) => ({
+        id: o.id || `occ_${i + 1}`,
+        day: o.day || "Monday",
+        start_time: o.start_time || "08:20",
+        end_time: o.end_time || "09:50",
+        week_type: o.week_type === "A" || o.week_type === "B" ? o.week_type : "both",
+      }))
+    : [];
+  const hasOccurrences = normalizedOccurrences.length > 0;
+
   return {
     id: block.id ?? "",
     name: block.name ?? "",
-    occurrences: Array.isArray(block.occurrences)
-      ? block.occurrences.map((o, i) => ({
-          id: typeof o.id === "string" && o.id ? o.id : `occ_${i}_${block.id ?? "x"}`,
-          day: typeof o.day === "string" ? o.day : "Monday",
-          start_time: typeof o.start_time === "string" ? o.start_time : "",
-          end_time: typeof o.end_time === "string" ? o.end_time : "",
-          week_type: o.week_type === "A" || o.week_type === "B" ? o.week_type : "both",
-        }))
-      : [],
+    occurrences: normalizedOccurrences,
     class_ids: Array.isArray(block.class_ids) ? block.class_ids : [],
     subject_entries: Array.isArray(block.subject_entries)
       ? block.subject_entries.map((se) => ({
@@ -201,8 +205,10 @@ function normalizeBlock(block: Partial<Block>): Block {
         }))
       : [],
     // Legacy fields
-    timeslot_ids: Array.isArray(block.timeslot_ids) ? block.timeslot_ids : [],
-    week_pattern: block.week_pattern === "A" || block.week_pattern === "B" ? block.week_pattern : "both",
+    timeslot_ids: hasOccurrences ? [] : (Array.isArray(block.timeslot_ids) ? block.timeslot_ids : []),
+    week_pattern: hasOccurrences
+      ? "both"
+      : (block.week_pattern === "A" || block.week_pattern === "B" ? block.week_pattern : "both"),
     a_week_lessons: typeof block.a_week_lessons === "number" ? block.a_week_lessons : 5,
     b_week_lessons: typeof block.b_week_lessons === "number" ? block.b_week_lessons : 5,
     subject_ids: Array.isArray(block.subject_ids) ? block.subject_ids : [],
@@ -210,6 +216,9 @@ function normalizeBlock(block: Partial<Block>): Block {
 }
 
 function normalizeSubject(subject: Partial<Subject>): Subject {
+  const split = typeof subject.alternating_week_split === "string"
+    ? subject.alternating_week_split.trim()
+    : "";
   return {
     id: subject.id ?? "",
     name: subject.name ?? "",
@@ -220,6 +229,7 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
       typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
         ? Math.floor(subject.sessions_per_week)
         : 1,
+    alternating_week_split: split || undefined,
     allowed_timeslots: Array.isArray(subject.allowed_timeslots) ? subject.allowed_timeslots : undefined,
     allowed_block_ids: Array.isArray(subject.allowed_block_ids) ? subject.allowed_block_ids : undefined,
   };
@@ -405,6 +415,13 @@ function minutesToTime(totalMinutes: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
+function formatDurationMinutes(totalMinutes: number): string {
+  const safeMinutes = Math.max(0, Math.floor(totalMinutes));
+  const h = Math.floor(safeMinutes / 60);
+  const m = safeMinutes % 60;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
+}
+
 function getMidpointTime(start?: string, end?: string): string | null {
   const startMinutes = toMinutes(start);
   const endMinutes = toMinutes(end);
@@ -586,6 +603,7 @@ export default function Home() {
   const [enableAlternatingWeeks, setEnableAlternatingWeeks] = useState(false);
   const [activeWeekMode, setActiveWeekMode] = useState<WeekMode>("A");
   const [weekView, setWeekView] = useState<WeekView>("both");
+  const [alternateNonBlockSubjects, setAlternateNonBlockSubjects] = useState(false);
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -611,6 +629,9 @@ export default function Home() {
   const [compareClassSearchQuery, setCompareClassSearchQuery] = useState("");
   const [compareTeacherSearchQuery, setCompareTeacherSearchQuery] = useState("");
   const [compareRoomSearchQuery, setCompareRoomSearchQuery] = useState("");
+  const [teacherOnSiteSearchQuery, setTeacherOnSiteSearchQuery] = useState("");
+  const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
+  const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -698,6 +719,7 @@ export default function Home() {
         activeTab: TabKey;
         activeWeekSetupId: string | null;
         enableAlternatingWeeks: boolean;
+        alternateNonBlockSubjects: boolean;
         activeWeekMode: WeekMode;
         weekView: WeekView;
       }>;
@@ -741,6 +763,9 @@ export default function Home() {
       if (typeof parsed.enableAlternatingWeeks === "boolean") {
         setEnableAlternatingWeeks(parsed.enableAlternatingWeeks);
       }
+      if (typeof parsed.alternateNonBlockSubjects === "boolean") {
+        setAlternateNonBlockSubjects(parsed.alternateNonBlockSubjects);
+      }
       setActiveWeekMode(parseWeekMode(parsed.activeWeekMode));
       setWeekView(parseWeekView(parsed.weekView));
     } catch {
@@ -769,6 +794,7 @@ export default function Home() {
       activeTab,
       activeWeekSetupId,
       enableAlternatingWeeks,
+      alternateNonBlockSubjects,
       activeWeekMode,
       weekView,
     };
@@ -789,9 +815,17 @@ export default function Home() {
     activeTab,
     activeWeekSetupId,
     enableAlternatingWeeks,
+    alternateNonBlockSubjects,
     activeWeekMode,
     weekView,
   ]);
+
+  useEffect(() => {
+    if (!isStorageHydrated) {
+      return;
+    }
+    setBlocks((prev) => prev.map((block) => normalizeBlock(block)));
+  }, [isStorageHydrated]);
 
   const sortedTimeslots = useMemo(() => {
     return [...timeslots].sort((a, b) => {
@@ -886,6 +920,156 @@ export default function Home() {
       isTeacherNameMatch(q, teacher.name) || teacher.id.toLowerCase().includes(q.toLowerCase())
     );
   }, [sortedTeachersByFirstName, compareTeacherSearchQuery]);
+
+  const teacherOnSiteSummaries = useMemo(() => {
+    const weekLabels = enableAlternatingWeeks ? (["A", "B"] as const) : (["A"] as const);
+    const summaryByTeacher = new Map<string, {
+      aMinutes: number;
+      bMinutes: number;
+      averageMinutes: number;
+      aText: string;
+      bText: string;
+      averageText: string;
+    }>();
+
+    const addSpanForDay = (
+      teacherId: string,
+      weekLabel: "A" | "B",
+      day: string,
+      startMin: number,
+      endMin: number,
+      bucket: Map<string, Map<string, { start: number; end: number }>>,
+    ) => {
+      if (!Number.isFinite(startMin) || !Number.isFinite(endMin) || endMin <= startMin) {
+        return;
+      }
+      if (!bucket.has(teacherId)) {
+        bucket.set(teacherId, new Map());
+      }
+      const dayKey = `${weekLabel}_${day}`;
+      const teacherDays = bucket.get(teacherId)!;
+      const existing = teacherDays.get(dayKey);
+      if (!existing) {
+        teacherDays.set(dayKey, { start: startMin, end: endMin });
+        return;
+      }
+      existing.start = Math.min(existing.start, startMin);
+      existing.end = Math.max(existing.end, endMin);
+    };
+
+    const dayWindowsByTeacher = new Map<string, Map<string, { start: number; end: number }>>();
+
+    for (const item of schedule) {
+      const ts = timeslotById[item.timeslot_id];
+      if (!ts) {
+        continue;
+      }
+      const startMin = toMinutes(ts.start_time);
+      const endMin = toMinutes(ts.end_time);
+      if (startMin === Number.MAX_SAFE_INTEGER || endMin === Number.MAX_SAFE_INTEGER) {
+        continue;
+      }
+
+      if (!enableAlternatingWeeks || !item.week_type) {
+        for (const weekLabel of weekLabels) {
+          addSpanForDay(item.teacher_id, weekLabel, ts.day, startMin, endMin, dayWindowsByTeacher);
+        }
+      } else {
+        addSpanForDay(item.teacher_id, item.week_type, ts.day, startMin, endMin, dayWindowsByTeacher);
+      }
+    }
+
+    // Count preferred meetings as fixed teacher presence to mirror solver workload span logic.
+    for (const meeting of meetings) {
+      const ts = timeslotById[meeting.timeslot_id];
+      if (!ts) {
+        continue;
+      }
+      const startMin = toMinutes(ts.start_time);
+      const endMin = toMinutes(ts.end_time);
+      if (startMin === Number.MAX_SAFE_INTEGER || endMin === Number.MAX_SAFE_INTEGER) {
+        continue;
+      }
+
+      for (const assignment of meeting.teacher_assignments) {
+        if (assignment.mode !== "preferred") {
+          continue;
+        }
+        for (const weekLabel of weekLabels) {
+          addSpanForDay(assignment.teacher_id, weekLabel, ts.day, startMin, endMin, dayWindowsByTeacher);
+        }
+      }
+    }
+
+    for (const teacher of sortedTeachersByFirstName) {
+      const teacherDays = dayWindowsByTeacher.get(teacher.id);
+      let aMinutes = 0;
+      let bMinutes = 0;
+
+      if (teacherDays) {
+        for (const [dayKey, span] of teacherDays.entries()) {
+          const duration = Math.max(0, span.end - span.start);
+          if (dayKey.startsWith("A_")) {
+            aMinutes += duration;
+          } else if (dayKey.startsWith("B_")) {
+            bMinutes += duration;
+          }
+        }
+      }
+
+      const averageMinutes = enableAlternatingWeeks
+        ? Math.round((aMinutes + bMinutes) / 2)
+        : aMinutes;
+
+      summaryByTeacher.set(teacher.id, {
+        aMinutes,
+        bMinutes,
+        averageMinutes,
+        aText: formatDurationMinutes(aMinutes),
+        bText: formatDurationMinutes(bMinutes),
+        averageText: formatDurationMinutes(averageMinutes),
+      });
+    }
+
+    return sortedTeachersByFirstName.map((teacher) => ({
+      teacher,
+      totals: summaryByTeacher.get(teacher.id) ?? {
+        aMinutes: 0,
+        bMinutes: 0,
+        averageMinutes: 0,
+        aText: formatDurationMinutes(0),
+        bText: formatDurationMinutes(0),
+        averageText: formatDurationMinutes(0),
+      },
+    }));
+  }, [enableAlternatingWeeks, meetings, schedule, sortedTeachersByFirstName, timeslotById]);
+
+  const filteredTeacherOnSiteSummaries = useMemo(() => {
+    const q = teacherOnSiteSearchQuery.trim();
+    if (!q) {
+      return teacherOnSiteSummaries;
+    }
+    return teacherOnSiteSummaries.filter(({ teacher }) => (
+      isTeacherNameMatch(q, teacher.name) || teacher.id.toLowerCase().includes(q.toLowerCase())
+    ));
+  }, [teacherOnSiteSearchQuery, teacherOnSiteSummaries]);
+
+  const sortedFilteredTeacherOnSiteSummaries = useMemo(() => {
+    const sorted = [...filteredTeacherOnSiteSummaries];
+    if (teacherOnSiteSortMode === "time") {
+      sorted.sort((a, b) => {
+        const aMinutes = enableAlternatingWeeks ? a.totals.averageMinutes : a.totals.aMinutes;
+        const bMinutes = enableAlternatingWeeks ? b.totals.averageMinutes : b.totals.aMinutes;
+        if (bMinutes !== aMinutes) {
+          return bMinutes - aMinutes;
+        }
+        return a.teacher.name.localeCompare(b.teacher.name);
+      });
+      return sorted;
+    }
+    sorted.sort((a, b) => a.teacher.name.localeCompare(b.teacher.name));
+    return sorted;
+  }, [enableAlternatingWeeks, filteredTeacherOnSiteSummaries, teacherOnSiteSortMode]);
 
   const filteredTeachers = useMemo(() => {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(teacherSearchQuery, teacher.name));
@@ -1213,6 +1397,8 @@ export default function Home() {
 
     for (const item of schedule) {
       const classKey = [...item.class_ids].sort().join(",");
+      // Keep teacher identity in A/B merge to avoid collapsing teacher-specific placements.
+      // Class-based block collapsing is handled later with blockSummaryKey in class view rendering.
       const key = [item.subject_id, item.teacher_id, item.timeslot_id, item.day, String(item.period), classKey].join("|");
       const bucket = buckets.get(key) ?? { shared: [], a: [], b: [] };
       if (item.week_type === "A") {
@@ -1307,7 +1493,14 @@ export default function Home() {
             ? (assignedByName.get(s.name) ?? [])
             : s.class_ids,
       }))
-      .sort((a, b) => a.subject.name.localeCompare(b.subject.name));
+      .sort((a, b) => {
+        const typeRankA = a.subject.subject_type === "fellesfag" ? 0 : 1;
+        const typeRankB = b.subject.subject_type === "fellesfag" ? 0 : 1;
+        if (typeRankA !== typeRankB) {
+          return typeRankA - typeRankB;
+        }
+        return a.subject.name.localeCompare(b.subject.name);
+      });
   }, [subjects]);
 
   const timelineMarks = useMemo(() => {
@@ -1393,6 +1586,7 @@ export default function Home() {
 
     for (const block of blocks) {
       const weekBySlot = new Map<string, Set<"A" | "B">>();
+      const hasOccurrences = (block.occurrences ?? []).length > 0;
 
       for (const occ of block.occurrences ?? []) {
         const occWeek = normalizeOccWeek(occ.week_type);
@@ -1426,10 +1620,12 @@ export default function Home() {
         }
       }
 
-      for (const tsId of block.timeslot_ids ?? []) {
-        const set = weekBySlot.get(tsId) ?? new Set<"A" | "B">();
-        addWeekToSet(set, weekPatternToOccWeek(block.week_pattern));
-        weekBySlot.set(tsId, set);
+      if (!hasOccurrences) {
+        for (const tsId of block.timeslot_ids ?? []) {
+          const set = weekBySlot.get(tsId) ?? new Set<"A" | "B">();
+          addWeekToSet(set, weekPatternToOccWeek(block.week_pattern));
+          weekBySlot.set(tsId, set);
+        }
       }
 
       for (const [tsId, weeks] of weekBySlot.entries()) {
@@ -2411,6 +2607,7 @@ export default function Home() {
       class_ids: [],
       subject_type: "programfag",
       sessions_per_week: occurrenceCount,
+      alternating_week_split: undefined,
     };
     setSubjects((prev) => [...prev, newSubject]);
     if (!blockForm.subject_entries.some((se) => se.subject_id === id)) {
@@ -2431,7 +2628,7 @@ export default function Home() {
     const block = blocks.find((b) => b.id === blockId);
     const occurrenceCount = blockOccurrenceSessionCount(block?.occurrences);
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
-    setSubjects((prev) => [...prev, { id, name, teacher_id: "", class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount }]);
+    setSubjects((prev) => [...prev, { id, name, teacher_id: "", class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount, alternating_week_split: undefined }]);
     setBlocks((prev) => prev.map((b) =>
       b.id !== blockId ? b : {
         ...b,
@@ -2498,7 +2695,15 @@ export default function Home() {
     if (editingBlockId) {
       setBlocks((prev) => prev.map((b) =>
         b.id === editingBlockId
-          ? { ...b, name: blockForm.name, occurrences: blockForm.occurrences, class_ids: blockForm.class_ids, subject_entries: blockForm.subject_entries }
+          ? {
+              ...b,
+              name: blockForm.name,
+              occurrences: blockForm.occurrences,
+              class_ids: blockForm.class_ids,
+              subject_entries: blockForm.subject_entries,
+              timeslot_ids: [],
+              week_pattern: "both",
+            }
           : b
       ));
     } else {
@@ -2613,6 +2818,7 @@ export default function Home() {
         class_ids: [],
         subject_type: "fellesfag",
         sessions_per_week: 1,
+        alternating_week_split: undefined,
       },
     ]);
 
@@ -2632,6 +2838,10 @@ export default function Home() {
         ...merged,
         class_ids: cleanedClassIds,
         sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
+        alternating_week_split:
+          typeof merged.alternating_week_split === "string" && merged.alternating_week_split.trim()
+            ? merged.alternating_week_split.trim()
+            : undefined,
       };
     }));
   }
@@ -2675,6 +2885,10 @@ export default function Home() {
         ...s,
         class_ids: s.class_ids ?? [],
         sessions_per_week: s.sessions_per_week || 1,
+        alternating_week_split:
+          typeof s.alternating_week_split === "string" && s.alternating_week_split.trim()
+            ? s.alternating_week_split.trim()
+            : undefined,
         allowed_block_ids: s.allowed_block_ids ?? undefined,
         allowed_timeslots: s.allowed_timeslots ?? undefined,
       })).filter(s => s.id); // Remove entries with no id
@@ -2687,6 +2901,7 @@ export default function Home() {
         classes: classes ?? [],
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
+        alternate_non_block_subjects: alternateNonBlockSubjects,
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
           name: block.name,
@@ -3416,7 +3631,7 @@ export default function Home() {
                     <span className="subject-expand-name">{subject.name}</span>
                     <span className="subject-expand-meta">
                       {subject.subject_type === "fellesfag" ? "Fellesfag" : "Programfag"}
-                      {" "}({subject.sessions_per_week}x45)
+                      {" "}({subject.sessions_per_week}x45{subject.alternating_week_split ? `, A/B ${subject.alternating_week_split}` : ""})
                     </span>
                     {derivedClassIds.length > 0 && (
                       <span className="subject-expand-chips">
@@ -3461,6 +3676,20 @@ export default function Home() {
                           <option value="fellesfag">Fellesfag</option>
                           <option value="programfag">Programfag</option>
                         </select>
+                      </div>
+
+                      <div className="calendar-field">
+                        <label>Alternating A/B Split (optional)</label>
+                        <input
+                          type="text"
+                          value={subject.alternating_week_split ?? ""}
+                          onChange={(e) =>
+                            updateSubjectCard(subject.id, {
+                              alternating_week_split: e.target.value,
+                            })
+                          }
+                          placeholder="4/6"
+                        />
                       </div>
 
                       <div className="subject-card-action">
@@ -4450,6 +4679,16 @@ export default function Home() {
               Enable alternating A/B week scheduling
             </label>
 
+            <label className="calendar-check">
+              <input
+                type="checkbox"
+                checked={alternateNonBlockSubjects}
+                onChange={(e) => setAlternateNonBlockSubjects(e.target.checked)}
+                disabled={!enableAlternatingWeeks}
+              />
+              Alternate non-block subjects between A/B weeks
+            </label>
+
             <div className="calendar-field">
               <label>Current Week View</label>
               <select
@@ -4490,6 +4729,68 @@ export default function Home() {
           </button>
           <div className="status">{statusText}</div>
         </section>
+
+        {schedule.length > 0 && (
+          <section className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+              <h2 style={{ marginBottom: 0 }}>Teacher On-Site Time</h2>
+              <button type="button" className="secondary" onClick={() => setTeacherOnSiteCollapsed((prev) => !prev)}>
+                {teacherOnSiteCollapsed ? "Expand" : "Collapse"}
+              </button>
+            </div>
+            {!teacherOnSiteCollapsed && (
+              <>
+                <p style={{ marginTop: "6px", marginBottom: "8px", fontSize: "0.88em" }}>
+                  First start to last end per day, summed by week.
+                </p>
+                <input
+                  type="text"
+                  value={teacherOnSiteSearchQuery}
+                  onChange={(e) => setTeacherOnSiteSearchQuery(e.target.value)}
+                  placeholder="Search teacher"
+                  style={{ marginBottom: "8px", fontSize: "0.85em" }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "6px" }}>
+                  <select
+                    value={teacherOnSiteSortMode}
+                    onChange={(e) => setTeacherOnSiteSortMode(e.target.value as "name" | "time")}
+                    style={{ fontSize: "0.82em", width: "140px" }}
+                    aria-label="Sort teacher on-site list"
+                  >
+                    <option value="name">Sort: Name</option>
+                    <option value="time">Sort: Time</option>
+                  </select>
+                </div>
+                <div className="list" style={{ maxHeight: "250px", fontSize: "0.84em" }}>
+                  {sortedFilteredTeacherOnSiteSummaries.length === 0 ? (
+                    <p style={{ color: "#999", margin: 0 }}>
+                      No teacher matches "{teacherOnSiteSearchQuery}".
+                    </p>
+                  ) : (
+                    sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => (
+                      <div
+                        key={teacher.id}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: enableAlternatingWeeks ? "1.3fr 0.8fr 0.8fr 0.8fr" : "1.3fr 0.9fr",
+                          gap: "6px",
+                          alignItems: "center",
+                          padding: "4px 0",
+                          borderBottom: "1px solid #efefef",
+                        }}
+                      >
+                        <strong style={{ fontSize: "0.95em" }}>{teacher.name}</strong>
+                        <span>A: {totals.aText}</span>
+                        {enableAlternatingWeeks && <span>B: {totals.bText}</span>}
+                        {enableAlternatingWeeks && <span>Avg: {totals.averageText}</span>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        )}
 
         <section className="card">
           <h2>Schedule Timeline</h2>
@@ -4725,7 +5026,6 @@ export default function Home() {
                               const laneEntity = compareEntities[laneIndex];
                               const laneColor = laneEntity?.color ?? "#355070";
                               
-                              // For class view, show block name instead of subject name if it's a block subject
                               let displayTitle = item.subject_name;
                               const isClassView = entityId.startsWith("class:");
                               if (isClassView && blockInfo) {
@@ -4752,7 +5052,7 @@ export default function Home() {
                                 key: `${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}_${entityId}_${entityRenderIndex}`,
                                 kind: "subject",
                                 title: displayTitle,
-                                weekType: isClassView && blockInfo ? blockWeekTypeFromDefinition : item.week_type,
+                                weekType: blockInfo ? blockWeekTypeFromDefinition : item.week_type,
                                 isBlockSubject: Boolean(blockInfo),
                                 isBlockSummary: Boolean(blockSummaryKey),
                                 blockSummaryKey,

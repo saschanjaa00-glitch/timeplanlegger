@@ -12,6 +12,9 @@ class Subject(BaseModel):
     class_ids: List[str]
     subject_type: str = "fellesfag"
     sessions_per_week: int = 1
+    # Optional explicit A/B split in 45-minute units, e.g. "4/6".
+    # Solver may place either as A=4,B=6 or A=6,B=4.
+    alternating_week_split: Optional[str] = None
     allowed_timeslots: Optional[List[str]] = None
     # Optional extension to support blocks as grouped timeslot candidates.
     allowed_block_ids: Optional[List[str]] = None
@@ -91,6 +94,7 @@ class ScheduleRequest(BaseModel):
     meetings: List[Meeting] = Field(default_factory=list)
     rooms: List[Room] = Field(default_factory=list)
     alternating_weeks_enabled: bool = False
+    alternate_non_block_subjects: bool = False
 
 
 class ScheduledItem(BaseModel):
