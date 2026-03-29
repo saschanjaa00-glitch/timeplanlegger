@@ -1337,6 +1337,14 @@ button.secondary {
   line-height: 1.05;
 }
 
+.weekly-event.block-subject strong {
+  color: #4a2f28;
+}
+
+.weekly-event.block-subject small {
+  color: #6f4f47;
+}
+
 .weekly-event.meeting {
   background-color: #efe7d9;
   background-image: repeating-linear-gradient(

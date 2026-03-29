@@ -1302,17 +1302,111 @@ export default function Home() {
 
   // Build a map: subject_id → block info (for displaying block name in schedules)
   const subjectToBlockInfo = useMemo(() => {
-    const map = new Map<string, { block_id: string; block_name: string }>();
+    const map = new Map<string, { block_id: string; block_name: string; class_ids: string[] }>();
     for (const block of blocks) {
       for (const entry of block.subject_entries ?? []) {
-        map.set(entry.subject_id, { block_id: block.id, block_name: block.name });
+        map.set(entry.subject_id, {
+          block_id: block.id,
+          block_name: block.name,
+          class_ids: block.class_ids ?? [],
+        });
       }
       for (const subject_id of block.subject_ids ?? []) {
-        map.set(subject_id, { block_id: block.id, block_name: block.name });
+        map.set(subject_id, {
+          block_id: block.id,
+          block_name: block.name,
+          class_ids: block.class_ids ?? [],
+        });
       }
     }
     return map;
   }, [blocks]);
+
+  const blockWeekTypeBySlot = useMemo(() => {
+    const map = new Map<string, "A" | "B" | undefined>();
+
+    const normalizeOccWeek = (value: string | undefined): "A" | "B" | "both" => {
+      if (value === "A" || value === "B") {
+        return value;
+      }
+      return "both";
+    };
+
+    const weekPatternToOccWeek = (value: string | undefined): "A" | "B" | "both" => {
+      if (value === "A" || value === "B") {
+        return value;
+      }
+      return "both";
+    };
+
+    const addWeekToSet = (set: Set<"A" | "B">, occWeek: "A" | "B" | "both") => {
+      if (occWeek === "A") {
+        set.add("A");
+      } else if (occWeek === "B") {
+        set.add("B");
+      } else {
+        set.add("A");
+        set.add("B");
+      }
+    };
+
+    for (const block of blocks) {
+      const weekBySlot = new Map<string, Set<"A" | "B">>();
+
+      for (const occ of block.occurrences ?? []) {
+        const occWeek = normalizeOccWeek(occ.week_type);
+        const occStart = toMinutes(occ.start_time);
+        const occEnd = toMinutes(occ.end_time);
+
+        for (const ts of timeslots) {
+          if (ts.day.toLowerCase() !== occ.day.toLowerCase()) {
+            continue;
+          }
+
+          let overlaps = true;
+          const tsStart = toMinutes(ts.start_time);
+          const tsEnd = toMinutes(ts.end_time);
+          if (
+            tsStart !== Number.MAX_SAFE_INTEGER &&
+            tsEnd !== Number.MAX_SAFE_INTEGER &&
+            occStart !== Number.MAX_SAFE_INTEGER &&
+            occEnd !== Number.MAX_SAFE_INTEGER
+          ) {
+            overlaps = tsStart < occEnd && tsEnd > occStart;
+          }
+
+          if (!overlaps) {
+            continue;
+          }
+
+          const set = weekBySlot.get(ts.id) ?? new Set<"A" | "B">();
+          addWeekToSet(set, occWeek);
+          weekBySlot.set(ts.id, set);
+        }
+      }
+
+      for (const tsId of block.timeslot_ids ?? []) {
+        const set = weekBySlot.get(tsId) ?? new Set<"A" | "B">();
+        addWeekToSet(set, weekPatternToOccWeek(block.week_pattern));
+        weekBySlot.set(tsId, set);
+      }
+
+      for (const [tsId, weeks] of weekBySlot.entries()) {
+        const hasA = weeks.has("A");
+        const hasB = weeks.has("B");
+        const displayWeek: "A" | "B" | undefined = hasA && hasB
+          ? undefined
+          : hasA
+            ? "A"
+            : hasB
+              ? "B"
+              : undefined;
+        map.set(`${block.id}|${tsId}`, displayWeek);
+      }
+    }
+
+    return map;
+  }, [blocks, timeslots]);
 
   useEffect(() => {
     timeslotsRef.current = timeslots;
@@ -4460,6 +4554,9 @@ export default function Home() {
                         kind: "subject" | "meeting";
                         title: string;
                         weekType?: "A" | "B";
+                        isBlockSubject?: boolean;
+                        isBlockSummary?: boolean;
+                        blockSummaryKey?: string;
                         ts: Timeslot | undefined;
                         classLabel: string;
                         teacherLabel: string;
@@ -4477,7 +4574,7 @@ export default function Home() {
                         fillColor?: string;
                       };
 
-                      const subjectEvents: RenderEvent[] = displaySchedule
+                        const subjectEventsRaw: RenderEvent[] = displaySchedule
                           .filter((item) => item.day === day)
                           .filter((item) => {
                             if (!enableAlternatingWeeks || weekView === "both") {
@@ -4504,11 +4601,16 @@ export default function Home() {
                             const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
                             const teacherLabel = teacherNameById[item.teacher_id] ?? item.teacher_id;
                             const roomLabel = item.room_id ? rooms.find((r) => r.id === item.room_id)?.name : undefined;
+                            const blockInfo = subjectToBlockInfo.get(item.subject_id);
+                            const blockClassIds = blockInfo?.class_ids ?? [];
 
                             const matchedEntityIds = compareEntities.length
                               ? [
                                   ...item.class_ids
                                     .filter((id) => selectedClassCompareIds.includes(id))
+                                    .map((id) => `class:${id}`),
+                                  ...blockClassIds
+                                    .filter((id) => selectedClassCompareIds.includes(id) && !item.class_ids.includes(id))
                                     .map((id) => `class:${id}`),
                                   ...(selectedTeacherCompareIds.includes(item.teacher_id)
                                     ? [`teacher:${item.teacher_id}`]
@@ -4535,18 +4637,36 @@ export default function Home() {
                               // For class view, show block name instead of subject name if it's a block subject
                               let displayTitle = item.subject_name;
                               const isClassView = entityId.startsWith("class:");
-                              const blockInfo = subjectToBlockInfo.get(item.subject_id);
                               if (isClassView && blockInfo) {
                                 displayTitle = blockInfo.block_name;
                               }
+
+                              const blockSummaryKey = isClassView && blockInfo
+                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}`
+                                : undefined;
+
+                              let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;
+                              if (blockInfo) {
+                                const weekKey = `${blockInfo.block_id}|${item.timeslot_id}`;
+                                blockWeekTypeFromDefinition = blockWeekTypeBySlot.has(weekKey)
+                                  ? blockWeekTypeBySlot.get(weekKey)
+                                  : item.week_type;
+                              }
+
+                              const classLabelForRender = classLabel || blockClassIds
+                                .map((id) => classNameById[id] ?? id)
+                                .join(", ");
                               
                               return {
                                 key: `${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}_${entityId}_${entityRenderIndex}`,
                                 kind: "subject",
                                 title: displayTitle,
-                                weekType: item.week_type,
+                                weekType: isClassView && blockInfo ? blockWeekTypeFromDefinition : item.week_type,
+                                isBlockSubject: Boolean(blockInfo),
+                                isBlockSummary: Boolean(blockSummaryKey),
+                                blockSummaryKey,
                                 ts,
-                                classLabel,
+                                classLabel: classLabelForRender,
                                 teacherLabel,
                                 roomLabel,
                                 laneIndex,
@@ -4563,6 +4683,32 @@ export default function Home() {
                               };
                             });
                           });
+
+                      const subjectEvents: RenderEvent[] = (() => {
+                        const merged: RenderEvent[] = [];
+                        const blockSummaryIndex = new Map<string, number>();
+
+                        for (const event of subjectEventsRaw) {
+                          if (!event.blockSummaryKey) {
+                            merged.push(event);
+                            continue;
+                          }
+
+                          if (blockSummaryIndex.has(event.blockSummaryKey)) {
+                            continue;
+                          }
+
+                          blockSummaryIndex.set(event.blockSummaryKey, merged.length);
+                          merged.push({
+                            ...event,
+                            teacherLabel: "",
+                            classLabel: "",
+                            roomLabel: undefined,
+                          });
+                        }
+
+                        return merged;
+                      })();
 
                       const meetingEvents: RenderEvent[] = meetings
                           .filter((meeting) => timeslotById[meeting.timeslot_id]?.day === day)
@@ -4695,27 +4841,31 @@ export default function Home() {
                         return (
                           <article
                             key={event.key}
-                            className={`weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}`}
+                            className={`weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}`}
                             style={{
                               top: `${event.topPct}%`,
                               height: `${Math.max(event.heightPct, 4)}%`,
                               left: `calc(${overlapLeft}% + 2px)`,
                               width: `calc(${Math.max(overlapWidth, 2)}% - 4px)`,
                               right: "auto",
-                              borderColor: event.laneColor,
-                              backgroundColor: event.fillColor,
+                              borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
+                              backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
                             }}
                           >
                             <strong>{event.title}</strong>
                             {enableAlternatingWeeks && event.weekType ? <small>Week {event.weekType}</small> : null}
-                            {compareEntities.length > 0 ? (
-                              <small>{event.laneEntityLabel}</small>
-                            ) : (
-                              <small>{event.classLabel}</small>
-                            )}
-                            {compareEntities.length > 0 ? <small>{event.classLabel}</small> : null}
-                            <small>{event.teacherLabel}</small>
-                            {event.roomLabel ? <small>Rom: {event.roomLabel}</small> : null}
+                            {!event.isBlockSummary ? (
+                              <>
+                                {compareEntities.length > 0 ? (
+                                  <small>{event.laneEntityLabel}</small>
+                                ) : (
+                                  <small>{event.classLabel}</small>
+                                )}
+                                {compareEntities.length > 0 ? <small>{event.classLabel}</small> : null}
+                                <small>{event.teacherLabel}</small>
+                                {event.roomLabel ? <small>Rom: {event.roomLabel}</small> : null}
+                              </>
+                            ) : null}
                             <small>{event.ts?.start_time}-{event.ts?.end_time}</small>
                           </article>
                         );

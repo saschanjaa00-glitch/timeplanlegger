@@ -649,7 +649,21 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
         for class_id in block.class_ids:
             class_subjects = [s for s in data.subjects if class_id in s.class_ids]
+            block_class_subjects = [s for s in class_subjects if s.id in block_subject_set]
             disallowed_subjects = [s for s in class_subjects if s.id not in block_subject_set]
+
+            # Respect occurrence week_type per slot for block subjects.
+            # Example: if Tuesday slot is A-only, block subjects cannot be scheduled there in B.
+            for subject in block_class_subjects:
+                for timeslot_id, blocked_weeks in occ_week_by_slot.items():
+                    if timeslot_id not in all_timeslot_ids:
+                        continue
+                    for week_label in week_labels:
+                        if week_label in blocked_weeks:
+                            continue
+                        key = (subject.id, timeslot_id, week_label)
+                        if key in x:
+                            model.Add(x[key] == 0)
 
             for subject in disallowed_subjects:
                 for timeslot_id, blocked_weeks in occ_week_by_slot.items():
