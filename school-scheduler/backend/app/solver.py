@@ -332,7 +332,228 @@ def _block_active_weeks(block: Block, alternating_weeks_enabled: bool) -> Set[st
     return {"A", "B"}
 
 
+def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
+    _solver_log("[RUN] generate_schedule_staged", reset=True)
+
+    active_timeslots = [t for t in data.timeslots if not getattr(t, "excluded_from_generation", False)]
+    if not active_timeslots:
+        return ScheduleResponse(status="infeasible", message="No active timeslots available.", schedule=[])
+
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in active_timeslots}
+    all_timeslot_ids: Set[str] = set(timeslots_by_id.keys())
+    timeslot_units_by_id: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in active_timeslots}
+
+    teachers_by_id = {t.id: t for t in data.teachers}
+    subjects_by_id: Dict[str, Subject] = {s.id: s for s in data.subjects}
+
+    class_to_base_room: Dict[str, str] = {}
+    for cls in data.classes:
+        if cls.base_room_id:
+            class_to_base_room[cls.id] = cls.base_room_id
+
+    subject_to_room: Dict[str, str] = {}
+    for subject in data.subjects:
+        for class_id in subject.class_ids:
+            if class_id in class_to_base_room:
+                subject_to_room[subject.id] = class_to_base_room[class_id]
+                break
+
+    block_to_timeslots: Dict[str, Set[str]] = {}
+    for block in data.blocks:
+        slot_set: Set[str] = set()
+        has_occurrences = bool(block.occurrences)
+        for occ in block.occurrences:
+            slot_set |= (_timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids)
+        if not has_occurrences:
+            slot_set |= (set(block.timeslot_ids) & all_timeslot_ids)
+        block_to_timeslots[block.id] = slot_set
+
+    linked_block_ids: Dict[str, Set[str]] = defaultdict(set)
+    for block in data.blocks:
+        for entry in block.subject_entries:
+            if entry.subject_id in subjects_by_id:
+                linked_block_ids[entry.subject_id].add(block.id)
+        for subject_id in block.subject_ids:
+            if subject_id in subjects_by_id:
+                linked_block_ids[subject_id].add(block.id)
+
+    subject_effective_teacher: Dict[str, str] = {s.id: s.teacher_id for s in data.subjects}
+    for block in data.blocks:
+        for entry in block.subject_entries:
+            if entry.subject_id in subject_effective_teacher and entry.teacher_id and not subject_effective_teacher[entry.subject_id]:
+                subject_effective_teacher[entry.subject_id] = entry.teacher_id
+
+    teacher_meeting_unavailable: Dict[str, Set[str]] = defaultdict(set)
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in all_timeslot_ids:
+            continue
+        for assignment in meeting.teacher_assignments:
+            if assignment.teacher_id in teachers_by_id:
+                teacher_meeting_unavailable[assignment.teacher_id].add(meeting.timeslot_id)
+
+    class_occupied: Set[Tuple[str, str]] = set()
+    teacher_occupied: Set[Tuple[str, str]] = set()
+    schedule_items: List[ScheduledItem] = []
+
+    def _slot_sort_key(ts_id: str) -> Tuple[str, int]:
+        ts = timeslots_by_id[ts_id]
+        return (ts.day, ts.period)
+
+    block_subject_ids: Set[str] = set(linked_block_ids.keys())
+
+    for block in data.blocks:
+        block_slots = sorted(block_to_timeslots.get(block.id, set()), key=_slot_sort_key)
+        if not block_slots:
+            continue
+
+        # Block windows reserve class capacity regardless of which block subject lands there.
+        for class_id in block.class_ids:
+            for ts_id in block_slots:
+                class_occupied.add((class_id, ts_id))
+
+        subject_ids_for_block: Set[str] = set()
+        subject_ids_for_block |= {entry.subject_id for entry in block.subject_entries if entry.subject_id in subjects_by_id}
+        subject_ids_for_block |= {subject_id for subject_id in block.subject_ids if subject_id in subjects_by_id}
+
+        relevant_subject_ids: List[str] = []
+        block_classes = set(block.class_ids or [])
+        for subject_id in subject_ids_for_block:
+            subject = subjects_by_id[subject_id]
+            if not subject.class_ids or not block_classes or any(cid in block_classes for cid in subject.class_ids):
+                relevant_subject_ids.append(subject_id)
+
+        for subject_id in sorted(relevant_subject_ids):
+            subject = subjects_by_id[subject_id]
+            teacher_id = subject_effective_teacher.get(subject_id, subject.teacher_id)
+            min_units_from_blocks = _minimum_required_units_from_blocks(
+                subject,
+                all_timeslot_ids,
+                active_timeslots,
+                False,
+                {b.id: b for b in data.blocks},
+                linked_block_ids,
+            )
+            required_units = max(1, int(subject.sessions_per_week or 1), min_units_from_blocks)
+
+            subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
+            candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
+
+            # If this block effectively maps to one subject, that subject must occupy
+            # every block slot (not just enough units to satisfy sessions_per_week).
+            fill_all_block_slots = len(relevant_subject_ids) == 1
+            if fill_all_block_slots:
+                required_units = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in candidate_slots)
+
+            units_placed = 0
+            for ts_id in candidate_slots:
+                if teacher_id and (teacher_id, ts_id) in teacher_occupied:
+                    continue
+
+                schedule_items.append(
+                    ScheduledItem(
+                        subject_id=subject.id,
+                        subject_name=subject.name,
+                        teacher_id=teacher_id,
+                        class_ids=subject.class_ids,
+                        timeslot_id=ts_id,
+                        day=timeslots_by_id[ts_id].day,
+                        period=timeslots_by_id[ts_id].period,
+                        week_type=None,
+                        room_id=subject_to_room.get(subject.id),
+                    )
+                )
+
+                for class_id in subject.class_ids:
+                    class_occupied.add((class_id, ts_id))
+                if teacher_id:
+                    teacher_occupied.add((teacher_id, ts_id))
+
+                units_placed += timeslot_units_by_id.get(ts_id, 1)
+                if not fill_all_block_slots and units_placed >= required_units:
+                    break
+
+            if units_placed < required_units:
+                return ScheduleResponse(
+                    status="infeasible",
+                    message=(
+                        f"No valid schedule found for block subject '{subject.name}' ({subject.id}). "
+                        f"Required {required_units}u in block windows, placed {units_placed}u."
+                    ),
+                    schedule=[],
+                )
+
+    # Step 2: meetings lock teacher availability for the rest of planning.
+    for teacher_id, slot_ids in teacher_meeting_unavailable.items():
+        for ts_id in slot_ids:
+            teacher_occupied.add((teacher_id, ts_id))
+
+    # Step 3: place all remaining subjects in currently available slots.
+    remaining_subjects = [s for s in data.subjects if s.id not in block_subject_ids]
+    remaining_subjects.sort(key=lambda s: int(s.sessions_per_week or 1), reverse=True)
+
+    for subject in remaining_subjects:
+        teacher_id = subject_effective_teacher.get(subject.id, subject.teacher_id)
+        required_units = max(1, int(subject.sessions_per_week or 1))
+        allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
+
+        if teacher_id in teachers_by_id:
+            allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
+            allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
+
+        candidate_slots = sorted(allowed_slots, key=_slot_sort_key)
+        units_placed = 0
+
+        for ts_id in candidate_slots:
+            if teacher_id and (teacher_id, ts_id) in teacher_occupied:
+                continue
+            if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
+                continue
+
+            schedule_items.append(
+                ScheduledItem(
+                    subject_id=subject.id,
+                    subject_name=subject.name,
+                    teacher_id=teacher_id,
+                    class_ids=subject.class_ids,
+                    timeslot_id=ts_id,
+                    day=timeslots_by_id[ts_id].day,
+                    period=timeslots_by_id[ts_id].period,
+                    week_type=None,
+                    room_id=subject_to_room.get(subject.id),
+                )
+            )
+
+            for class_id in subject.class_ids:
+                class_occupied.add((class_id, ts_id))
+            if teacher_id:
+                teacher_occupied.add((teacher_id, ts_id))
+
+            units_placed += timeslot_units_by_id.get(ts_id, 1)
+            if units_placed >= required_units:
+                break
+
+        if units_placed < required_units:
+            return ScheduleResponse(
+                status="infeasible",
+                message=(
+                    f"No valid schedule found for remaining subject '{subject.name}' ({subject.id}). "
+                    f"Required {required_units}u, placed {units_placed}u."
+                ),
+                schedule=[],
+            )
+
+    return ScheduleResponse(
+        status="success",
+        message="Schedule generated with staged planner (blocks -> meetings -> remaining subjects).",
+        schedule=schedule_items,
+    )
+
+
 def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
+    # Temporary full rehaul path requested by user.
+    # Uses single-week staged generation to isolate A/B interactions.
+    return _generate_schedule_staged(data)
+
     model = cp_model.CpModel()
     _solver_log("[RUN] generate_schedule", reset=True)
 
@@ -683,7 +904,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if wt == "A":
                 weeks_for_occ = {"A"} if data.alternating_weeks_enabled else {"base"}
             elif wt == "B":
-                weeks_for_occ = {"B"} if data.alternating_weeks_enabled else set()
+                weeks_for_occ = {"B"} if data.alternating_weeks_enabled else {"base"}
             else:
                 weeks_for_occ = {"A", "B"} if data.alternating_weeks_enabled else {"base"}
             for ts_id in matched_slots:
@@ -707,7 +928,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     block_subject_slot_week_keys.add((subject_id, timeslot_id, week_label))
         for class_id in block.class_ids:
             for subject in data.subjects:
-                if class_id not in subject.class_ids or subject.id not in block_subject_set:
+                if subject.id not in block_subject_set:
+                    continue
+                subject_applies_to_class = (not subject.class_ids) or (class_id in subject.class_ids)
+                if not subject_applies_to_class:
                     continue
                 for timeslot_id, blocked_weeks in occ_week_by_slot.items():
                     if timeslot_id not in all_timeslot_ids:
@@ -799,21 +1023,29 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             unit_gcd = max(1, unit_gcd)
 
             if not data.alternate_non_block_subjects:
-                # When non-block alternation is off, keep weekly load equal across A/B,
-                # but allow different concrete slots in each week.
-                # Forcing xA==xB can overconstrain scenarios where block lockouts differ by week.
-                if required_units % unit_gcd == 0:
-                    model.Add(units_sum_a == required_units)
-                    model.Add(units_sum_b == required_units)
-                else:
-                    # If exact per-week load is impossible (e.g. 3 with 2-unit slots),
-                    # allow a near split so the two-week average still matches intent.
+                # When non-block alternation is off, keep weekly load equal for even subjects,
+                # but for odd subjects allow a light/heavy split across A/B so week-specific
+                # lockouts do not create false infeasibility.
+                if required_units % 2 == 0 and required_units % unit_gcd == 0:
                     model.Add(units_sum_a >= max(0, required_units - 1))
                     model.Add(units_sum_a <= required_units + 1)
                     model.Add(units_sum_b >= max(0, required_units - 1))
                     model.Add(units_sum_b <= required_units + 1)
+                    model.Add(units_sum_a + units_sum_b == required_units * 2)
+                else:
+                    lower_week = max(0, required_units - 1)
+                    if required_units % 2 == 1 and unit_gcd == 1:
+                        upper_week = required_units
+                    else:
+                        # With coarse slot units (e.g. 2-unit slots), odd totals may require
+                        # one week to go slightly above n to hit a representable two-week sum.
+                        upper_week = required_units + 1
+                    model.Add(units_sum_a >= lower_week)
+                    model.Add(units_sum_a <= upper_week)
+                    model.Add(units_sum_b >= lower_week)
+                    model.Add(units_sum_b <= upper_week)
 
-                    preferred_total = required_units * 2
+                    preferred_total = required_units * 2 - (1 if required_units % 2 == 1 else 0)
                     lower_total = (preferred_total // unit_gcd) * unit_gcd
                     upper_total = ((preferred_total + unit_gcd - 1) // unit_gcd) * unit_gcd
                     target_total = upper_total if (upper_total - preferred_total) <= (preferred_total - lower_total) else lower_total
@@ -828,14 +1060,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         ),
                         schedule=[],
                     )
-                # Even load should stay mirrored across weeks.
-                for timeslot_id in allowed_slot_ids:
-                    key_a = (subject.id, timeslot_id, "A")
-                    key_b = (subject.id, timeslot_id, "B")
-                    if key_a in x and key_b in x:
-                        model.Add(x[key_a] == x[key_b])
-                model.Add(units_sum_a == required_units)
-                model.Add(units_sum_b == required_units)
+                # Even load: keep balanced across weeks but do not require exact n/n,
+                # since strict equality can create false infeasibility under tight
+                # block/week interactions.
+                model.Add(units_sum_a >= max(0, required_units - 1))
+                model.Add(units_sum_a <= required_units + 1)
+                model.Add(units_sum_b >= max(0, required_units - 1))
+                model.Add(units_sum_b <= required_units + 1)
+                model.Add(units_sum_a + units_sum_b == required_units * 2)
             else:
                 light_week_units = max(0, required_units - 1)
                 # Odd load: prefer 2n-1 total units with each week in [n-1, n].
@@ -1168,13 +1400,17 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 if block_vars:
                     model.Add(sum(block_vars) >= 1)
 
-        # Force block-linked subjects into all block-covered slot/week pairs.
-        for subject_id in block_subject_set:
+        # If there is exactly one relevant block subject, force it into all covered
+        # slot/week pairs. For multi-subject blocks, forcing every subject into every
+        # slot can overconstrain the model; keep only the per-slot "at least one"
+        # block-subject requirement above.
+        if len(block_subject_set) == 1:
+            only_subject_id = next(iter(block_subject_set))
             for timeslot_id, blocked_weeks in occ_week_by_slot.items():
                 if timeslot_id not in all_timeslot_ids:
                     continue
                 for week_label in blocked_weeks:
-                    key = (subject_id, timeslot_id, week_label)
+                    key = (only_subject_id, timeslot_id, week_label)
                     _force_key(key, 1, f"block {block.id} active slot")
 
         # Enforce occurrence week_type per slot for all block subjects, regardless of class_ids.
@@ -1254,11 +1490,15 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             max_b = _max_units_for_week("B")
 
             if not data.alternate_non_block_subjects:
-                min_a = required_units
-                min_b = required_units
+                if required_units % 2 == 0:
+                    min_a = max(0, required_units - 1)
+                    min_b = max(0, required_units - 1)
+                else:
+                    min_a = max(0, required_units - 1)
+                    min_b = max(0, required_units - 1)
             elif required_units % 2 == 0:
-                min_a = required_units
-                min_b = required_units
+                min_a = max(0, required_units - 1)
+                min_b = max(0, required_units - 1)
             else:
                 min_a = max(0, required_units - 1)
                 min_b = max(0, required_units - 1)
@@ -1459,7 +1699,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             return 0
         if data.alternating_weeks_enabled and allowed_weeks == {"A", "B"}:
             if not data.alternate_non_block_subjects:
-                return required_units
+                if required_units % 2 == 0:
+                    return required_units
+                return max(0, required_units - 1)
             if required_units % 2 == 0:
                 return required_units
             return max(0, required_units - 1)
@@ -1512,8 +1754,15 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         class_issues: List[str] = []
         class_tight: List[Tuple[int, str]] = []
         class_slot_issues: List[str] = []
+        focus_class_subject_issues: List[str] = []
+        focus_class_subject_tight: List[Tuple[int, str]] = []
+        focus_class_names = {"2STB", "2STC", "2TID"}
+        focus_classes_seen: Set[str] = set()
         for school_class in data.classes:
             class_subjects = [s for s in data.subjects if school_class.id in s.class_ids]
+            is_focus_class = (school_class.name or "").strip().upper() in focus_class_names
+            if is_focus_class:
+                focus_classes_seen.add((school_class.name or "").strip())
             for week_label in week_labels:
                 demand = 0
                 feasible_slot_ids: Set[str] = set()
@@ -1532,11 +1781,34 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         and (school_class.id, subject.id, ts_id, week_label) not in block_parallel_allowed_keys
                     }
                     if not consuming_slot_ids:
+                        if is_focus_class:
+                            focus_class_subject_issues.append(
+                                f"{school_class.name} ({week_label}) subject {subject.name} ({subject.id}): "
+                                f"needs >= {lb}u, feasible 0u"
+                            )
                         continue
 
                     demand += lb
                     feasible_slot_ids |= consuming_slot_ids
                     subject_demands.append((subject, lb, consuming_slot_ids))
+
+                    if is_focus_class:
+                        subject_capacity = sum(
+                            timeslot_units_by_id.get(ts_id, 1)
+                            for ts_id in consuming_slot_ids
+                        )
+                        focus_class_subject_tight.append(
+                            (
+                                subject_capacity - lb,
+                                f"{school_class.name} ({week_label}) subject {subject.name} ({subject.id}): "
+                                f"demand {lb}u / feasible {subject_capacity}u",
+                            )
+                        )
+                        if subject_capacity < lb:
+                            focus_class_subject_issues.append(
+                                f"{school_class.name} ({week_label}) subject {subject.name} ({subject.id}): "
+                                f"needs >= {lb}u, feasible {subject_capacity}u"
+                            )
 
                 capacity = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in feasible_slot_ids)
                 if demand > 0:
@@ -1586,6 +1858,19 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
         if class_slot_issues:
             hints.append("Class slot bottlenecks: " + "; ".join(class_slot_issues[:5]))
+        if focus_class_subject_issues:
+            hints.append("Focus class subject fit: " + "; ".join(focus_class_subject_issues[:8]))
+        elif focus_class_subject_tight:
+            focus_sorted = sorted(focus_class_subject_tight, key=lambda x: x[0])
+            hints.append("Focus class tightest subjects: " + "; ".join(msg for _, msg in focus_sorted[:8]))
+        else:
+            if focus_classes_seen:
+                hints.append(
+                    "Focus class scan: matched " + ", ".join(sorted(focus_classes_seen)) +
+                    " but no subject demand survived filters"
+                )
+            else:
+                hints.append("Focus class scan: no class-name match for 2STB/2STC/2TID")
 
         teacher_issues: List[str] = []
         teacher_tight: List[Tuple[int, str]] = []
@@ -1784,7 +2069,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
         hints = _build_infeasibility_hints()
-        message = "No valid schedule found for the provided constraints."
+        message = "No valid schedule found for the provided constraints. [diag:v2]"
         if hints:
             message = message + " " + " | ".join(hints)
         print("[INFEASIBLE]", message)

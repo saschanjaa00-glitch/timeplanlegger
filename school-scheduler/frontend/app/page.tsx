@@ -139,7 +139,7 @@ type CompareEntity = {
   color: string;
 };
 
-const API_BASE = "http://localhost:8000";
+const API_BASE = "http://localhost:8001";
 
 const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const calendarDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -183,7 +183,7 @@ function parseWeekView(value: unknown): WeekView {
 
 function normalizeBlock(block: Partial<Block>): Block {
   const normalizedOccurrences = Array.isArray(block.occurrences)
-    ? block.occurrences.map((o, i) => ({
+    ? block.occurrences.map((o, i): BlockOccurrence => ({
         id: o.id || `occ_${i + 1}`,
         day: o.day || "Monday",
         start_time: o.start_time || "08:20",
