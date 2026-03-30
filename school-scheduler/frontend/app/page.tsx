@@ -121,6 +121,8 @@ type ScheduledItem = {
   timeslot_id: string;
   day: string;
   period: number;
+  start_time?: string;
+  end_time?: string;
   week_type?: "A" | "B";
   room_id?: string;
 };
@@ -698,6 +700,7 @@ export default function Home() {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [blockInlineSubjNames, setBlockInlineSubjNames] = useState<Record<string, string>>({});
   const excelFileRef = useRef<HTMLInputElement>(null);
+  const generationRunRef = useRef(0);
 
   useEffect(() => {
     try {
@@ -968,8 +971,8 @@ export default function Home() {
       if (!ts) {
         continue;
       }
-      const startMin = toMinutes(ts.start_time);
-      const endMin = toMinutes(ts.end_time);
+      const startMin = toMinutes(item.start_time ?? ts.start_time);
+      const endMin = toMinutes(item.end_time ?? ts.end_time);
       if (startMin === Number.MAX_SAFE_INTEGER || endMin === Number.MAX_SAFE_INTEGER) {
         continue;
       }
@@ -2883,8 +2886,10 @@ export default function Home() {
   }
 
   async function generateSchedule() {
+    const runId = generationRunRef.current + 1;
+    generationRunRef.current = runId;
     setLoading(true);
-    setStatusText("Generating schedule...");
+    setStatusText(`Generating schedule (run ${runId})...`);
     setSchedule([]);
 
     try {
@@ -2928,9 +2933,15 @@ export default function Home() {
         throw new Error(`Could not serialize payload: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      const res = await fetch(`${API_BASE}/generate-schedule`, {
+      const res = await fetch(`${API_BASE}/generate-schedule?run=${Date.now()}`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+          "X-Run-Id": String(runId),
+        },
         body: bodyStr,
       });
 
@@ -2944,11 +2955,11 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
-      setStatusText(data.message);
+      setStatusText(`${data.message} (run ${runId})`);
       setSchedule(data.schedule || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      setStatusText(`Failed: ${message}`);
+      setStatusText(`Failed (run ${runId}): ${message}`);
     } finally {
       setLoading(false);
     }
@@ -2956,7 +2967,7 @@ export default function Home() {
 
   function clearGeneratedSchedule() {
     setSchedule([]);
-    setStatusText("Generated schedule cleared.");
+    setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
   const activeTabIndex = workflowTabs.findIndex((tab) => tab.id === activeTab);
@@ -3843,9 +3854,25 @@ export default function Home() {
                     ) : (
                       (classSubjectsById[activeFaggruppeClassId] ?? []).map((subject) => {
                         const searchKey = `faggrupper_${subject.id}`;
+                        const isClassCopy =
+                          subject.class_ids.length === 1 &&
+                          subject.class_ids[0] === activeFaggruppeClassId;
                         return (
                           <div key={`${activeFaggruppeClassId}_${subject.id}`} className="subject-teacher-row faggrupper-subject-row">
                             <span className="subject-teacher-classname">{subject.name}</span>
+                            <div className="faggrupper-units-field" title={isClassCopy ? "Edit weekly units for this class copy." : "Only class-specific copies can be edited here."}>
+                              <label>45m</label>
+                              <input
+                                type="number"
+                                min={1}
+                                value={subject.sessions_per_week}
+                                disabled={!isClassCopy}
+                                onChange={(e) => {
+                                  const value = Math.max(1, Math.floor(Number(e.target.value) || 1));
+                                  updateSubjectCard(subject.id, { sessions_per_week: value });
+                                }}
+                              />
+                            </div>
                             <div className="faggrupper-teacher-picker">
                               <input
                                 list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
@@ -4924,6 +4951,8 @@ export default function Home() {
                         laneColor: string;
                         topPct: number;
                         heightPct: number;
+                        displayStart: string;
+                        displayEnd: string;
                         startMin: number;
                         endMin: number;
                         overlapCol: number;
@@ -4941,8 +4970,8 @@ export default function Home() {
                           })
                           .flatMap((item) => {
                             const ts = timeslotById[item.timeslot_id];
-                            const start = toMinutes(ts?.start_time);
-                            const end = toMinutes(ts?.end_time);
+                            const start = toMinutes(item.start_time ?? ts?.start_time);
+                            const end = toMinutes(item.end_time ?? ts?.end_time);
                             if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
                               return [] as RenderEvent[];
                             }
@@ -5031,6 +5060,8 @@ export default function Home() {
                                 laneColor,
                                 topPct,
                                 heightPct,
+                                displayStart: item.start_time ?? ts?.start_time ?? "",
+                                displayEnd: item.end_time ?? ts?.end_time ?? "",
                                 startMin: clampedStart,
                                 endMin: clampedEnd,
                                 overlapCol: 0,
@@ -5122,6 +5153,8 @@ export default function Home() {
                                 laneColor,
                                 topPct,
                                 heightPct,
+                                displayStart: ts?.start_time ?? "",
+                                displayEnd: ts?.end_time ?? "",
                                 startMin: clampedStart,
                                 endMin: clampedEnd,
                                 overlapCol: 0,
@@ -5227,7 +5260,7 @@ export default function Home() {
                                 {event.roomLabel ? <small>Rom: {event.roomLabel}</small> : null}
                               </>
                             ) : null}
-                            <small>{event.ts?.start_time}-{event.ts?.end_time}</small>
+                            <small>{event.displayStart}-{event.displayEnd}</small>
                           </>
                         );
 

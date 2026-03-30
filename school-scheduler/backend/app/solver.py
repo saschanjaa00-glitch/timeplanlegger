@@ -54,6 +54,12 @@ def _to_minutes(value: str | None) -> int | None:
     return h * 60 + m
 
 
+def _minutes_to_hhmm(value: int) -> str:
+    h = max(0, value // 60)
+    m = max(0, value % 60)
+    return f"{h:02d}:{m:02d}"
+
+
 def _timeslot_45m_units(timeslot: Timeslot) -> int:
     # Convert slot duration to 45-minute units.
     # Example: 90 minutes -> 2 units, 45 minutes -> 1 unit.
@@ -394,6 +400,16 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     class_occupied: Set[Tuple[str, str]] = set()
     teacher_occupied: Set[Tuple[str, str]] = set()
     schedule_items: List[ScheduledItem] = []
+    reduced_tail_span_by_class_slot: Dict[Tuple[str, str], Tuple[str, str]] = {}
+    class_day_load_units: Dict[Tuple[str, str], int] = defaultdict(int)
+
+    day_period_bounds: Dict[str, Tuple[int, int]] = {}
+    for ts in active_timeslots:
+        if ts.day not in day_period_bounds:
+            day_period_bounds[ts.day] = (ts.period, ts.period)
+        else:
+            min_p, max_p = day_period_bounds[ts.day]
+            day_period_bounds[ts.day] = (min(min_p, ts.period), max(max_p, ts.period))
 
     def _slot_sort_key(ts_id: str) -> Tuple[str, int]:
         ts = timeslots_by_id[ts_id]
@@ -406,9 +422,43 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
         if not block_slots:
             continue
 
+        slot_span_by_id: Dict[str, Tuple[str, str]] = {}
+        for occ in block.occurrences:
+            matched_slots = _timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids
+            for ts_id in matched_slots:
+                slot_span_by_id[ts_id] = (occ.start_time, occ.end_time)
+
+            occ_start = _to_minutes(occ.start_time)
+            occ_end = _to_minutes(occ.end_time)
+            if occ_start is None or occ_end is None:
+                continue
+
+            # If an occurrence spills into the beginning of the next slot,
+            # keep only the last 45 minutes of that slot available for these classes.
+            for ts_id in matched_slots:
+                ts = timeslots_by_id[ts_id]
+                ts_start = _to_minutes(ts.start_time)
+                ts_end = _to_minutes(ts.end_time)
+                if ts_start is None or ts_end is None or ts_end <= ts_start:
+                    continue
+                if not (occ_start < ts_start < occ_end < ts_end):
+                    continue
+
+                reduced_start_min = ts_end - 45
+                if reduced_start_min < ts_start:
+                    continue
+                if occ_end > reduced_start_min:
+                    continue
+
+                reduced_span = (_minutes_to_hhmm(reduced_start_min), _minutes_to_hhmm(ts_end))
+                for class_id in block.class_ids:
+                    reduced_tail_span_by_class_slot[(class_id, ts_id)] = reduced_span
+
         # Block windows reserve class capacity regardless of which block subject lands there.
         for class_id in block.class_ids:
             for ts_id in block_slots:
+                if (class_id, ts_id) in reduced_tail_span_by_class_slot:
+                    continue
                 class_occupied.add((class_id, ts_id))
 
         subject_ids_for_block: Set[str] = set()
@@ -434,6 +484,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                 linked_block_ids,
             )
             required_units = max(1, int(subject.sessions_per_week or 1), min_units_from_blocks)
+            subject_requires_odd_units = (required_units % 2) == 1
 
             subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
             candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
@@ -445,30 +496,66 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                 required_units = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in candidate_slots)
 
             units_placed = 0
+            rendered_span_keys: Set[str] = set()
             for ts_id in candidate_slots:
                 if teacher_id and (teacher_id, ts_id) in teacher_occupied:
                     continue
 
-                schedule_items.append(
-                    ScheduledItem(
-                        subject_id=subject.id,
-                        subject_name=subject.name,
-                        teacher_id=teacher_id,
-                        class_ids=subject.class_ids,
-                        timeslot_id=ts_id,
-                        day=timeslots_by_id[ts_id].day,
-                        period=timeslots_by_id[ts_id].period,
-                        week_type=None,
-                        room_id=subject_to_room.get(subject.id),
+                custom_span = slot_span_by_id.get(ts_id)
+                custom_start = custom_span[0] if custom_span else None
+                custom_end = custom_span[1] if custom_span else None
+
+                # Enforce reduced-tail parity rule in block path as well.
+                if custom_start and custom_end:
+                    reduced_spans_for_subject = {
+                        reduced_tail_span_by_class_slot[(class_id, ts_id)]
+                        for class_id in subject.class_ids
+                        if (class_id, ts_id) in reduced_tail_span_by_class_slot
+                    }
+                    has_subject_reduced_tail = len(reduced_spans_for_subject) > 0
+                    if has_subject_reduced_tail:
+                        all_classes_in_tail = len(subject.class_ids) == sum(
+                            1 for class_id in subject.class_ids if (class_id, ts_id) in reduced_tail_span_by_class_slot
+                        )
+                        if all_classes_in_tail and not subject_requires_odd_units:
+                            continue
+
+                should_render_item = True
+                if custom_start and custom_end:
+                    span_key = f"{timeslots_by_id[ts_id].day}|{custom_start}|{custom_end}"
+                    if span_key in rendered_span_keys:
+                        should_render_item = False
+                    else:
+                        rendered_span_keys.add(span_key)
+
+                if should_render_item:
+                    schedule_items.append(
+                        ScheduledItem(
+                            subject_id=subject.id,
+                            subject_name=subject.name,
+                            teacher_id=teacher_id,
+                            class_ids=subject.class_ids,
+                            timeslot_id=ts_id,
+                            day=timeslots_by_id[ts_id].day,
+                            period=timeslots_by_id[ts_id].period,
+                            start_time=custom_start,
+                            end_time=custom_end,
+                            week_type=None,
+                            room_id=subject_to_room.get(subject.id),
+                        )
                     )
-                )
 
                 for class_id in subject.class_ids:
-                    class_occupied.add((class_id, ts_id))
-                if teacher_id:
+                    if (class_id, ts_id) not in reduced_tail_span_by_class_slot:
+                        class_occupied.add((class_id, ts_id))
+                if teacher_id and not any(
+                    (class_id, ts_id) in reduced_tail_span_by_class_slot for class_id in subject.class_ids
+                ):
                     teacher_occupied.add((teacher_id, ts_id))
 
                 units_placed += timeslot_units_by_id.get(ts_id, 1)
+                for class_id in subject.class_ids:
+                    class_day_load_units[(class_id, timeslots_by_id[ts_id].day)] += timeslot_units_by_id.get(ts_id, 1)
                 if not fill_all_block_slots and units_placed >= required_units:
                     break
 
@@ -494,6 +581,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     for subject in remaining_subjects:
         teacher_id = subject_effective_teacher.get(subject.id, subject.teacher_id)
         required_units = max(1, int(subject.sessions_per_week or 1))
+        subject_requires_odd_units = (required_units % 2) == 1
         allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
 
         if teacher_id in teachers_by_id:
@@ -503,11 +591,82 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
         candidate_slots = sorted(allowed_slots, key=_slot_sort_key)
         units_placed = 0
 
-        for ts_id in candidate_slots:
-            if teacher_id and (teacher_id, ts_id) in teacher_occupied:
-                continue
-            if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
-                continue
+        subject_days_used: Set[str] = set()
+        allow_same_day = "norsk vg3" in subject.name.lower()
+        relaxed_same_day = allow_same_day
+
+        while units_placed < required_units:
+            remaining_units = required_units - units_placed
+
+            feasible_candidates: List[Tuple[Tuple[int, int, int, int, str, int], str, str | None, str | None, int]] = []
+
+            for ts_id in candidate_slots:
+                if teacher_id and (teacher_id, ts_id) in teacher_occupied:
+                    continue
+                if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
+                    continue
+
+                ts = timeslots_by_id[ts_id]
+                if not relaxed_same_day and ts.day in subject_days_used:
+                    continue
+
+                reduced_spans = {
+                    reduced_tail_span_by_class_slot[(class_id, ts_id)]
+                    for class_id in subject.class_ids
+                    if (class_id, ts_id) in reduced_tail_span_by_class_slot
+                }
+                has_partial_tail = len(reduced_spans) > 0
+                if has_partial_tail:
+                    # Only allow reduced-tail placement when all classes for this subject
+                    # share the same reduced span.
+                    if len(reduced_spans) != 1 or len(subject.class_ids) != sum(
+                        1 for class_id in subject.class_ids if (class_id, ts_id) in reduced_tail_span_by_class_slot
+                    ):
+                        continue
+
+                    # Partial 45-minute spillover slots are only meaningful for
+                    # subjects with odd weekly unit totals, and only when the
+                    # remaining required units are odd.
+                    if not subject_requires_odd_units or (remaining_units % 2) == 0:
+                        continue
+
+                custom_start: str | None = None
+                custom_end: str | None = None
+                units_for_placement = timeslot_units_by_id.get(ts_id, 1)
+                if has_partial_tail:
+                    custom_start, custom_end = next(iter(reduced_spans))
+                    units_for_placement = 1
+
+                would_overshoot = 1 if units_for_placement > remaining_units else 0
+                exact_fit_penalty = 0 if units_for_placement == remaining_units else 1
+
+                day_load = 0
+                if subject.class_ids:
+                    day_load = sum(class_day_load_units[(class_id, ts.day)] for class_id in subject.class_ids)
+
+                min_p, max_p = day_period_bounds.get(ts.day, (ts.period, ts.period))
+                boundary_penalty = 1 if ts.period in {min_p, max_p} else 0
+
+                score = (
+                    would_overshoot,
+                    exact_fit_penalty,
+                    boundary_penalty,
+                    day_load,
+                    ts.day,
+                    ts.period,
+                )
+                feasible_candidates.append((score, ts_id, custom_start, custom_end, units_for_placement))
+
+            if not feasible_candidates:
+                if not relaxed_same_day:
+                    # If strict no-same-day blocks feasibility, relax only for this subject.
+                    relaxed_same_day = True
+                    continue
+                break
+
+            feasible_candidates.sort(key=lambda x: x[0])
+            _, chosen_ts_id, chosen_start, chosen_end, chosen_units = feasible_candidates[0]
+            chosen_ts = timeslots_by_id[chosen_ts_id]
 
             schedule_items.append(
                 ScheduledItem(
@@ -515,22 +674,24 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                     subject_name=subject.name,
                     teacher_id=teacher_id,
                     class_ids=subject.class_ids,
-                    timeslot_id=ts_id,
-                    day=timeslots_by_id[ts_id].day,
-                    period=timeslots_by_id[ts_id].period,
+                    timeslot_id=chosen_ts_id,
+                    day=chosen_ts.day,
+                    period=chosen_ts.period,
+                    start_time=chosen_start,
+                    end_time=chosen_end,
                     week_type=None,
                     room_id=subject_to_room.get(subject.id),
                 )
             )
 
             for class_id in subject.class_ids:
-                class_occupied.add((class_id, ts_id))
+                class_occupied.add((class_id, chosen_ts_id))
+                class_day_load_units[(class_id, chosen_ts.day)] += chosen_units
             if teacher_id:
-                teacher_occupied.add((teacher_id, ts_id))
+                teacher_occupied.add((teacher_id, chosen_ts_id))
 
-            units_placed += timeslot_units_by_id.get(ts_id, 1)
-            if units_placed >= required_units:
-                break
+            subject_days_used.add(chosen_ts.day)
+            units_placed += chosen_units
 
         if units_placed < required_units:
             return ScheduleResponse(

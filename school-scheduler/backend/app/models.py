@@ -106,6 +106,8 @@ class ScheduledItem(BaseModel):
     timeslot_id: str
     day: str
     period: int
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
     week_type: Optional[str] = None
     room_id: Optional[str] = None
 

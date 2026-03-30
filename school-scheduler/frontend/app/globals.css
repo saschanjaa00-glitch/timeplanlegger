@@ -788,12 +788,31 @@ p {
 
 .faggrupper-subject-row {
   display: grid;
-  grid-template-columns: minmax(170px, 0.8fr) minmax(240px, 1.2fr);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(96px, 0.5fr) minmax(240px, 1.2fr);
   align-items: center;
   gap: 0.45rem;
   border: 1px solid #deddd8;
   background: #fbfbf9;
   padding: 0.25rem 0.35rem;
+}
+
+.faggrupper-units-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.faggrupper-units-field label {
+  font-size: 0.72rem;
+  color: #66625a;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.faggrupper-units-field input {
+  width: 70px;
+  margin-bottom: 0;
 }
 
 .faggrupper-subject-row .subject-teacher-classname {
