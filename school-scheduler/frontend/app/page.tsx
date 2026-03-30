@@ -637,6 +637,8 @@ export default function Home() {
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [showUltrawideTimeline, setShowUltrawideTimeline] = useState(true);
   const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
+  const [hoveredTimelineSubjectId, setHoveredTimelineSubjectId] = useState<string | null>(null);
+  const [expandedTimelineEventKey, setExpandedTimelineEventKey] = useState<string | null>(null);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -4936,6 +4938,7 @@ export default function Home() {
                       type RenderEvent = {
                         key: string;
                         kind: "subject" | "meeting";
+                        subjectId?: string;
                         title: string;
                         weekType?: "A" | "B";
                         isBlockSubject?: boolean;
@@ -5045,6 +5048,7 @@ export default function Home() {
                               return {
                                 key: `${item.subject_id}_${item.timeslot_id}_${item.week_type ?? "base"}_${classLabel}_${entityId}_${entityRenderIndex}`,
                                 kind: "subject",
+                                subjectId: item.subject_id,
                                 title: displayTitle,
                                 weekType: blockInfo ? blockWeekTypeFromDefinition : item.week_type,
                                 isBlockSubject: Boolean(blockInfo),
@@ -5143,6 +5147,7 @@ export default function Home() {
                               return {
                                 key: `${meeting.id}_${meeting.timeslot_id}_${entityId}_${entityRenderIndex}`,
                                 kind: "meeting",
+                                subjectId: undefined,
                                 title: meeting.name,
                                 ts,
                                 classLabel: "Meeting",
@@ -5240,9 +5245,14 @@ export default function Home() {
                         const overlapLeft = laneLeft + event.overlapCol * overlapWidth;
                         const canExpand = (concurrentEventCounts.get(event.key) ?? 1) > 1;
                         const isHovered = hoveredTimelineEventKey === event.key;
-                        const isExpanded = canExpand && isHovered;
+                        const isSubjectGroupHovered = Boolean(
+                          hoveredTimelineSubjectId &&
+                          event.kind === "subject" &&
+                          event.subjectId === hoveredTimelineSubjectId
+                        );
+                        const isExpanded = canExpand && expandedTimelineEventKey === event.key;
 
-                        const eventClassName = `weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}`;
+                        const eventClassName = `weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
 
                         const eventBody = (
                           <>
@@ -5269,8 +5279,20 @@ export default function Home() {
                             <article
                               key={`${event.key}_base`}
                               className={eventClassName}
-                              onMouseEnter={() => setHoveredTimelineEventKey(event.key)}
-                              onMouseLeave={() => setHoveredTimelineEventKey((current) => (current === event.key ? null : current))}
+                              onClick={() => {
+                                if (!canExpand) {
+                                  return;
+                                }
+                                setExpandedTimelineEventKey((current) => (current === event.key ? null : event.key));
+                              }}
+                              onMouseEnter={() => {
+                                setHoveredTimelineEventKey(event.key);
+                                setHoveredTimelineSubjectId(event.kind === "subject" ? (event.subjectId ?? null) : null);
+                              }}
+                              onMouseLeave={() => {
+                                setHoveredTimelineEventKey((current) => (current === event.key ? null : current));
+                                setHoveredTimelineSubjectId((current) => (current === event.subjectId ? null : current));
+                              }}
                               style={{
                                 top: `${event.topPct}%`,
                                 height: `${Math.max(event.heightPct, 4)}%`,
