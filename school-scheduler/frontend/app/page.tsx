@@ -633,6 +633,7 @@ export default function Home() {
   const [teacherOnSiteSearchQuery, setTeacherOnSiteSearchQuery] = useState("");
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
+  const [showUltrawideTimeline, setShowUltrawideTimeline] = useState(true);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -2974,9 +2975,18 @@ export default function Home() {
   }
 
   return (
-    <main>
+    <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
       <section className="hero">
-        <h1>School Scheduling Studio</h1>
+        <div className="hero-title-row">
+          <h1>School Scheduling Studio</h1>
+          <button
+            type="button"
+            className="secondary hero-ultrawide-toggle"
+            onClick={() => setShowUltrawideTimeline((prev) => !prev)}
+          >
+            {showUltrawideTimeline ? "Exit Ultrawide" : "Show Ultrawide"}
+          </button>
+        </div>
         <p>
           Build entities, define constraints, and generate a valid timetable with a CP-SAT solver.
           This version keeps data in memory for rapid iteration.
@@ -4746,68 +4756,6 @@ export default function Home() {
           <div className="status">{statusText}</div>
         </section>
 
-        {schedule.length > 0 && (
-          <section className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-              <h2 style={{ marginBottom: 0 }}>Teacher On-Site Time</h2>
-              <button type="button" className="secondary" onClick={() => setTeacherOnSiteCollapsed((prev) => !prev)}>
-                {teacherOnSiteCollapsed ? "Expand" : "Collapse"}
-              </button>
-            </div>
-            {!teacherOnSiteCollapsed && (
-              <>
-                <p style={{ marginTop: "6px", marginBottom: "8px", fontSize: "0.88em" }}>
-                  First start to last end per day, summed by week.
-                </p>
-                <input
-                  type="text"
-                  value={teacherOnSiteSearchQuery}
-                  onChange={(e) => setTeacherOnSiteSearchQuery(e.target.value)}
-                  placeholder="Search teacher"
-                  style={{ marginBottom: "8px", fontSize: "0.85em" }}
-                />
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "6px" }}>
-                  <select
-                    value={teacherOnSiteSortMode}
-                    onChange={(e) => setTeacherOnSiteSortMode(e.target.value as "name" | "time")}
-                    style={{ fontSize: "0.82em", width: "140px" }}
-                    aria-label="Sort teacher on-site list"
-                  >
-                    <option value="name">Sort: Name</option>
-                    <option value="time">Sort: Time</option>
-                  </select>
-                </div>
-                <div className="list" style={{ maxHeight: "250px", fontSize: "0.84em" }}>
-                  {sortedFilteredTeacherOnSiteSummaries.length === 0 ? (
-                    <p style={{ color: "#999", margin: 0 }}>
-                      No teacher matches "{teacherOnSiteSearchQuery}".
-                    </p>
-                  ) : (
-                    sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => (
-                      <div
-                        key={teacher.id}
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: enableAlternatingWeeks ? "1.3fr 0.8fr 0.8fr 0.8fr" : "1.3fr 0.9fr",
-                          gap: "6px",
-                          alignItems: "center",
-                          padding: "4px 0",
-                          borderBottom: "1px solid #efefef",
-                        }}
-                      >
-                        <strong style={{ fontSize: "0.95em" }}>{teacher.name}</strong>
-                        <span>A: {totals.aText}</span>
-                        {enableAlternatingWeeks && <span>B: {totals.bText}</span>}
-                        {enableAlternatingWeeks && <span>Avg: {totals.averageText}</span>}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </>
-            )}
-          </section>
-        )}
-
         <section className="card">
           <h2>Schedule Timeline</h2>
           <div className="compare-controls">
@@ -5284,6 +5232,69 @@ export default function Home() {
             </div>
           </div>
         </section>
+
+        {schedule.length > 0 && (
+          <section className="card">
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
+              <h2 style={{ marginBottom: 0 }}>Teacher On-Site Time</h2>
+              <button type="button" className="secondary" onClick={() => setTeacherOnSiteCollapsed((prev) => !prev)}>
+                {teacherOnSiteCollapsed ? "Expand" : "Collapse"}
+              </button>
+            </div>
+            {!teacherOnSiteCollapsed && (
+              <>
+                <p style={{ marginTop: "6px", marginBottom: "8px", fontSize: "0.88em" }}>
+                  First start to last end per day, summed by week.
+                </p>
+                <input
+                  type="text"
+                  value={teacherOnSiteSearchQuery}
+                  onChange={(e) => setTeacherOnSiteSearchQuery(e.target.value)}
+                  placeholder="Search teacher"
+                  style={{ marginBottom: "8px", fontSize: "0.85em" }}
+                />
+                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "6px" }}>
+                  <select
+                    value={teacherOnSiteSortMode}
+                    onChange={(e) => setTeacherOnSiteSortMode(e.target.value as "name" | "time")}
+                    style={{ fontSize: "0.82em", width: "140px" }}
+                    aria-label="Sort teacher on-site list"
+                  >
+                    <option value="name">Sort: Name</option>
+                    <option value="time">Sort: Time</option>
+                  </select>
+                </div>
+                <div className="list" style={{ maxHeight: "250px", fontSize: "0.84em" }}>
+                  {sortedFilteredTeacherOnSiteSummaries.length === 0 ? (
+                    <p style={{ color: "#999", margin: 0 }}>
+                      No teacher matches "{teacherOnSiteSearchQuery}".
+                    </p>
+                  ) : (
+                    sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => (
+                      <div
+                        key={teacher.id}
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: enableAlternatingWeeks ? "1.3fr 0.8fr 0.8fr 0.8fr" : "1.3fr 0.9fr",
+                          gap: "6px",
+                          alignItems: "center",
+                          padding: "4px 0",
+                          borderBottom: "1px solid #efefef",
+                        }}
+                      >
+                        <strong style={{ fontSize: "0.95em" }}>{teacher.name}</strong>
+                        <span>A: {totals.aText}</span>
+                        {enableAlternatingWeeks && <span>B: {totals.bText}</span>}
+                        {enableAlternatingWeeks && <span>Avg: {totals.averageText}</span>}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </>
+            )}
+          </section>
+        )}
+
       </>
       )}
     </main>

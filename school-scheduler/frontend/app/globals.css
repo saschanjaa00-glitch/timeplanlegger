@@ -46,6 +46,10 @@ main {
   padding: 1rem 1rem 1.8rem;
 }
 
+main.ultrawide-mode {
+  max-width: min(96vw, 2100px);
+}
+
 h1,
 h2,
 h3 {
@@ -81,6 +85,18 @@ p {
   padding: 0.55rem 0.85rem 0.5rem;
   background: linear-gradient(90deg, rgba(255, 255, 255, 0.72), rgba(255, 255, 255, 0.28));
   animation: rise-in 460ms ease-out;
+}
+
+.hero-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.hero-ultrawide-toggle {
+  width: auto;
+  min-width: 170px;
 }
 
 .tab-strip {
@@ -1435,6 +1451,16 @@ td.idrett-row {
   .tab-controls {
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .hero-title-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .hero-ultrawide-toggle {
+    width: 100%;
+    min-width: 0;
   }
 
   .week-settings {
