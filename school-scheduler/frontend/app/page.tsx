@@ -634,6 +634,7 @@ export default function Home() {
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [showUltrawideTimeline, setShowUltrawideTimeline] = useState(true);
+  const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -5187,26 +5188,31 @@ export default function Home() {
                         }
                       });
 
+                      const concurrentEventCounts = new Map<string, number>();
+                      for (const event of baseEvents) {
+                        const concurrentCount = baseEvents.reduce((count, candidate) => {
+                          if (candidate.key === event.key) {
+                            return count;
+                          }
+                          const overlapsInTime = candidate.startMin < event.endMin && candidate.endMin > event.startMin;
+                          return overlapsInTime ? count + 1 : count;
+                        }, 0);
+                        concurrentEventCounts.set(event.key, concurrentCount + 1);
+                      }
+
                       return baseEvents.map((event) => {
                         const laneWidth = 100 / Math.max(1, event.laneCount);
                         const laneLeft = event.laneIndex * laneWidth;
                         const overlapWidth = laneWidth / Math.max(1, event.overlapCols);
                         const overlapLeft = laneLeft + event.overlapCol * overlapWidth;
+                        const canExpand = (concurrentEventCounts.get(event.key) ?? 1) > 1;
+                        const isHovered = hoveredTimelineEventKey === event.key;
+                        const isExpanded = canExpand && isHovered;
 
-                        return (
-                          <article
-                            key={event.key}
-                            className={`weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}`}
-                            style={{
-                              top: `${event.topPct}%`,
-                              height: `${Math.max(event.heightPct, 4)}%`,
-                              left: `calc(${overlapLeft}% + 2px)`,
-                              width: `calc(${Math.max(overlapWidth, 2)}% - 4px)`,
-                              right: "auto",
-                              borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
-                              backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
-                            }}
-                          >
+                        const eventClassName = `weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}`;
+
+                        const eventBody = (
+                          <>
                             <strong>{event.title}</strong>
                             {enableAlternatingWeeks && event.weekType ? <small>Week {event.weekType}</small> : null}
                             {!event.isBlockSummary ? (
@@ -5222,7 +5228,47 @@ export default function Home() {
                               </>
                             ) : null}
                             <small>{event.ts?.start_time}-{event.ts?.end_time}</small>
-                          </article>
+                          </>
+                        );
+
+                        return (
+                          <>
+                            <article
+                              key={`${event.key}_base`}
+                              className={eventClassName}
+                              onMouseEnter={() => setHoveredTimelineEventKey(event.key)}
+                              onMouseLeave={() => setHoveredTimelineEventKey((current) => (current === event.key ? null : current))}
+                              style={{
+                                top: `${event.topPct}%`,
+                                height: `${Math.max(event.heightPct, 4)}%`,
+                                left: `calc(${overlapLeft}% + 2px)`,
+                                width: `calc(${Math.max(overlapWidth, 2)}% - 4px)`,
+                                right: "auto",
+                                borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
+                                backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
+                              }}
+                            >
+                              {eventBody}
+                            </article>
+
+                            {isExpanded ? (
+                              <article
+                                key={`${event.key}_popout`}
+                                className={`${eventClassName} weekly-event-popout`}
+                                style={{
+                                  top: `${event.topPct}%`,
+                                  height: `${Math.max(event.heightPct, 4)}%`,
+                                  left: "2px",
+                                  width: "calc(100% - 4px)",
+                                  right: "auto",
+                                  borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
+                                  backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
+                                }}
+                              >
+                                {eventBody}
+                              </article>
+                            ) : null}
+                          </>
                         );
                       });
                     })()}
