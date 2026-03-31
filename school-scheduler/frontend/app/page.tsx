@@ -11,7 +11,7 @@ type Subject = {
   class_ids: string[];
   subject_type: "fellesfag" | "programfag";
   sessions_per_week: number;
-  alternating_week_split?: string;
+  // alternating_week_split is DISABLED - auto-balancing is used instead
   allowed_timeslots?: string[];
   allowed_block_ids?: string[];
 };
@@ -239,9 +239,6 @@ function normalizeTimeslot(timeslot: Partial<Timeslot>): Timeslot {
 }
 
 function normalizeSubject(subject: Partial<Subject>): Subject {
-  const split = typeof subject.alternating_week_split === "string"
-    ? subject.alternating_week_split.trim()
-    : "";
   const normalizedTeacherIds = Array.isArray(subject.teacher_ids)
     ? subject.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
     : [];
@@ -261,7 +258,7 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
       typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
         ? Math.floor(subject.sessions_per_week)
         : 1,
-    alternating_week_split: split || undefined,
+    // alternating_week_split is DISABLED
     allowed_timeslots: Array.isArray(subject.allowed_timeslots) ? subject.allowed_timeslots : undefined,
     allowed_block_ids: Array.isArray(subject.allowed_block_ids) ? subject.allowed_block_ids : undefined,
   };
@@ -2769,7 +2766,6 @@ export default function Home() {
       class_ids: [],
       subject_type: "programfag",
       sessions_per_week: occurrenceCount,
-      alternating_week_split: undefined,
     };
     setSubjects((prev) => [...prev, newSubject]);
     if (!blockForm.subject_entries.some((se) => se.subject_id === id)) {
@@ -2790,7 +2786,8 @@ export default function Home() {
     const block = blocks.find((b) => b.id === blockId);
     const occurrenceCount = blockOccurrenceSessionCount(block?.occurrences);
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
-    setSubjects((prev) => [...prev, { id, name, teacher_id: "", teacher_ids: [], class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount, alternating_week_split: undefined }]);
+    // alternating_week_split removed - auto-balancing is used instead
+    setSubjects((prev) => [...prev, { id, name, teacher_id: "", teacher_ids: [], class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount }]);
     setBlocks((prev) => prev.map((b) =>
       b.id !== blockId ? b : {
         ...b,
@@ -2981,7 +2978,6 @@ export default function Home() {
         class_ids: [],
         subject_type: "fellesfag",
         sessions_per_week: 1,
-        alternating_week_split: undefined,
       },
     ]);
 
@@ -3009,10 +3005,6 @@ export default function Home() {
         teacher_ids: mergedTeacherIds,
         class_ids: cleanedClassIds,
         sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
-        alternating_week_split:
-          typeof merged.alternating_week_split === "string" && merged.alternating_week_split.trim()
-            ? merged.alternating_week_split.trim()
-            : undefined,
       };
     }));
   }
@@ -3066,10 +3058,7 @@ export default function Home() {
         ]))[0] ?? ""),
         class_ids: s.class_ids ?? [],
         sessions_per_week: s.sessions_per_week || 1,
-        alternating_week_split:
-          typeof s.alternating_week_split === "string" && s.alternating_week_split.trim()
-            ? s.alternating_week_split.trim()
-            : undefined,
+        // alternating_week_split is DISABLED - auto-balancing is used instead
         allowed_block_ids: s.allowed_block_ids ?? undefined,
         allowed_timeslots: s.allowed_timeslots ?? undefined,
       })).filter(s => s.id); // Remove entries with no id
@@ -3882,7 +3871,7 @@ export default function Home() {
                     <span className="subject-expand-name">{subject.name}</span>
                     <span className="subject-expand-meta">
                       {subject.subject_type === "fellesfag" ? "Fellesfag" : "Programfag"}
-                      {" "}({subject.sessions_per_week}x45{subject.alternating_week_split ? `, A/B ${subject.alternating_week_split}` : ""})
+                      {" "}({subject.sessions_per_week}x45)
                     </span>
                     {derivedClassIds.length > 0 && (
                       <span className="subject-expand-chips">
@@ -3929,16 +3918,12 @@ export default function Home() {
                         </select>
                       </div>
 
-                      <div className="calendar-field">
-                        <label>A/B Week Split <small style={{ fontWeight: "normal", opacity: 0.7 }}>(e.g. 4/6 = 4 in A-week, 6 in B-week)</small></label>
+                      <div className="calendar-field" style={{ display: "none" }}>
+                        <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
                         <input
                           type="text"
-                          value={subject.alternating_week_split ?? ""}
-                          onChange={(e) =>
-                            updateSubjectCard(subject.id, {
-                              alternating_week_split: e.target.value,
-                            })
-                          }
+                          value=""
+                          disabled
                           placeholder="e.g. 4/6"
                         />
                       </div>
@@ -4097,7 +4082,9 @@ export default function Home() {
                                 disabled={!isClassCopy}
                                 onChange={(e) => {
                                   const value = Math.max(1, Math.floor(Number(e.target.value) || 1));
-                                  updateSubjectCard(subject.id, { sessions_per_week: value });
+                                  updateSubjectCard(subject.id, {
+                                    sessions_per_week: value,
+                                  });
                                 }}
                               />
                             </div>

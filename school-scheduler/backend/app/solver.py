@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections import defaultdict
 from math import gcd
 from pathlib import Path
-import re
 from typing import Dict, List, Set, Tuple
 
 from ortools.sat.python import cp_model
@@ -80,20 +79,6 @@ def _timeslot_bounds_minutes(timeslot: Timeslot) -> Tuple[int, int]:
 
     fallback_start = max(0, (timeslot.period - 1) * 45)
     return fallback_start, fallback_start + 45
-
-
-def _parse_alternating_week_split(value: str | None) -> Tuple[int, int] | None:
-    if not value:
-        return None
-    text = str(value).strip()
-    m = re.fullmatch(r"(\d+)\s*/\s*(\d+)", text)
-    if not m:
-        return None
-    a = int(m.group(1))
-    b = int(m.group(2))
-    if a < 0 or b < 0:
-        return None
-    return (a, b)
 
 
 def _timeslots_overlapping_occurrence(
@@ -829,14 +814,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     timeslot_units_map: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
 
-    # Explicit A/B splits defined on the subject take highest priority.
+    # A/B splits are DISABLED - use auto-balancing instead
     explicit_a_overrides: Dict[str, int] = {}
     explicit_b_overrides: Dict[str, int] = {}
-    for subj in data.subjects:
-        split = _parse_alternating_week_split(subj.alternating_week_split)
-        if split:
-            explicit_a_overrides[subj.id] = split[0]
-            explicit_b_overrides[subj.id] = split[1]
 
     auto_balanced_odd_subject_ids: Set[str] = {
         subj.id
@@ -944,9 +924,6 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         message="Schedule generated for A and B weeks.",
         schedule=response_a.schedule + response_b.schedule,
     )
-
-    model = cp_model.CpModel()
-    _solver_log("[RUN] generate_schedule", reset=True)
 
     def _duplicate_ids(values: List[str]) -> List[str]:
         seen: Set[str] = set()
@@ -1383,28 +1360,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 if (subject.id, t_id, "B") in x
             )
 
-            explicit_split = _parse_alternating_week_split(getattr(subject, "alternating_week_split", None))
-            if explicit_split is not None:
-                lo, hi = sorted(explicit_split)
-                if max_units_a < lo or max_units_b < lo or max(max_units_a, max_units_b) < hi:
-                    return ScheduleResponse(
-                        status="infeasible",
-                        message=(
-                            f"Not enough valid load capacity for subject '{subject.name}' ({subject.id}) "
-                            f"to place explicit alternating split {lo}/{hi}x45."
-                        ),
-                        schedule=[],
-                    )
-
-                units_a_var = model.NewIntVar(0, max_units_a, f"units_a_{subject.id}")
-                units_b_var = model.NewIntVar(0, max_units_b, f"units_b_{subject.id}")
-                model.Add(units_a_var == units_sum_a)
-                model.Add(units_b_var == units_sum_b)
-                model.AddAllowedAssignments(
-                    [units_a_var, units_b_var],
-                    [(lo, hi), (hi, lo)],
-                )
-                continue
+            # alternating_week_split parsing and handling DISABLED - feature removed
 
             unit_gcd = 0
             for t_id in allowed_slot_ids:
