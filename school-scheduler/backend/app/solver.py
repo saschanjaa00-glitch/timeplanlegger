@@ -363,8 +363,18 @@ def _block_active_weeks(block: Block, alternating_weeks_enabled: bool) -> Set[st
     return {"A", "B"}
 
 
-def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
-    _solver_log("[RUN] generate_schedule_staged", reset=True)
+def _generate_schedule_staged(
+    data: ScheduleRequest,
+    week_label: str | None = None,
+    week_unit_overrides: Dict[str, int] | None = None,
+    allow_partial_remaining: bool = False,
+    allow_partial_subject_ids: Set[str] | None = None,
+    seed_items: List[ScheduledItem] | None = None,
+) -> ScheduleResponse:
+    _solver_log(
+        f"[RUN] generate_schedule_staged week={week_label or 'single'}",
+        reset=(week_label is None or week_label == "A"),
+    )
 
     active_timeslots = list(data.timeslots)
     if not active_timeslots:
@@ -394,6 +404,10 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
         slot_set: Set[str] = set()
         has_occurrences = bool(block.occurrences)
         for occ in block.occurrences:
+            if week_label:
+                wt = (occ.week_type or "both").lower()
+                if wt not in ("both", week_label.lower()):
+                    continue
             slot_set |= (_timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids)
         if not has_occurrences:
             slot_set |= (set(block.timeslot_ids) & all_timeslot_ids)
@@ -427,6 +441,9 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     schedule_items: List[ScheduledItem] = []
     reduced_tail_span_by_class_slot: Dict[Tuple[str, str], Tuple[str, str]] = {}
     class_day_load_units: Dict[Tuple[str, str], int] = defaultdict(int)
+    seeded_units_by_subject: Dict[str, int] = defaultdict(int)
+    seeded_days_by_subject: Dict[str, Set[str]] = defaultdict(set)
+    partial_subject_ids = allow_partial_subject_ids or set()
 
     day_period_bounds: Dict[str, Tuple[int, int]] = {}
     for ts in active_timeslots:
@@ -440,6 +457,23 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
         ts = timeslots_by_id[ts_id]
         return (ts.day, ts.period)
 
+    if seed_items:
+        for item in seed_items:
+            schedule_items.append(item)
+            item_units = _item_units(item, timeslot_units_by_id)
+            seeded_units_by_subject[item.subject_id] += item_units
+            seeded_days_by_subject[item.subject_id].add(item.day)
+            for class_id in item.class_ids:
+                class_occupied.add((class_id, item.timeslot_id))
+                class_day_load_units[(class_id, item.day)] += item_units
+
+            seeded_teacher_ids = list(dict.fromkeys([
+                *(item.teacher_ids or []),
+                *([item.teacher_id] if item.teacher_id else []),
+            ]))
+            for teacher_id in seeded_teacher_ids:
+                teacher_occupied.add((teacher_id, item.timeslot_id))
+
     block_subject_ids: Set[str] = set(linked_block_ids.keys())
 
     for block in data.blocks:
@@ -449,6 +483,10 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
 
         slot_span_by_id: Dict[str, Tuple[str, str]] = {}
         for occ in block.occurrences:
+            if week_label:
+                wt = (occ.week_type or "both").lower()
+                if wt not in ("both", week_label.lower()):
+                    continue
             matched_slots = _timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids
             for ts_id in matched_slots:
                 slot_span_by_id[ts_id] = (occ.start_time, occ.end_time)
@@ -567,7 +605,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                             period=timeslots_by_id[ts_id].period,
                             start_time=custom_start,
                             end_time=custom_end,
-                            week_type=None,
+                            week_type=week_label,
                             room_id=subject_to_room.get(subject.id),
                         )
                     )
@@ -604,12 +642,23 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
 
     # Step 3: place all remaining subjects in currently available slots.
     remaining_subjects = [s for s in data.subjects if s.id not in block_subject_ids]
-    remaining_subjects.sort(key=lambda s: int(s.sessions_per_week or 1), reverse=True)
+    remaining_subjects.sort(
+        key=lambda s: (
+            1 if s.id in partial_subject_ids else 0,
+            -int(s.sessions_per_week or 1),
+            s.name.lower(),
+        )
+    )
 
     for subject in remaining_subjects:
         teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
-        required_units = max(1, int(subject.sessions_per_week or 1))
+        week_sessions = (
+            week_unit_overrides.get(subject.id, subject.sessions_per_week)
+            if week_unit_overrides
+            else subject.sessions_per_week
+        )
+        required_units = max(1, int(week_sessions or 1))
         subject_requires_odd_units = (required_units % 2) == 1
         allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
 
@@ -619,14 +668,19 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                 allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
 
         candidate_slots = sorted(allowed_slots, key=_slot_sort_key)
-        units_placed = 0
+        units_placed = seeded_units_by_subject.get(subject.id, 0)
 
-        subject_days_used: Set[str] = set()
+        subject_days_used: Set[str] = set(seeded_days_by_subject.get(subject.id, set()))
         allow_same_day = "norsk vg3" in subject.name.lower()
         relaxed_same_day = allow_same_day
 
         while units_placed < required_units:
             remaining_units = required_units - units_placed
+            prefer_single_unit_first = (
+                week_label == "A"
+                and subject.id in partial_subject_ids
+                and (remaining_units % 2) == 1
+            )
 
             feasible_candidates: List[Tuple[Tuple[int, int, int, int, str, int], str, str | None, str | None, int]] = []
 
@@ -669,6 +723,9 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
 
                 would_overshoot = 1 if units_for_placement > remaining_units else 0
                 exact_fit_penalty = 0 if units_for_placement == remaining_units else 1
+                single_unit_penalty = 0
+                if prefer_single_unit_first:
+                    single_unit_penalty = 0 if units_for_placement == 1 else 1
 
                 day_load = 0
                 if subject.class_ids:
@@ -679,6 +736,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
 
                 score = (
                     would_overshoot,
+                    single_unit_penalty,
                     exact_fit_penalty,
                     boundary_penalty,
                     day_load,
@@ -710,7 +768,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                     period=chosen_ts.period,
                     start_time=chosen_start,
                     end_time=chosen_end,
-                    week_type=None,
+                    week_type=week_label,
                     room_id=subject_to_room.get(subject.id),
                 )
             )
@@ -724,7 +782,11 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             subject_days_used.add(chosen_ts.day)
             units_placed += chosen_units
 
-        if units_placed < required_units:
+        if (
+            units_placed < required_units
+            and not allow_partial_remaining
+            and subject.id not in partial_subject_ids
+        ):
             return ScheduleResponse(
                 status="infeasible",
                 message=(
@@ -741,10 +803,147 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     )
 
 
+def _item_units(item: ScheduledItem, timeslot_units_map: Dict[str, int]) -> int:
+    """Return the 45-minute unit count actually consumed by a scheduled item."""
+    if item.start_time and item.end_time:
+        start = _to_minutes(item.start_time)
+        end = _to_minutes(item.end_time)
+        if start is not None and end is not None and end > start:
+            return max(1, int(round((end - start) / 45.0)))
+    return timeslot_units_map.get(item.timeslot_id, 1)
+
+
 def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
-    # Temporary full rehaul path requested by user.
-    # Uses single-week staged generation to isolate A/B interactions.
-    return _generate_schedule_staged(data)
+    if not data.alternating_weeks_enabled:
+        return _generate_schedule_staged(data)
+
+    # Collect subjects linked to blocks — their placements are driven by block
+    # occurrence windows, not by sessions_per_week, so they are excluded from
+    # the A/B unit-balancing logic below.
+    block_subject_ids: Set[str] = set()
+    for block in data.blocks:
+        for entry in block.subject_entries:
+            block_subject_ids.add(entry.subject_id)
+        for sid in block.subject_ids:
+            block_subject_ids.add(sid)
+
+    timeslot_units_map: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
+
+    # Explicit A/B splits defined on the subject take highest priority.
+    explicit_a_overrides: Dict[str, int] = {}
+    explicit_b_overrides: Dict[str, int] = {}
+    for subj in data.subjects:
+        split = _parse_alternating_week_split(subj.alternating_week_split)
+        if split:
+            explicit_a_overrides[subj.id] = split[0]
+            explicit_b_overrides[subj.id] = split[1]
+
+    auto_balanced_odd_subject_ids: Set[str] = {
+        subj.id
+        for subj in data.subjects
+        if subj.id not in block_subject_ids
+        and (int(subj.sessions_per_week or 1) % 2) == 1
+        and subj.id not in explicit_a_overrides
+    }
+
+    response_a = _generate_schedule_staged(
+        data,
+        week_label="A",
+        week_unit_overrides=explicit_a_overrides or None,
+        allow_partial_subject_ids=auto_balanced_odd_subject_ids,
+    )
+    if response_a.status != "success":
+        return ScheduleResponse(
+            status=response_a.status,
+            message=f"A-week: {response_a.message}",
+            schedule=[],
+        )
+
+    subject_items_in_a: Dict[str, List[ScheduledItem]] = defaultdict(list)
+
+    # Derive B-week targets from actual A placements so the two-week average
+    # equals sessions_per_week.  e.g. if a 3x45 subject could only fit 2 units
+    # into A-week (all slots are 90-min), B-week will target 4 units.
+    # Subjects with an explicit split, or block-linked subjects, are not touched.
+    a_placed: Dict[str, int] = defaultdict(int)
+    for item in response_a.schedule:
+        subject_items_in_a[item.subject_id].append(item)
+        if item.subject_id not in block_subject_ids:
+            a_placed[item.subject_id] += _item_units(item, timeslot_units_map)
+
+    seeded_b_items: List[ScheduledItem] = []
+    for subj in data.subjects:
+        if subj.id in block_subject_ids:
+            continue
+
+        subject_items = sorted(
+            subject_items_in_a.get(subj.id, []),
+            key=lambda item: (item.day, item.period, item.start_time or "", item.end_time or ""),
+        )
+        if not subject_items:
+            continue
+
+        subject_units = int(subj.sessions_per_week or 1)
+        if subj.id in explicit_a_overrides:
+            lock_units = min(a_placed.get(subj.id, 0), explicit_b_overrides.get(subj.id, 0))
+        elif subject_units % 2 == 0:
+            lock_units = min(a_placed.get(subj.id, 0), subject_units)
+        else:
+            lock_units = min(a_placed.get(subj.id, 0), max(0, subject_units - 1))
+
+        locked_units = 0
+        for item in subject_items:
+            item_units = _item_units(item, timeslot_units_map)
+            if locked_units + item_units > lock_units:
+                continue
+            seeded_b_items.append(
+                ScheduledItem(
+                    subject_id=item.subject_id,
+                    subject_name=item.subject_name,
+                    teacher_id=item.teacher_id,
+                    teacher_ids=item.teacher_ids,
+                    class_ids=item.class_ids,
+                    timeslot_id=item.timeslot_id,
+                    day=item.day,
+                    period=item.period,
+                    start_time=item.start_time,
+                    end_time=item.end_time,
+                    week_type="B",
+                    room_id=item.room_id,
+                )
+            )
+            locked_units += item_units
+            if locked_units >= lock_units:
+                break
+
+    b_overrides: Dict[str, int] = dict(explicit_b_overrides)
+    for subj in data.subjects:
+        if subj.id in block_subject_ids:
+            continue
+        if subj.id in explicit_b_overrides:
+            continue
+        total_two_week = 2 * int(subj.sessions_per_week or 1)
+        b_needed = max(0, total_two_week - a_placed.get(subj.id, 0))
+        b_overrides[subj.id] = b_needed
+
+    response_b = _generate_schedule_staged(
+        data,
+        week_label="B",
+        week_unit_overrides=b_overrides or None,
+        seed_items=seeded_b_items,
+    )
+    if response_b.status != "success":
+        return ScheduleResponse(
+            status=response_b.status,
+            message=f"B-week: {response_b.message}",
+            schedule=[],
+        )
+
+    return ScheduleResponse(
+        status="success",
+        message="Schedule generated for A and B weeks.",
+        schedule=response_a.schedule + response_b.schedule,
+    )
 
     model = cp_model.CpModel()
     _solver_log("[RUN] generate_schedule", reset=True)

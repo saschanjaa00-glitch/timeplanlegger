@@ -3930,7 +3930,7 @@ export default function Home() {
                       </div>
 
                       <div className="calendar-field">
-                        <label>Alternating A/B Split (optional)</label>
+                        <label>A/B Week Split <small style={{ fontWeight: "normal", opacity: 0.7 }}>(e.g. 4/6 = 4 in A-week, 6 in B-week)</small></label>
                         <input
                           type="text"
                           value={subject.alternating_week_split ?? ""}
@@ -3939,7 +3939,7 @@ export default function Home() {
                               alternating_week_split: e.target.value,
                             })
                           }
-                          placeholder="4/6"
+                          placeholder="e.g. 4/6"
                         />
                       </div>
 
