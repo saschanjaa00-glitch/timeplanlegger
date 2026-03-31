@@ -53,6 +53,7 @@ type Timeslot = {
   is_idrett?: boolean;
   is_lunch?: boolean;
   excluded_from_generation?: boolean;
+  generation_allowed_class_ids?: string[];
 };
 
 type BlockOccurrence = {
@@ -217,6 +218,23 @@ function normalizeBlock(block: Partial<Block>): Block {
     a_week_lessons: typeof block.a_week_lessons === "number" ? block.a_week_lessons : 5,
     b_week_lessons: typeof block.b_week_lessons === "number" ? block.b_week_lessons : 5,
     subject_ids: Array.isArray(block.subject_ids) ? block.subject_ids : [],
+  };
+}
+
+function normalizeTimeslot(timeslot: Partial<Timeslot>): Timeslot {
+  return {
+    id: timeslot.id ?? "",
+    day: timeslot.day ?? "Monday",
+    period: typeof timeslot.period === "number" ? timeslot.period : 1,
+    start_time: timeslot.start_time,
+    end_time: timeslot.end_time,
+    is_double: Boolean(timeslot.is_double),
+    is_idrett: Boolean(timeslot.is_idrett),
+    is_lunch: Boolean(timeslot.is_lunch),
+    excluded_from_generation: Boolean(timeslot.excluded_from_generation),
+    generation_allowed_class_ids: Array.isArray(timeslot.generation_allowed_class_ids)
+      ? timeslot.generation_allowed_class_ids.filter(Boolean)
+      : [],
   };
 }
 
@@ -584,6 +602,7 @@ function normalizeTimeslotIds(timeslots: Timeslot[]): {
         ...slot,
         id: newId,
         period: index + 1,
+        generation_allowed_class_ids: slot.generation_allowed_class_ids ?? [],
       });
     });
   }
@@ -665,6 +684,7 @@ export default function Home() {
     is_idrett: false,
     is_lunch: false,
     excluded_from_generation: false,
+    generation_allowed_class_ids: [] as string[],
   });
   const [activeCalendarDay, setActiveCalendarDay] = useState("Monday");
   const [editingTimeslotId, setEditingTimeslotId] = useState<string | null>(null);
@@ -760,7 +780,7 @@ export default function Home() {
         setClasses(parsed.classes);
       }
       if (Array.isArray(parsed.timeslots)) {
-        setTimeslots(parsed.timeslots);
+        setTimeslots(parsed.timeslots.map((timeslot) => normalizeTimeslot(timeslot)));
       }
       if (Array.isArray(parsed.weekCalendarSetups)) {
         setWeekCalendarSetups(parsed.weekCalendarSetups);
@@ -1735,7 +1755,7 @@ export default function Home() {
     const { normalizedTimeslots, idMap } = normalizeTimeslotIds(nextTimeslots);
     const remapId = (id: string): string => idMap[id] ?? id;
 
-    setTimeslots(normalizedTimeslots);
+    setTimeslots(normalizedTimeslots.map((timeslot) => normalizeTimeslot(timeslot)));
 
     setBlocks((prev) => prev.map((block) => ({
       ...block,
@@ -2593,6 +2613,7 @@ export default function Home() {
         is_idrett: timeslotForm.is_idrett,
         is_lunch: timeslotForm.is_lunch,
         excluded_from_generation: timeslotForm.excluded_from_generation,
+        generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       },
     ];
     const normalizedId = applyNormalizedTimeslotState(nextTimeslots, id) ?? id;
@@ -2611,6 +2632,7 @@ export default function Home() {
       is_idrett: Boolean(slot.is_idrett),
       is_lunch: Boolean(slot.is_lunch),
       excluded_from_generation: Boolean(slot.excluded_from_generation),
+      generation_allowed_class_ids: slot.generation_allowed_class_ids ?? [],
     });
     setStatusText(`Editing timeslot ${slot.id}.`);
   }
@@ -2626,6 +2648,7 @@ export default function Home() {
       is_idrett: false,
       is_lunch: false,
       excluded_from_generation: false,
+      generation_allowed_class_ids: [],
     }));
     setStatusText("Timeslot editing cancelled.");
   }
@@ -2666,6 +2689,7 @@ export default function Home() {
         is_idrett: timeslotForm.is_idrett,
         is_lunch: timeslotForm.is_lunch,
         excluded_from_generation: timeslotForm.excluded_from_generation,
+        generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       };
     });
 
@@ -3411,10 +3435,48 @@ export default function Home() {
             <input
               type="checkbox"
               checked={timeslotForm.excluded_from_generation}
-              onChange={(e) => setTimeslotForm((s) => ({ ...s, excluded_from_generation: e.target.checked }))}
+              onChange={(e) => setTimeslotForm((s) => ({
+                ...s,
+                excluded_from_generation: e.target.checked,
+                generation_allowed_class_ids: e.target.checked ? s.generation_allowed_class_ids : [],
+              }))}
             />
             Exclude from generation
           </label>
+
+          {timeslotForm.excluded_from_generation ? (
+            <div className="calendar-field" style={{ gridColumn: "1 / -1" }}>
+              <label>Not Excluded For Classes</label>
+              <div className="meeting-chip-row">
+                {sortedClasses.length === 0 ? (
+                  <span className="meeting-empty">No classes available</span>
+                ) : (
+                  sortedClasses.map((schoolClass) => {
+                    const isSelected = timeslotForm.generation_allowed_class_ids.includes(schoolClass.id);
+                    return (
+                      <button
+                        key={schoolClass.id}
+                        type="button"
+                        className={`meeting-chip ${isSelected ? "preferred" : "neutral"}`}
+                        style={{ width: "auto" }}
+                        onClick={() => setTimeslotForm((s) => ({
+                          ...s,
+                          generation_allowed_class_ids: isSelected
+                            ? s.generation_allowed_class_ids.filter((id) => id !== schoolClass.id)
+                            : [...s.generation_allowed_class_ids, schoolClass.id],
+                        }))}
+                      >
+                        {schoolClass.name}
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+              <p style={{ marginTop: "4px", fontSize: "0.78rem" }}>
+                This slot stays excluded for all other classes.
+              </p>
+            </div>
+          ) : null}
 
           <button className="calendar-submit" type="submit">
             {editingTimeslotId ? "Save Changes" : "Add Timeslot"}
@@ -3565,7 +3627,14 @@ export default function Home() {
                         ) : (
                           <div>{slot.start_time} - {slot.end_time}</div>
                         )}
-                        {slot.excluded_from_generation ? <small>Excluded from generation</small> : null}
+                        {slot.excluded_from_generation ? (
+                          <small>
+                            Excluded from generation
+                            {(slot.generation_allowed_class_ids?.length ?? 0) > 0
+                              ? ` except ${slot.generation_allowed_class_ids?.map((id) => classNameById[id] ?? id).join(", ")}`
+                              : ""}
+                          </small>
+                        ) : null}
                         <small>{slot.id}</small>
                       </div>
                     );

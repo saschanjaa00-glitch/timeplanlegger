@@ -126,19 +126,34 @@ def _compute_allowed_timeslots(
     subject: Subject,
     all_timeslot_ids: Set[str],
     block_to_timeslots: Dict[str, Set[str]],
+    timeslots_by_id: Dict[str, Timeslot],
 ) -> Set[str]:
     # Direct timeslot restriction has highest priority.
     if subject.allowed_timeslots:
-        return set(subject.allowed_timeslots) & all_timeslot_ids
-
-    # If blocks are provided on a subject, union all block timeslot sets.
-    if subject.allowed_block_ids:
+        allowed = set(subject.allowed_timeslots) & all_timeslot_ids
+    elif subject.allowed_block_ids:
         block_slots: Set[str] = set()
         for block_id in subject.allowed_block_ids:
             block_slots |= block_to_timeslots.get(block_id, set())
-        return block_slots & all_timeslot_ids
+        allowed = block_slots & all_timeslot_ids
+    else:
+        allowed = set(all_timeslot_ids)
 
-    return set(all_timeslot_ids)
+    filtered: Set[str] = set()
+    subject_class_ids = set(subject.class_ids or [])
+    for timeslot_id in allowed:
+        timeslot = timeslots_by_id.get(timeslot_id)
+        if not timeslot:
+            continue
+        if not getattr(timeslot, "excluded_from_generation", False):
+            filtered.add(timeslot_id)
+            continue
+
+        allowed_class_ids = set(getattr(timeslot, "generation_allowed_class_ids", []) or [])
+        if subject_class_ids and subject_class_ids.issubset(allowed_class_ids):
+            filtered.add(timeslot_id)
+
+    return filtered
 
 
 def _subject_teacher_ids(subject: Subject) -> List[str]:
@@ -351,7 +366,7 @@ def _block_active_weeks(block: Block, alternating_weeks_enabled: bool) -> Set[st
 def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     _solver_log("[RUN] generate_schedule_staged", reset=True)
 
-    active_timeslots = [t for t in data.timeslots if not getattr(t, "excluded_from_generation", False)]
+    active_timeslots = list(data.timeslots)
     if not active_timeslots:
         return ScheduleResponse(status="infeasible", message="No active timeslots available.", schedule=[])
 
@@ -497,7 +512,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             required_units = max(1, int(subject.sessions_per_week or 1), min_units_from_blocks)
             subject_requires_odd_units = (required_units % 2) == 1
 
-            subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
+            subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
             candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
 
             # If this block effectively maps to one subject, that subject must occupy
@@ -596,7 +611,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
         required_units = max(1, int(subject.sessions_per_week or 1))
         subject_requires_odd_units = (required_units % 2) == 1
-        allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
+        allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
 
         for teacher_id in teacher_ids:
             if teacher_id in teachers_by_id:
@@ -771,7 +786,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             schedule=[],
         )
 
-    active_timeslots = [t for t in data.timeslots if not getattr(t, "excluded_from_generation", False)]
+    active_timeslots = list(data.timeslots)
     timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in active_timeslots}
     timeslot_bounds_by_id: Dict[str, Tuple[int, int]] = {
         t.id: _timeslot_bounds_minutes(t) for t in active_timeslots
@@ -927,7 +942,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             required_units = max(requested_units, block_min_units)
         subject_sessions_required[subject.id] = required_units
 
-        allowed = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
+        allowed = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
 
         teacher = teachers_by_id.get(subject.teacher_id)
         if teacher:

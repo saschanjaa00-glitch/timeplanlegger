@@ -54,6 +54,7 @@ class Timeslot(BaseModel):
     start_time: Optional[str] = None
     end_time: Optional[str] = None
     excluded_from_generation: bool = False
+    generation_allowed_class_ids: List[str] = Field(default_factory=list)
 
 
 class BlockOccurrence(BaseModel):
