@@ -330,10 +330,24 @@ p {
 }
 .compare-actions {
   display: flex;
-  align-items: flex-end;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
 }
 .compare-actions button {
   width: 100%;
+}
+.compare-week-view {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+}
+.compare-week-view label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #2f3b3c;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 .compare-legend {
   display: flex;

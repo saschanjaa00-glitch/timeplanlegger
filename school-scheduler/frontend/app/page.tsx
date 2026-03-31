@@ -91,8 +91,6 @@ type Room = {
 
 type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate";
 
-type WeekMode = "A" | "B";
-
 type WeekView = "both" | "A" | "B";
 
 type ResizeState = {
@@ -177,10 +175,6 @@ const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "teachers", label: "Teachers" },
   { id: "generate", label: "Generate" },
 ];
-
-function parseWeekMode(value: unknown): WeekMode {
-  return value === "B" ? "B" : "A";
-}
 
 function parseWeekView(value: unknown): WeekView {
   return value === "A" || value === "B" ? value : "both";
@@ -495,6 +489,103 @@ function toOpaqueTint(hexColor: string, mixWithWhite = 0.82): string {
   return `rgb(${mixedR}, ${mixedG}, ${mixedB})`;
 }
 
+function toRgbTuple(color: string): [number, number, number] | null {
+  const text = color.trim();
+  const hex = text.replace(/^#/, "");
+  const normalizedHex = hex.length === 3
+    ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    : hex;
+
+  if (/^[0-9a-fA-F]{6}$/.test(normalizedHex)) {
+    return [
+      Number.parseInt(normalizedHex.slice(0, 2), 16),
+      Number.parseInt(normalizedHex.slice(2, 4), 16),
+      Number.parseInt(normalizedHex.slice(4, 6), 16),
+    ];
+  }
+
+  const rgbMatch = text.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (rgbMatch) {
+    return [
+      Math.max(0, Math.min(255, Number.parseInt(rgbMatch[1], 10))),
+      Math.max(0, Math.min(255, Number.parseInt(rgbMatch[2], 10))),
+      Math.max(0, Math.min(255, Number.parseInt(rgbMatch[3], 10))),
+    ];
+  }
+
+  return null;
+}
+
+function weekStripeOverlayForColor(baseColor: string, direction: "up" | "down"): string {
+  const rgb = toRgbTuple(baseColor) ?? [210, 210, 210];
+  const darkenFactor = 0.72;
+  const stripeR = Math.round(rgb[0] * darkenFactor);
+  const stripeG = Math.round(rgb[1] * darkenFactor);
+  const stripeB = Math.round(rgb[2] * darkenFactor);
+  const angle = direction === "up" ? "45deg" : "-45deg";
+  return `repeating-linear-gradient(${angle}, rgba(${stripeR}, ${stripeG}, ${stripeB}, 0.18) 0, rgba(${stripeR}, ${stripeG}, ${stripeB}, 0.18) 1px, rgba(255, 255, 255, 0) 1px, rgba(255, 255, 255, 0) 16px)`;
+}
+
+function darkenColor(color: string, amount = 0.04): string {
+  const rgb = toRgbTuple(color);
+  if (!rgb) {
+    return color;
+  }
+
+  // Keep hue, lower lightness a bit, and bump saturation slightly
+  // so block cards feel richer instead of grayer.
+  const rN = rgb[0] / 255;
+  const gN = rgb[1] / 255;
+  const bN = rgb[2] / 255;
+  const cMax = Math.max(rN, gN, bN);
+  const cMin = Math.min(rN, gN, bN);
+  const delta = cMax - cMin;
+
+  let h = 0;
+  if (delta !== 0) {
+    if (cMax === rN) {
+      h = ((gN - bN) / delta) % 6;
+    } else if (cMax === gN) {
+      h = (bN - rN) / delta + 2;
+    } else {
+      h = (rN - gN) / delta + 4;
+    }
+  }
+  h = (h * 60 + 360) % 360;
+  const l = (cMax + cMin) / 2;
+  const s = delta === 0 ? 0 : delta / (1 - Math.abs(2 * l - 1));
+
+  const safeAmount = Math.max(0, Math.min(0.2, amount));
+  const adjustedL = Math.max(0, Math.min(1, l - safeAmount));
+  const adjustedS = Math.max(0, Math.min(1, s + 0.05));
+
+  const c = (1 - Math.abs(2 * adjustedL - 1)) * adjustedS;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = adjustedL - c / 2;
+
+  let r1 = 0;
+  let g1 = 0;
+  let b1 = 0;
+  if (h < 60) {
+    r1 = c; g1 = x; b1 = 0;
+  } else if (h < 120) {
+    r1 = x; g1 = c; b1 = 0;
+  } else if (h < 180) {
+    r1 = 0; g1 = c; b1 = x;
+  } else if (h < 240) {
+    r1 = 0; g1 = x; b1 = c;
+  } else if (h < 300) {
+    r1 = x; g1 = 0; b1 = c;
+  } else {
+    r1 = c; g1 = 0; b1 = x;
+  }
+
+  const r = Math.round((r1 + m) * 255);
+  const g = Math.round((g1 + m) * 255);
+  const b = Math.round((b1 + m) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 function computeDaySlotLayout(slots: Timeslot[]): Record<string, { col: number; count: number }> {
   const valid = [...slots]
     .map((slot) => ({ slot, start: toMinutes(slot.start_time), end: toMinutes(slot.end_time) }))
@@ -630,10 +721,9 @@ export default function Home() {
   const [statusText, setStatusText] = useState("Ready");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("calendar");
-  const [enableAlternatingWeeks, setEnableAlternatingWeeks] = useState(false);
-  const [activeWeekMode, setActiveWeekMode] = useState<WeekMode>("A");
+  const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
-  const [alternateNonBlockSubjects, setAlternateNonBlockSubjects] = useState(false);
+  const alternateNonBlockSubjects = true;
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -755,9 +845,6 @@ export default function Home() {
         activeCalendarDay: string;
         activeTab: TabKey;
         activeWeekSetupId: string | null;
-        enableAlternatingWeeks: boolean;
-        alternateNonBlockSubjects: boolean;
-        activeWeekMode: WeekMode;
         weekView: WeekView;
       }>;
 
@@ -797,13 +884,6 @@ export default function Home() {
       if (typeof parsed.activeWeekSetupId === "string") {
         setActiveWeekSetupId(parsed.activeWeekSetupId);
       }
-      if (typeof parsed.enableAlternatingWeeks === "boolean") {
-        setEnableAlternatingWeeks(parsed.enableAlternatingWeeks);
-      }
-      if (typeof parsed.alternateNonBlockSubjects === "boolean") {
-        setAlternateNonBlockSubjects(parsed.alternateNonBlockSubjects);
-      }
-      setActiveWeekMode(parseWeekMode(parsed.activeWeekMode));
       setWeekView(parseWeekView(parsed.weekView));
     } catch {
       // Ignore malformed localStorage payloads and continue with defaults.
@@ -830,9 +910,6 @@ export default function Home() {
       activeCalendarDay,
       activeTab,
       activeWeekSetupId,
-      enableAlternatingWeeks,
-      alternateNonBlockSubjects,
-      activeWeekMode,
       weekView,
     };
 
@@ -851,9 +928,6 @@ export default function Home() {
     activeCalendarDay,
     activeTab,
     activeWeekSetupId,
-    enableAlternatingWeeks,
-    alternateNonBlockSubjects,
-    activeWeekMode,
     weekView,
   ]);
 
@@ -4980,55 +5054,6 @@ export default function Home() {
       <>
         <section className="card week-strategy">
           <h2>Scheduling Mode</h2>
-          <p>
-            Week setup stays the same. Use alternating A/B weeks during scheduling to distribute subjects
-            differently across opposite weeks.
-          </p>
-          <div className="week-settings">
-            <label className="calendar-check">
-              <input
-                type="checkbox"
-                checked={enableAlternatingWeeks}
-                onChange={(e) => setEnableAlternatingWeeks(e.target.checked)}
-              />
-              Enable alternating A/B week scheduling
-            </label>
-
-            <label className="calendar-check">
-              <input
-                type="checkbox"
-                checked={alternateNonBlockSubjects}
-                onChange={(e) => setAlternateNonBlockSubjects(e.target.checked)}
-                disabled={!enableAlternatingWeeks}
-              />
-              Alternate non-block subjects between A/B weeks
-            </label>
-
-            <div className="calendar-field">
-              <label>Current Week View</label>
-              <select
-                value={activeWeekMode}
-                onChange={(e) => setActiveWeekMode(parseWeekMode(e.target.value))}
-                disabled={!enableAlternatingWeeks}
-              >
-                <option value="A">A-week</option>
-                <option value="B">B-week</option>
-              </select>
-            </div>
-
-            <div className="calendar-field">
-              <label>Display</label>
-              <select
-                value={weekView}
-                onChange={(e) => setWeekView(parseWeekView(e.target.value))}
-                disabled={!enableAlternatingWeeks}
-              >
-                <option value="both">Show both weeks</option>
-                <option value="A">Show A-week only</option>
-                <option value="B">Show B-week only</option>
-              </select>
-            </div>
-          </div>
         </section>
 
         <section className="toolbar">
@@ -5142,6 +5167,17 @@ export default function Home() {
               </select>
             </div>
             <div className="compare-actions">
+              <div className="compare-week-view">
+                <label>Display</label>
+                <select
+                  value={weekView}
+                  onChange={(e) => setWeekView(parseWeekView(e.target.value))}
+                >
+                  <option value="both">Show both weeks</option>
+                  <option value="A">Show A-week only</option>
+                  <option value="B">Show B-week only</option>
+                </select>
+              </div>
               <button
                 type="button"
                 onClick={() => {
@@ -5572,6 +5608,20 @@ export default function Home() {
                           </>
                         );
 
+                        const baseEventBackgroundColor =
+                          (event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor)
+                          ?? "#e6ebf3";
+                        const eventBackgroundColor =
+                          event.kind === "subject" && event.isBlockSubject
+                            ? darkenColor(baseEventBackgroundColor, 0.04)
+                            : baseEventBackgroundColor;
+                        const weekStripeOverlay = event.kind === "subject" && event.weekType
+                          ? weekStripeOverlayForColor(
+                              eventBackgroundColor,
+                              event.weekType === "A" ? "up" : "down"
+                            )
+                          : undefined;
+
                         return (
                           <>
                             <article
@@ -5598,7 +5648,8 @@ export default function Home() {
                                 width: `calc(${Math.max(overlapWidth, 2)}% - 4px)`,
                                 right: "auto",
                                 borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
-                                backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
+                                backgroundColor: eventBackgroundColor,
+                                backgroundImage: weekStripeOverlay,
                               }}
                             >
                               {eventBody}
@@ -5615,7 +5666,8 @@ export default function Home() {
                                   width: "calc(100% - 4px)",
                                   right: "auto",
                                   borderColor: event.isBlockSubject && compareEntities.length === 0 ? "#d9b5aa" : event.laneColor,
-                                  backgroundColor: event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor,
+                                  backgroundColor: eventBackgroundColor,
+                                  backgroundImage: weekStripeOverlay,
                                 }}
                               >
                                 {eventBody}
