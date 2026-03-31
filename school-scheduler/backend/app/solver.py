@@ -141,6 +141,15 @@ def _compute_allowed_timeslots(
     return set(all_timeslot_ids)
 
 
+def _subject_teacher_ids(subject: Subject) -> List[str]:
+    # Support both legacy teacher_id and new teacher_ids.
+    candidates: List[str] = []
+    if getattr(subject, "teacher_id", ""):
+        candidates.append(subject.teacher_id)
+    candidates.extend(getattr(subject, "teacher_ids", []) or [])
+    return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
+
+
 def _compute_allowed_weeks(
     subject: Subject,
     alternating_weeks_enabled: bool,
@@ -314,6 +323,7 @@ def _assign_rooms_to_schedule(
                 subject_id=item.subject_id,
                 subject_name=item.subject_name,
                 teacher_id=item.teacher_id,
+                teacher_ids=item.teacher_ids,
                 class_ids=item.class_ids,
                 timeslot_id=item.timeslot_id,
                 day=item.day,
@@ -383,11 +393,11 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             if subject_id in subjects_by_id:
                 linked_block_ids[subject_id].add(block.id)
 
-    subject_effective_teacher: Dict[str, str] = {s.id: s.teacher_id for s in data.subjects}
+    subject_effective_teacher_ids: Dict[str, List[str]] = {s.id: _subject_teacher_ids(s) for s in data.subjects}
     for block in data.blocks:
         for entry in block.subject_entries:
-            if entry.subject_id in subject_effective_teacher and entry.teacher_id and not subject_effective_teacher[entry.subject_id]:
-                subject_effective_teacher[entry.subject_id] = entry.teacher_id
+            if entry.subject_id in subject_effective_teacher_ids and entry.teacher_id and not subject_effective_teacher_ids[entry.subject_id]:
+                subject_effective_teacher_ids[entry.subject_id] = [entry.teacher_id]
 
     teacher_meeting_unavailable: Dict[str, Set[str]] = defaultdict(set)
     for meeting in data.meetings:
@@ -474,7 +484,8 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
 
         for subject_id in sorted(relevant_subject_ids):
             subject = subjects_by_id[subject_id]
-            teacher_id = subject_effective_teacher.get(subject_id, subject.teacher_id)
+            teacher_ids = subject_effective_teacher_ids.get(subject_id, _subject_teacher_ids(subject))
+            primary_teacher_id = teacher_ids[0] if teacher_ids else ""
             min_units_from_blocks = _minimum_required_units_from_blocks(
                 subject,
                 all_timeslot_ids,
@@ -498,7 +509,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             units_placed = 0
             rendered_span_keys: Set[str] = set()
             for ts_id in candidate_slots:
-                if teacher_id and (teacher_id, ts_id) in teacher_occupied:
+                if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                     continue
 
                 custom_span = slot_span_by_id.get(ts_id)
@@ -533,7 +544,8 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                         ScheduledItem(
                             subject_id=subject.id,
                             subject_name=subject.name,
-                            teacher_id=teacher_id,
+                            teacher_id=primary_teacher_id,
+                            teacher_ids=teacher_ids,
                             class_ids=subject.class_ids,
                             timeslot_id=ts_id,
                             day=timeslots_by_id[ts_id].day,
@@ -548,10 +560,11 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                 for class_id in subject.class_ids:
                     if (class_id, ts_id) not in reduced_tail_span_by_class_slot:
                         class_occupied.add((class_id, ts_id))
-                if teacher_id and not any(
+                if teacher_ids and not any(
                     (class_id, ts_id) in reduced_tail_span_by_class_slot for class_id in subject.class_ids
                 ):
-                    teacher_occupied.add((teacher_id, ts_id))
+                    for teacher_id in teacher_ids:
+                        teacher_occupied.add((teacher_id, ts_id))
 
                 units_placed += timeslot_units_by_id.get(ts_id, 1)
                 for class_id in subject.class_ids:
@@ -579,14 +592,16 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
     remaining_subjects.sort(key=lambda s: int(s.sessions_per_week or 1), reverse=True)
 
     for subject in remaining_subjects:
-        teacher_id = subject_effective_teacher.get(subject.id, subject.teacher_id)
+        teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
+        primary_teacher_id = teacher_ids[0] if teacher_ids else ""
         required_units = max(1, int(subject.sessions_per_week or 1))
         subject_requires_odd_units = (required_units % 2) == 1
         allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots)
 
-        if teacher_id in teachers_by_id:
-            allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
-            allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
+        for teacher_id in teacher_ids:
+            if teacher_id in teachers_by_id:
+                allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
+                allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
 
         candidate_slots = sorted(allowed_slots, key=_slot_sort_key)
         units_placed = 0
@@ -601,7 +616,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             feasible_candidates: List[Tuple[Tuple[int, int, int, int, str, int], str, str | None, str | None, int]] = []
 
             for ts_id in candidate_slots:
-                if teacher_id and (teacher_id, ts_id) in teacher_occupied:
+                if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                     continue
                 if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
                     continue
@@ -672,7 +687,8 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
                 ScheduledItem(
                     subject_id=subject.id,
                     subject_name=subject.name,
-                    teacher_id=teacher_id,
+                    teacher_id=primary_teacher_id,
+                    teacher_ids=teacher_ids,
                     class_ids=subject.class_ids,
                     timeslot_id=chosen_ts_id,
                     day=chosen_ts.day,
@@ -687,7 +703,7 @@ def _generate_schedule_staged(data: ScheduleRequest) -> ScheduleResponse:
             for class_id in subject.class_ids:
                 class_occupied.add((class_id, chosen_ts_id))
                 class_day_load_units[(class_id, chosen_ts.day)] += chosen_units
-            if teacher_id:
+            for teacher_id in teacher_ids:
                 teacher_occupied.add((teacher_id, chosen_ts_id))
 
             subject_days_used.add(chosen_ts.day)

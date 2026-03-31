@@ -9,6 +9,7 @@ class Subject(BaseModel):
     id: str
     name: str
     teacher_id: str
+    teacher_ids: List[str] = Field(default_factory=list)
     class_ids: List[str]
     subject_type: str = "fellesfag"
     sessions_per_week: int = 1
@@ -102,6 +103,7 @@ class ScheduledItem(BaseModel):
     subject_id: str
     subject_name: str
     teacher_id: str
+    teacher_ids: List[str] = Field(default_factory=list)
     class_ids: List[str]
     timeslot_id: str
     day: str

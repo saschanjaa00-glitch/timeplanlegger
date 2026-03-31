@@ -351,6 +351,25 @@ p {
   font-size: 0.78rem;
   background: #f8f4ec;
 }
+
+.compare-pill-remove {
+  width: auto;
+  min-width: 0;
+  border: 1px solid #b8c6cc;
+  background: #fffdf8;
+  color: #324147;
+  border-radius: 999px;
+  padding: 0 0.34rem;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.compare-pill-remove:hover {
+  background: #f1ece3;
+}
+
 .compare-pill .dot {
   width: 9px;
   height: 9px;
@@ -788,7 +807,7 @@ p {
 
 .faggrupper-subject-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.85fr) minmax(96px, 0.5fr) minmax(240px, 1.2fr);
+  grid-template-columns: minmax(150px, 0.85fr) minmax(96px, 0.5fr) minmax(300px, 1.4fr);
   align-items: center;
   gap: 0.45rem;
   border: 1px solid #deddd8;
@@ -823,11 +842,32 @@ p {
 
 .faggrupper-teacher-picker {
   display: grid;
-  gap: 0.12rem;
+  gap: 0.22rem;
 }
 
 .faggrupper-teacher-picker input {
   margin-bottom: 0;
+}
+
+.faggrupper-teacher-selected {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.22rem;
+  min-height: 24px;
+}
+
+.faggrupper-teacher-empty {
+  font-size: 0.75rem;
+  color: #777268;
+}
+
+.faggrupper-teacher-chip {
+  margin: 0;
+}
+
+.faggrupper-teacher-add-row {
+  display: block;
+  align-items: center;
 }
 .block-subject-row {
   display: grid;
@@ -1322,7 +1362,7 @@ button.secondary {
 
 .weekly-axis {
   position: relative;
-  height: 520px;
+  height: 650px;
   border-right: 1px solid #8f8f8c;
   background: #ececea;
 }
@@ -1331,7 +1371,7 @@ button.secondary {
   position: absolute;
   left: 0.55rem;
   transform: translateY(-50%);
-  font-size: 0.62rem;
+  font-size: 0.74rem;
   color: #51514f;
 }
 
@@ -1341,7 +1381,7 @@ button.secondary {
 
 .weekly-day-track {
   position: relative;
-  height: 520px;
+  height: 650px;
   border-right: 1px solid #8f8f8c;
   background: #f5f5f3;
 }
@@ -1360,10 +1400,10 @@ button.secondary {
   right: 0.15rem;
   border: 1px solid #99a3b6;
   background: #e6ebf3;
-  padding: 0.12rem 0.16rem;
+  padding: 0.18rem 0.22rem;
   overflow: hidden;
   display: grid;
-  gap: 0.02rem;
+  gap: 0.06rem;
   z-index: 3;
   transition: left 120ms ease, width 120ms ease, box-shadow 120ms ease;
 }
@@ -1387,14 +1427,14 @@ button.secondary {
 }
 
 .weekly-event strong {
-  font-size: 0.62rem;
-  line-height: 1.1;
+  font-size: 0.74rem;
+  line-height: 1.18;
 }
 
 .weekly-event small {
-  font-size: 0.58rem;
+  font-size: 0.67rem;
   color: #444b55;
-  line-height: 1.05;
+  line-height: 1.14;
 }
 
 .weekly-event.block-subject strong {
@@ -1449,14 +1489,32 @@ th {
   font-size: 0.72rem;
 }
 
-.chip {
-  background: #eef1f6;
-  border: 1px solid #c6cfdd;
-  padding: 0.16rem 0.36rem;
-  margin-bottom: 0.2rem;
-  font-size: 0.7rem;
+.weekly-event-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.3rem;
 }
 
+.weekly-event strong,
+.weekly-event-header-row strong {
+  font-size: 0.8rem;
+  line-height: 1.18;
+  min-width: 0;
+}
+
+.weekly-event small {
+  font-size: 0.7rem;
+  color: #444b55;
+  line-height: 1.14;
+}
+
+.weekly-event-header-row small {
+  flex: 0 0 auto;
+  margin-left: auto;
+  text-align: right;
+  white-space: nowrap;
+}
 .chip.idrett {
   background: var(--success-bg);
   border-color: var(--success-line);
@@ -1553,6 +1611,6 @@ td.idrett-row {
 
   .weekly-axis,
   .weekly-day-track {
-    height: 420px;
+    height: 525px;
   }
 }

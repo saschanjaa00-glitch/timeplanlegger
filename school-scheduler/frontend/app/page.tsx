@@ -7,6 +7,7 @@ type Subject = {
   id: string;
   name: string;
   teacher_id: string;
+  teacher_ids: string[];
   class_ids: string[];
   subject_type: "fellesfag" | "programfag";
   sessions_per_week: number;
@@ -117,6 +118,7 @@ type ScheduledItem = {
   subject_id: string;
   subject_name: string;
   teacher_id: string;
+  teacher_ids?: string[];
   class_ids: string[];
   timeslot_id: string;
   day: string;
@@ -141,7 +143,7 @@ type CompareEntity = {
   color: string;
 };
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = "http://127.0.0.1:8000";
 
 const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const calendarDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -222,10 +224,19 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
   const split = typeof subject.alternating_week_split === "string"
     ? subject.alternating_week_split.trim()
     : "";
+  const normalizedTeacherIds = Array.isArray(subject.teacher_ids)
+    ? subject.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
+    : [];
+  const fallbackTeacherId = typeof subject.teacher_id === "string" ? subject.teacher_id.trim() : "";
+  const teacherIds = Array.from(new Set([
+    ...(fallbackTeacherId ? [fallbackTeacherId] : []),
+    ...normalizedTeacherIds,
+  ]));
   return {
     id: subject.id ?? "",
     name: subject.name ?? "",
-    teacher_id: subject.teacher_id ?? "",
+    teacher_id: teacherIds[0] ?? "",
+    teacher_ids: teacherIds,
     class_ids: Array.isArray(subject.class_ids) ? subject.class_ids : [],
     subject_type: subject.subject_type === "programfag" ? "programfag" : "fellesfag",
     sessions_per_week:
@@ -1313,12 +1324,74 @@ export default function Home() {
     return exactMatch ? exactMatch.id : null;
   }
 
-  function getTeacherInputValue(entityId: string, currentTeacherId: string): string {
+  function resolveTeacherIdsFromInput(inputValue: string): string[] | null {
+    const tokens = inputValue
+      .split(",")
+      .map((token) => token.trim())
+      .filter(Boolean);
+
+    if (!tokens.length) {
+      return [];
+    }
+
+    const resolved: string[] = [];
+    for (const token of tokens) {
+      const normalizedToken = normalizeSearchText(token);
+      const exactMatch = sortedTeachersByFirstName.find(
+        (teacher) => normalizeSearchText(teacher.name) === normalizedToken
+      );
+      if (!exactMatch) {
+        return null;
+      }
+      resolved.push(exactMatch.id);
+    }
+
+    return Array.from(new Set(resolved));
+  }
+
+  function getTeacherInputValue(entityId: string, currentTeacherId: string, currentTeacherIds: string[] = []): string {
     const draft = teacherSearchBySubjectEntity[entityId];
     if (typeof draft === "string") {
       return draft;
     }
-    return sortedTeachersByFirstName.find((teacher) => teacher.id === currentTeacherId)?.name ?? "";
+
+    const teacherIds = Array.from(new Set([
+      ...(currentTeacherId ? [currentTeacherId] : []),
+      ...currentTeacherIds,
+    ]));
+    if (!teacherIds.length) {
+      return "";
+    }
+
+    return teacherIds
+      .map((teacherId) => sortedTeachersByFirstName.find((teacher) => teacher.id === teacherId)?.name ?? teacherId)
+      .join(", ");
+  }
+
+  function getSubjectTeacherIds(subject: Subject): string[] {
+    return Array.from(new Set([
+      ...(subject.teacher_id ? [subject.teacher_id] : []),
+      ...(subject.teacher_ids ?? []),
+    ].filter(Boolean)));
+  }
+
+  function addTeachersToSubject(subject: Subject, teacherIdsToAdd: string[]) {
+    const mergedTeacherIds = Array.from(new Set([
+      ...getSubjectTeacherIds(subject),
+      ...teacherIdsToAdd.filter(Boolean),
+    ]));
+    updateSubjectCard(subject.id, {
+      teacher_id: mergedTeacherIds[0] ?? "",
+      teacher_ids: mergedTeacherIds,
+    });
+  }
+
+  function removeTeacherFromSubject(subject: Subject, teacherIdToRemove: string) {
+    const nextTeacherIds = getSubjectTeacherIds(subject).filter((teacherId) => teacherId !== teacherIdToRemove);
+    updateSubjectCard(subject.id, {
+      teacher_id: nextTeacherIds[0] ?? "",
+      teacher_ids: nextTeacherIds,
+    });
   }
 
   const classNameById = useMemo(() => {
@@ -2315,6 +2388,57 @@ export default function Home() {
     setDuplicateTargetsByClass((prev) => ({ ...prev, [sourceClassId]: [] }));
   }
 
+  function clearAllFellesfagTeachers() {
+    const fellesfagIds = new Set(
+      subjects
+        .filter((subject) => subject.subject_type === "fellesfag")
+        .map((subject) => subject.id),
+    );
+
+    if (fellesfagIds.size === 0) {
+      setStatusText("No fellesfag subjects found.");
+      return;
+    }
+
+    let clearedCount = 0;
+    const nextSubjects = subjects.map((subject) => {
+      if (subject.subject_type !== "fellesfag" || (!subject.teacher_id && !(subject.teacher_ids?.length ?? 0))) {
+        return subject;
+      }
+
+      clearedCount += 1;
+      return {
+        ...subject,
+        teacher_id: "",
+        teacher_ids: [],
+      };
+    });
+
+    setSubjects(nextSubjects);
+    setTeacherSearchBySubjectEntity((prev) => {
+      const next: Record<string, string> = {};
+      for (const [key, value] of Object.entries(prev)) {
+        if (!key.startsWith("faggrupper_")) {
+          next[key] = value;
+          continue;
+        }
+
+        const subjectId = key.slice("faggrupper_".length);
+        if (!fellesfagIds.has(subjectId)) {
+          next[key] = value;
+        }
+      }
+      return next;
+    });
+
+    if (clearedCount === 0) {
+      setStatusText("No teacher assignments to clear in fellesfag.");
+      return;
+    }
+
+    setStatusText(`Cleared ${clearedCount} teacher assignment(s) across all fellesfag subjects.`);
+  }
+
   function addSubjectToClass(subject: Subject, classId: string, currentClassIds: string[]) {
     if (!classId) {
       return;
@@ -2617,6 +2741,7 @@ export default function Home() {
       id,
       name,
       teacher_id: blockSubjForm.teacher_id,
+      teacher_ids: blockSubjForm.teacher_id ? [blockSubjForm.teacher_id] : [],
       class_ids: [],
       subject_type: "programfag",
       sessions_per_week: occurrenceCount,
@@ -2641,7 +2766,7 @@ export default function Home() {
     const block = blocks.find((b) => b.id === blockId);
     const occurrenceCount = blockOccurrenceSessionCount(block?.occurrences);
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
-    setSubjects((prev) => [...prev, { id, name, teacher_id: "", class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount, alternating_week_split: undefined }]);
+    setSubjects((prev) => [...prev, { id, name, teacher_id: "", teacher_ids: [], class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount, alternating_week_split: undefined }]);
     setBlocks((prev) => prev.map((b) =>
       b.id !== blockId ? b : {
         ...b,
@@ -2828,6 +2953,7 @@ export default function Home() {
         id,
         name,
         teacher_id: "",
+        teacher_ids: [],
         class_ids: [],
         subject_type: "fellesfag",
         sessions_per_week: 1,
@@ -2847,8 +2973,16 @@ export default function Home() {
 
       const merged = { ...subject, ...patch };
       const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
+      const mergedTeacherIds = Array.from(new Set([
+        ...(typeof merged.teacher_id === "string" && merged.teacher_id.trim() ? [merged.teacher_id.trim()] : []),
+        ...(Array.isArray(merged.teacher_ids)
+          ? merged.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
+          : []),
+      ]));
       return {
         ...merged,
+        teacher_id: mergedTeacherIds[0] ?? "",
+        teacher_ids: mergedTeacherIds,
         class_ids: cleanedClassIds,
         sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
         alternating_week_split:
@@ -2898,6 +3032,14 @@ export default function Home() {
       // Ensure all arrays are properly defined
       const cleanSubjects = subjects.map(s => ({
         ...s,
+        teacher_ids: Array.from(new Set([
+          ...(s.teacher_id ? [s.teacher_id] : []),
+          ...((s.teacher_ids ?? []).filter(Boolean)),
+        ])),
+        teacher_id: (Array.from(new Set([
+          ...(s.teacher_id ? [s.teacher_id] : []),
+          ...((s.teacher_ids ?? []).filter(Boolean)),
+        ]))[0] ?? ""),
         class_ids: s.class_ids ?? [],
         sessions_per_week: s.sessions_per_week || 1,
         alternating_week_split:
@@ -3817,7 +3959,20 @@ export default function Home() {
       {activeTab === "faggrupper" && (
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Fellesfag</h2>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: "10px" }}>
+            <h2 style={{ margin: 0 }}>Fellesfag</h2>
+            <button
+              type="button"
+              onClick={clearAllFellesfagTeachers}
+              style={{ marginLeft: "auto", width: "auto", minWidth: 0, padding: "3px 8px", fontSize: "0.74rem", lineHeight: 1, whiteSpace: "nowrap" }}
+              disabled={
+                !subjects.some((subject) => subject.subject_type === "fellesfag" && (Boolean(subject.teacher_id) || (subject.teacher_ids?.length ?? 0) > 0)) &&
+                !Object.keys(teacherSearchBySubjectEntity).some((key) => key.startsWith("faggrupper_"))
+              }
+            >
+              Clear Teachers
+            </button>
+          </div>
           <p>Select a class to view its subjects and set teachers.</p>
 
           <div className="faggrupper-layout">
@@ -3856,6 +4011,8 @@ export default function Home() {
                     ) : (
                       (classSubjectsById[activeFaggruppeClassId] ?? []).map((subject) => {
                         const searchKey = `faggrupper_${subject.id}`;
+                        const assignedTeacherIds = getSubjectTeacherIds(subject);
+                        const teacherDraft = teacherSearchBySubjectEntity[searchKey] ?? "";
                         const isClassCopy =
                           subject.class_ids.length === 1 &&
                           subject.class_ids[0] === activeFaggruppeClassId;
@@ -3876,24 +4033,70 @@ export default function Home() {
                               />
                             </div>
                             <div className="faggrupper-teacher-picker">
-                              <input
-                                list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
-                                value={getTeacherInputValue(searchKey, subject.teacher_id)}
-                                onChange={(e) => {
-                                  const nextValue = e.target.value;
-                                  setTeacherSearchBySubjectEntity((prev) => ({
-                                    ...prev,
-                                    [searchKey]: nextValue,
-                                  }));
-                                  const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
-                                  if (resolvedTeacherId !== null) {
-                                    updateSubjectCard(subject.id, { teacher_id: resolvedTeacherId });
-                                  }
-                                }}
-                                placeholder="Choose teacher"
-                              />
+                              <div className="faggrupper-teacher-selected">
+                                {assignedTeacherIds.length === 0 ? (
+                                  <span className="faggrupper-teacher-empty">No teachers</span>
+                                ) : (
+                                  assignedTeacherIds.map((teacherId) => (
+                                    <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
+                                      {teacherNameById[teacherId] ?? teacherId}
+                                      <button
+                                        type="button"
+                                        className="subject-class-chip-remove"
+                                        onClick={() => removeTeacherFromSubject(subject, teacherId)}
+                                        aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                                      >
+                                        x
+                                      </button>
+                                    </span>
+                                  ))
+                                )}
+                              </div>
+                              <div className="faggrupper-teacher-add-row">
+                                <input
+                                  list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
+                                  value={teacherDraft}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                    if (resolvedTeacherId) {
+                                      addTeachersToSubject(subject, [resolvedTeacherId]);
+                                      setTeacherSearchBySubjectEntity((prev) => ({
+                                        ...prev,
+                                        [searchKey]: "",
+                                      }));
+                                      return;
+                                    }
+
+                                    setTeacherSearchBySubjectEntity((prev) => ({
+                                      ...prev,
+                                      [searchKey]: nextValue,
+                                    }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") {
+                                      return;
+                                    }
+                                    e.preventDefault();
+                                    const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
+                                    if (resolvedTeacherIds === null) {
+                                      setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                                      return;
+                                    }
+                                    if (resolvedTeacherIds.length === 0) {
+                                      return;
+                                    }
+                                    addTeachersToSubject(subject, resolvedTeacherIds);
+                                    setTeacherSearchBySubjectEntity((prev) => ({
+                                      ...prev,
+                                      [searchKey]: "",
+                                    }));
+                                  }}
+                                  placeholder="Search teacher(s), comma-separated"
+                                />
+                              </div>
                               <datalist id={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}>
-                                {filterTeachersForQuery(teacherSearchBySubjectEntity[searchKey] ?? "").map((teacher) => (
+                                {filterTeachersForQuery(teacherDraft).map((teacher) => (
                                   <option key={teacher.id} value={teacher.name} />
                                 ))}
                               </datalist>
@@ -4902,6 +5105,25 @@ export default function Home() {
                 <span key={entity.id} className="compare-pill" style={{ borderColor: entity.color }}>
                   <span className="dot" style={{ backgroundColor: entity.color }} />
                   {entity.kind === "class" ? "Class" : entity.kind === "teacher" ? "Teacher" : "Room"}: {entity.label}
+                  <button
+                    type="button"
+                    className="compare-pill-remove"
+                    aria-label={`Remove ${entity.kind} ${entity.label} from comparison`}
+                    onClick={() => {
+                      const rawId = entity.id.split(":")[1] ?? "";
+                      if (entity.kind === "class") {
+                        setSelectedClassCompareIds((prev) => prev.filter((id) => id !== rawId));
+                        return;
+                      }
+                      if (entity.kind === "teacher") {
+                        setSelectedTeacherCompareIds((prev) => prev.filter((id) => id !== rawId));
+                        return;
+                      }
+                      setSelectedRoomCompareIds((prev) => prev.filter((id) => id !== rawId));
+                    }}
+                  >
+                    x
+                  </button>
                 </span>
               ))}
             </div>
@@ -4951,6 +5173,7 @@ export default function Home() {
                         laneIndex: number;
                         laneCount: number;
                         laneEntityLabel: string;
+                        laneEntityKind?: "class" | "teacher" | "room";
                         laneColor: string;
                         topPct: number;
                         heightPct: number;
@@ -4988,7 +5211,13 @@ export default function Home() {
                             const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
                             const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
                             const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
-                            const teacherLabel = teacherNameById[item.teacher_id] ?? item.teacher_id;
+                            const teacherIds = Array.from(new Set([
+                              ...(item.teacher_id ? [item.teacher_id] : []),
+                              ...(item.teacher_ids ?? []),
+                            ].filter(Boolean)));
+                            const teacherLabel = teacherIds
+                              .map((teacherId) => teacherNameById[teacherId] ?? teacherId)
+                              .join(", ");
                             const roomLabel = item.room_id ? rooms.find((r) => r.id === item.room_id)?.name : undefined;
                             const blockInfo = subjectToBlockInfo.get(item.subject_id);
                             const blockClassIds = blockInfo?.class_ids ?? [];
@@ -5061,6 +5290,7 @@ export default function Home() {
                                 laneIndex,
                                 laneCount,
                                 laneEntityLabel: laneEntity?.label ?? "Selection",
+                                laneEntityKind: laneEntity?.kind,
                                 laneColor,
                                 topPct,
                                 heightPct,
@@ -5155,6 +5385,7 @@ export default function Home() {
                                 laneIndex,
                                 laneCount,
                                 laneEntityLabel: laneEntity?.label ?? "Meeting",
+                                laneEntityKind: laneEntity?.kind,
                                 laneColor,
                                 topPct,
                                 heightPct,
@@ -5254,23 +5485,34 @@ export default function Home() {
 
                         const eventClassName = `weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
 
+                        const shouldShowClassLine =
+                          !event.isBlockSummary &&
+                          Boolean(event.classLabel) &&
+                          (
+                            compareEntities.length === 0 ||
+                            event.laneEntityKind !== "class" ||
+                            event.laneEntityLabel !== event.classLabel
+                          );
+
                         const eventBody = (
                           <>
-                            <strong>{event.title}</strong>
+                            <div className="weekly-event-header-row">
+                              <strong>{event.title}</strong>
+                              <small>{event.displayStart}-{event.displayEnd}</small>
+                            </div>
                             {enableAlternatingWeeks && event.weekType ? <small>Week {event.weekType}</small> : null}
                             {!event.isBlockSummary ? (
                               <>
-                                {compareEntities.length > 0 ? (
+                                {compareEntities.length > 0 && event.laneEntityKind !== "class" ? (
                                   <small>{event.laneEntityLabel}</small>
-                                ) : (
+                                ) : null}
+                                {shouldShowClassLine ? (
                                   <small>{event.classLabel}</small>
-                                )}
-                                {compareEntities.length > 0 ? <small>{event.classLabel}</small> : null}
-                                <small>{event.teacherLabel}</small>
-                                {event.roomLabel ? <small>Rom: {event.roomLabel}</small> : null}
+                                ) : null}
+                                {event.teacherLabel ? <small>{event.teacherLabel}</small> : null}
+                                {event.roomLabel ? <small>Rom {event.roomLabel}</small> : null}
                               </>
                             ) : null}
-                            <small>{event.displayStart}-{event.displayEnd}</small>
                           </>
                         );
 
