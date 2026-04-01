@@ -1,8 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pathlib import Path
 
 from .models import ScheduleRequest, ScheduleResponse
 from .solver import generate_schedule
+
+
+LAST_REQUEST_PATH = Path(__file__).resolve().parents[1] / "last_generate_request.json"
 
 app = FastAPI(title="School Scheduler API", version="0.1.0")
 
@@ -26,6 +30,19 @@ def health() -> dict[str, str]:
 @app.post("/generate-schedule", response_model=ScheduleResponse)
 def generate_schedule_endpoint(payload: ScheduleRequest) -> ScheduleResponse:
     try:
+        try:
+            payload_json = ""
+            if hasattr(payload, "model_dump_json"):
+                payload_json = payload.model_dump_json(indent=2)  # Pydantic v2
+            else:
+                payload_json = payload.json(indent=2)  # Pydantic v1
+            LAST_REQUEST_PATH.write_text(
+                payload_json,
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
         print(
             "[API] /generate-schedule alternating_weeks_enabled=",
             payload.alternating_weeks_enabled,

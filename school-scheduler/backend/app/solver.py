@@ -938,10 +938,15 @@ def _generate_schedule_staged(
                     single_unit_penalty = 0
                     if prefer_single_unit_first:
                         single_unit_penalty = 0 if units_for_placement == 1 else 1
+                    odd_tail_priority_penalty = 0
+                    if subject_requires_odd_units and (remaining_units % 2) == 1:
+                        odd_tail_priority_penalty = 0 if has_partial_tail else 1
 
                     cross_week_pair_penalty = 0
                     if preferred_slot_union and ts_id not in preferred_slot_union:
                         cross_week_pair_penalty = 1
+
+                    excluded_slot_penalty = 1 if getattr(ts, "excluded_from_generation", False) else 0
 
                     day_load = 0
                     if subject.class_ids:
@@ -963,11 +968,13 @@ def _generate_schedule_staged(
 
                     score = (
                         would_overshoot,
+                        same_day_repeat_penalty,
                         single_unit_penalty,
+                        odd_tail_priority_penalty,
                         exact_fit_penalty,
                         class_week_balance_penalty,
                         cross_week_pair_penalty,
-                        same_day_repeat_penalty,
+                        excluded_slot_penalty,
                         boundary_penalty,
                         day_load,
                         ts.day,
@@ -2165,7 +2172,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
             a_heavy_ids: Set[str] = set()
             for subjects_in_bucket in bucketed.values():
-                subjects_in_bucket.sort(key=lambda s: (s.name.lower(), s.id))
+                subjects_in_bucket.sort(
+                    key=lambda s: (int(s.sessions_per_week or 1), s.name.lower(), s.id)
+                )
                 for idx, subject in enumerate(subjects_in_bucket):
                     if idx % 2 == 0:
                         a_heavy_ids.add(subject.id)
@@ -2187,7 +2196,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
         heavy_week_by_subject: Dict[str, str] = {}
         for subjects_in_bucket in bucketed.values():
-            ordered_subjects = sorted(subjects_in_bucket, key=lambda s: (s.name.lower(), s.id))
+            ordered_subjects = sorted(
+                subjects_in_bucket,
+                key=lambda s: (int(s.sessions_per_week or 1), s.name.lower(), s.id),
+            )
             if ordered_subjects:
                 if odd_order_variant == 1:
                     ordered_subjects = list(reversed(ordered_subjects))
@@ -2359,6 +2371,83 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         total_two_week = 2 * int(subject.sessions_per_week or 1)
         return max(0, total_two_week - primary_placed_units)
 
+    reduced_tail_fallback_by_subject: Dict[str, bool] = {}
+
+    def _subject_has_both_week_reduced_tail_capacity(subject_id: str) -> bool:
+        cached = reduced_tail_fallback_by_subject.get(subject_id)
+        if cached is not None:
+            return cached
+
+        subject = next((s for s in data.subjects if s.id == subject_id), None)
+        if (
+            not subject
+            or subject.id not in auto_balanced_odd_subject_ids
+            or subject.id in block_subject_ids
+            or not subject.class_ids
+        ):
+            reduced_tail_fallback_by_subject[subject_id] = False
+            return False
+
+        teacher_ids = alternating_subject_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
+
+        def _reduced_tail_slots_for_week(week_label: str) -> Set[str]:
+            allowed_slots = _compute_allowed_timeslots(
+                subject,
+                alternating_all_timeslot_ids,
+                alternating_block_to_timeslots,
+                alternating_timeslots_by_id,
+            )
+
+            for teacher_id in teacher_ids:
+                if teacher_id in alternating_teachers_by_id:
+                    allowed_slots -= set(alternating_teachers_by_id[teacher_id].unavailable_timeslots)
+                allowed_slots -= alternating_teacher_meeting_unavailable.get(teacher_id, set())
+
+            reduced_tail_by_class_slot: Set[Tuple[str, str]] = set()
+            for block in data.blocks:
+                if not block.class_ids:
+                    continue
+                for occ in block.occurrences:
+                    occ_week = (occ.week_type or "both").upper()
+                    if occ_week not in {"BOTH", week_label}:
+                        continue
+
+                    matched_slots = _timeslots_overlapping_occurrence(occ, data.timeslots) & alternating_all_timeslot_ids
+                    occ_start = _to_minutes(occ.start_time)
+                    occ_end = _to_minutes(occ.end_time)
+                    if occ_start is None or occ_end is None:
+                        continue
+
+                    for ts_id in matched_slots:
+                        ts = alternating_timeslots_by_id.get(ts_id)
+                        if not ts:
+                            continue
+                        ts_start = _to_minutes(ts.start_time)
+                        ts_end = _to_minutes(ts.end_time)
+                        if ts_start is None or ts_end is None or ts_end <= ts_start:
+                            continue
+                        if not (occ_start < ts_start < occ_end < ts_end):
+                            continue
+
+                        reduced_start_min = ts_end - 45
+                        if reduced_start_min < ts_start:
+                            continue
+                        if occ_end > reduced_start_min:
+                            continue
+
+                        for class_id in block.class_ids:
+                            reduced_tail_by_class_slot.add((class_id, ts_id))
+
+            return {
+                ts_id
+                for ts_id in allowed_slots
+                if all((class_id, ts_id) in reduced_tail_by_class_slot for class_id in subject.class_ids)
+            }
+
+        result = bool(_reduced_tail_slots_for_week("A")) and bool(_reduced_tail_slots_for_week("B"))
+        reduced_tail_fallback_by_subject[subject_id] = result
+        return result
+
     def _run_alternating_attempt(
         primary_week_label: str,
         partial_priority: str,
@@ -2366,7 +2455,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         odd_strategy: str,
         odd_order_variant: int,
         odd_split_mode: str,
+        exact_week_subject_ids: Set[str] | None = None,
     ) -> ScheduleResponse:
+        exact_week_subject_ids = set(exact_week_subject_ids or set())
         secondary_week_label = "B" if primary_week_label == "A" else "A"
         odd_heavy_week_by_subject = _build_odd_heavy_week_by_subject(odd_strategy, odd_order_variant)
         # Try both odd-subject orientations:
@@ -2378,6 +2469,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         )
         for subj in data.subjects:
             if subj.id in auto_balanced_odd_subject_ids and subj.id not in block_subject_ids:
+                if subj.id in exact_week_subject_ids:
+                    primary_week_overrides[subj.id] = max(0, int(subj.sessions_per_week or 1))
+                    continue
                 primary_week_overrides[subj.id] = _target_units_for_week(
                     subj,
                     primary_week_label,
@@ -2418,6 +2512,50 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             target_week_units_by_class=nominal_target_units_by_class,
         )
         if response_primary.status != "success":
+            failed_subject_match = re.search(r"\(([^)]+)\)", response_primary.message or "")
+            failed_subject_id = failed_subject_match.group(1) if failed_subject_match else None
+
+            # Retry once with a relaxed primary-week target for the failing odd subject.
+            # This keeps alternating-week generation alive and lets the opposite week
+            # absorb the extra odd-unit load (e.g. 2u + 4u) instead of hard-failing early.
+            if failed_subject_id and failed_subject_id in auto_balanced_odd_subject_ids and failed_subject_id not in block_subject_ids:
+                failed_subject = next((s for s in data.subjects if s.id == failed_subject_id), None)
+                if failed_subject is not None:
+                    relaxed_primary_overrides = dict(primary_week_overrides)
+                    relaxed_target = max(0, int(failed_subject.sessions_per_week or 1) - 1)
+                    relaxed_primary_overrides[failed_subject_id] = relaxed_target
+
+                    response_primary_relaxed = _generate_schedule_staged(
+                        data,
+                        week_label=primary_week_label,
+                        week_unit_overrides=relaxed_primary_overrides or None,
+                        allow_partial_subject_ids={failed_subject_id},
+                        partial_min_units_by_subject={failed_subject_id: relaxed_target},
+                        partial_subject_priority=partial_priority,
+                        subject_priority_rank=subject_rank,
+                        target_week_units_by_class=nominal_target_units_by_class,
+                    )
+                    if response_primary_relaxed.status == "success":
+                        response_primary = response_primary_relaxed
+
+            if response_primary.status != "success":
+                failed_subject_match = re.search(r"\(([^)]+)\)", response_primary.message or "")
+                failed_subject_id = failed_subject_match.group(1) if failed_subject_match else None
+            if (
+                not exact_week_subject_ids
+                and failed_subject_id
+                and _subject_has_both_week_reduced_tail_capacity(failed_subject_id)
+            ):
+                return _run_alternating_attempt(
+                    primary_week_label,
+                    partial_priority,
+                    enforce_odd_min_a,
+                    odd_strategy,
+                    odd_order_variant,
+                    odd_split_mode,
+                    {failed_subject_id},
+                )
+
             metadata = dict(response_primary.metadata or {})
             metadata[f"failed_week_{primary_week_label.lower()}"] = 1.0
             return ScheduleResponse(
@@ -2445,6 +2583,28 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 primary_slots_by_class[class_id].add(item.timeslot_id)
                 primary_units_by_class[class_id] += item_units
 
+        secondary_blocked_slots_by_class: Dict[str, Set[str]] = defaultdict(set)
+        for block in data.blocks:
+            if not block.class_ids:
+                continue
+
+            if block.occurrences:
+                for occ in block.occurrences:
+                    occ_week = (occ.week_type or "both").upper()
+                    if occ_week not in {"BOTH", secondary_week_label}:
+                        continue
+                    matched_slots = _timeslots_overlapping_occurrence(occ, data.timeslots) & alternating_all_timeslot_ids
+                    for class_id in block.class_ids:
+                        secondary_blocked_slots_by_class[class_id].update(matched_slots)
+                continue
+
+            legacy_weeks = _block_active_weeks(block, True)
+            if secondary_week_label not in legacy_weeks:
+                continue
+            matched_slots = set(block.timeslot_ids) & alternating_all_timeslot_ids
+            for class_id in block.class_ids:
+                secondary_blocked_slots_by_class[class_id].update(matched_slots)
+
         for subj in data.subjects:
             if subj.id in block_subject_ids:
                 continue
@@ -2469,6 +2629,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             for item in subject_items:
                 item_units = _item_units(item, timeslot_units_map)
                 if locked_units + item_units > lock_units:
+                    continue
+                if any(
+                    item.timeslot_id in secondary_blocked_slots_by_class.get(class_id, set())
+                    for class_id in item.class_ids
+                ):
                     continue
                 seeded_secondary_items.append(
                     ScheduledItem(
@@ -2497,6 +2662,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if subj.id in block_subject_ids:
                 continue
             if subj.id in secondary_overrides:
+                continue
+            if subj.id in exact_week_subject_ids:
+                secondary_overrides[subj.id] = max(0, int(subj.sessions_per_week or 1))
                 continue
             secondary_overrides[subj.id] = _desired_units_for_secondary_week(
                 subj,
@@ -2553,11 +2721,18 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             # Keep at least currently achievable units (or required-2 when parsing is unavailable).
             if response_secondary.status != "success" and failed_subject_id and failed_subject_id in secondary_overrides:
                 target_required = int(secondary_overrides.get(failed_subject_id, 0))
-                min_units = max(0, target_required - 2)
                 failed_subject = next((s for s in data.subjects if s.id == failed_subject_id), None)
                 if failed_subject is not None:
-                    # Keep weekly load within nominal +/-1 in fallback mode.
-                    min_units = max(min_units, max(0, int(failed_subject.sessions_per_week or 1) - 1))
+                    nominal = int(failed_subject.sessions_per_week or 1)
+                    # For odd-unit subjects, ensure at least nominal-1 per week to maintain A/B balance.
+                    # This prevents odd subjects from being completely missing from one week.
+                    if nominal % 2 == 1:
+                        min_units = max(0, nominal - 1)
+                    else:
+                        min_units = max(0, target_required - 2)
+                else:
+                    min_units = max(0, target_required - 2)
+                
                 if failed_placed_units is not None:
                     min_units = max(min_units, failed_placed_units)
                 if failed_required_units is not None and failed_required_units < target_required:
@@ -2580,6 +2755,23 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     response_secondary = response_secondary_partial
 
         if response_secondary.status != "success":
+            retry_subject_match = re.search(r"\(([^)]+)\)", response_secondary.message or "")
+            retry_subject_id = retry_subject_match.group(1) if retry_subject_match else None
+            if (
+                not exact_week_subject_ids
+                and retry_subject_id
+                and _subject_has_both_week_reduced_tail_capacity(retry_subject_id)
+            ):
+                return _run_alternating_attempt(
+                    primary_week_label,
+                    partial_priority,
+                    enforce_odd_min_a,
+                    odd_strategy,
+                    odd_order_variant,
+                    odd_split_mode,
+                    {retry_subject_id},
+                )
+
             combined_partial_schedule = response_primary.schedule + response_secondary.schedule
             metadata = dict(response_secondary.metadata or {})
             if combined_partial_schedule:
@@ -2711,14 +2903,37 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         return attempts[0]
 
     if failures:
+        def _failure_total_shortage_units(response: ScheduleResponse) -> int:
+            items = response.schedule or []
+            units_by_subject: Dict[str, int] = defaultdict(int)
+            for item in items:
+                week = item.week_type or "base"
+                if week not in {"A", "B"}:
+                    continue
+                units_by_subject[item.subject_id] += _item_units(item, timeslot_units_map)
+
+            shortage = 0
+            for subject in data.subjects:
+                if subject.id in block_subject_ids:
+                    continue
+                expected_units = max(0, 2 * int(subject.sessions_per_week or 1))
+                placed_units = units_by_subject.get(subject.id, 0)
+                if placed_units < expected_units:
+                    shortage += expected_units - placed_units
+            return shortage
+
         def _failure_rank(response: ScheduleResponse) -> Tuple[int, int, int, int]:
             items = response.schedule or []
             a_count = sum(1 for item in items if (item.week_type or "base") == "A")
             b_count = sum(1 for item in items if (item.week_type or "base") == "B")
             both_weeks_present = 1 if (a_count > 0 and b_count > 0) else 0
             week_balance = -abs(a_count - b_count)
+            shortage_units = _failure_total_shortage_units(response)
+            quality = _schedule_quality(items) if items else 10**9
             return (
                 both_weeks_present,
+                -shortage_units,
+                -quality,
                 len(items),
                 week_balance,
                 b_count,
