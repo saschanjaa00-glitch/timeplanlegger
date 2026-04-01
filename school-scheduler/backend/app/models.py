@@ -13,6 +13,8 @@ class Subject(BaseModel):
     class_ids: List[str]
     subject_type: str = "fellesfag"
     sessions_per_week: int = 1
+    force_place: bool = False
+    force_timeslot_id: Optional[str] = None
     allowed_timeslots: Optional[List[str]] = None
     # Optional extension to support blocks as grouped timeslot candidates.
     allowed_block_ids: Optional[List[str]] = None

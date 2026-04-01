@@ -26,6 +26,27 @@ def health() -> dict[str, str]:
 @app.post("/generate-schedule", response_model=ScheduleResponse)
 def generate_schedule_endpoint(payload: ScheduleRequest) -> ScheduleResponse:
     try:
-        return generate_schedule(payload)
+        print(
+            "[API] /generate-schedule alternating_weeks_enabled=",
+            payload.alternating_weeks_enabled,
+            "alternate_non_block_subjects=",
+            payload.alternate_non_block_subjects,
+        )
+        response = generate_schedule(payload)
+        counts: dict[str, int] = {}
+        for item in response.schedule:
+            key = item.week_type or "None"
+            counts[key] = counts.get(key, 0) + 1
+        print(
+            "[API] response status=",
+            response.status,
+            "message=",
+            response.message,
+            "items=",
+            len(response.schedule),
+            "week_counts=",
+            counts,
+        )
+        return response
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

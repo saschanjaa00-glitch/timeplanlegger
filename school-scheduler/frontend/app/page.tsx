@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 
 type Subject = {
@@ -12,6 +12,8 @@ type Subject = {
   subject_type: "fellesfag" | "programfag";
   sessions_per_week: number;
   // alternating_week_split is DISABLED - auto-balancing is used instead
+  force_place?: boolean;
+  force_timeslot_id?: string;
   allowed_timeslots?: string[];
   allowed_block_ids?: string[];
 };
@@ -135,6 +137,79 @@ type GenerateResponse = {
   metadata?: Record<string, number>;
 };
 
+function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
+  type PairBucket = { shared: ScheduledItem[]; a: ScheduledItem[]; b: ScheduledItem[] };
+  const buckets = new Map<string, PairBucket>();
+
+  for (const item of items) {
+    const classKey = [...item.class_ids].sort().join(",");
+    const key = [item.subject_id, item.teacher_id, item.timeslot_id, item.day, String(item.period), classKey].join("|");
+    const bucket = buckets.get(key) ?? { shared: [], a: [], b: [] };
+    if (item.week_type === "A") {
+      bucket.a.push(item);
+    } else if (item.week_type === "B") {
+      bucket.b.push(item);
+    } else {
+      bucket.shared.push(item);
+    }
+    buckets.set(key, bucket);
+  }
+
+  const merged: ScheduledItem[] = [];
+  buckets.forEach((bucket) => {
+    if (bucket.shared.length > 0) {
+      merged.push(...bucket.shared);
+    }
+
+    const pairCount = Math.min(bucket.a.length, bucket.b.length);
+    for (let i = 0; i < pairCount; i += 1) {
+      merged.push({ ...bucket.a[i], week_type: undefined });
+    }
+
+    if (bucket.a.length > pairCount) {
+      merged.push(...bucket.a.slice(pairCount));
+    }
+    if (bucket.b.length > pairCount) {
+      merged.push(...bucket.b.slice(pairCount));
+    }
+  });
+
+  return merged.sort((a, b) => {
+    const weekA = a.week_type ?? "";
+    const weekB = b.week_type ?? "";
+    if (weekA !== weekB) {
+      return weekA.localeCompare(weekB);
+    }
+    const dayCmp = dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
+    if (dayCmp !== 0) {
+      return dayCmp;
+    }
+    if (a.period !== b.period) {
+      return a.period - b.period;
+    }
+    return a.subject_name.localeCompare(b.subject_name);
+  });
+}
+
+function formatGeneratedScheduleStatus(data: GenerateResponse, runId: number): string {
+  const schedule = data.schedule || [];
+  const countA = schedule.filter((item) => item.week_type === "A").length;
+  const countB = schedule.filter((item) => item.week_type === "B").length;
+  const countShared = schedule.length - countA - countB;
+  const mergedCount = mergeScheduleForDisplay(schedule).length;
+
+  if (countA === 0 && countB === 0) {
+    return `${data.message} ${schedule.length} item(s) generated (run ${runId}).`;
+  }
+
+  const hasWeekSpecificPlacements = mergedCount !== schedule.length;
+  const filterHint = hasWeekSpecificPlacements
+    ? " Switch week filter to A or B to inspect week-specific placements."
+    : "";
+
+  return `${data.message} ${schedule.length} raw item(s): ${countShared} shared, ${countA} A, ${countB} B; combined view shows ${mergedCount} item(s) (run ${runId}).${filterHint}`;
+}
+
 type CompareEntity = {
   id: string;
   label: string;
@@ -252,6 +327,11 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
       typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
         ? Math.floor(subject.sessions_per_week)
         : 1,
+    force_place: Boolean(subject.force_place),
+    force_timeslot_id:
+      typeof subject.force_timeslot_id === "string" && subject.force_timeslot_id.trim()
+        ? subject.force_timeslot_id.trim()
+        : undefined,
     // alternating_week_split is DISABLED
     allowed_timeslots: Array.isArray(subject.allowed_timeslots) ? subject.allowed_timeslots : undefined,
     allowed_block_ids: Array.isArray(subject.allowed_block_ids) ? subject.allowed_block_ids : undefined,
@@ -1564,62 +1644,7 @@ export default function Home() {
     return Object.fromEntries(compareEntities.map((entity, idx) => [entity.id, idx])) as Record<string, number>;
   }, [compareEntities]);
 
-  const displaySchedule = useMemo(() => {
-    type PairBucket = { shared: ScheduledItem[]; a: ScheduledItem[]; b: ScheduledItem[] };
-    const buckets = new Map<string, PairBucket>();
-
-    for (const item of schedule) {
-      const classKey = [...item.class_ids].sort().join(",");
-      // Keep teacher identity in A/B merge to avoid collapsing teacher-specific placements.
-      // Class-based block collapsing is handled later with blockSummaryKey in class view rendering.
-      const key = [item.subject_id, item.teacher_id, item.timeslot_id, item.day, String(item.period), classKey].join("|");
-      const bucket = buckets.get(key) ?? { shared: [], a: [], b: [] };
-      if (item.week_type === "A") {
-        bucket.a.push(item);
-      } else if (item.week_type === "B") {
-        bucket.b.push(item);
-      } else {
-        bucket.shared.push(item);
-      }
-      buckets.set(key, bucket);
-    }
-
-    const merged: ScheduledItem[] = [];
-    buckets.forEach((bucket) => {
-      if (bucket.shared.length > 0) {
-        merged.push(...bucket.shared);
-        return;
-      }
-
-      const pairCount = Math.min(bucket.a.length, bucket.b.length);
-      for (let i = 0; i < pairCount; i += 1) {
-        merged.push({ ...bucket.a[i], week_type: undefined });
-      }
-
-      if (bucket.a.length > pairCount) {
-        merged.push(...bucket.a.slice(pairCount));
-      }
-      if (bucket.b.length > pairCount) {
-        merged.push(...bucket.b.slice(pairCount));
-      }
-    });
-
-    return merged.sort((a, b) => {
-      const weekA = a.week_type ?? "";
-      const weekB = b.week_type ?? "";
-      if (weekA !== weekB) {
-        return weekA.localeCompare(weekB);
-      }
-      const dayCmp = dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
-      if (dayCmp !== 0) {
-        return dayCmp;
-      }
-      if (a.period !== b.period) {
-        return a.period - b.period;
-      }
-      return a.subject_name.localeCompare(b.subject_name);
-    });
-  }, [schedule]);
+  const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
 
   // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
   // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
@@ -1849,6 +1874,7 @@ export default function Home() {
       allowed_timeslots: subject.allowed_timeslots
         ? Array.from(new Set(subject.allowed_timeslots.map(remapId)))
         : undefined,
+      force_timeslot_id: subject.force_timeslot_id ? remapId(subject.force_timeslot_id) : undefined,
     })));
 
     setSchedule((prev) => prev.map((item) => ({
@@ -2993,6 +3019,10 @@ export default function Home() {
       allowed_timeslots: subject.allowed_timeslots
         ? Array.from(new Set(subject.allowed_timeslots.filter((id) => id !== timeslotId).map(remapId)))
         : undefined,
+      force_timeslot_id:
+        subject.force_timeslot_id === timeslotId
+          ? undefined
+          : (subject.force_timeslot_id ? remapId(subject.force_timeslot_id) : undefined),
     })));
 
     if (editingTimeslotId === timeslotId) {
@@ -3052,6 +3082,7 @@ export default function Home() {
         class_ids: [],
         subject_type: "fellesfag",
         sessions_per_week: 1,
+        force_place: false,
       },
     ]);
 
@@ -3119,23 +3150,45 @@ export default function Home() {
     setSchedule([]);
 
     try {
+      const blockReferencedSubjectIds = new Set<string>([
+        ...(blocks ?? []).flatMap((block) => block.subject_ids ?? []),
+        ...(blocks ?? []).flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id)),
+      ]);
+
       // Ensure all arrays are properly defined
-      const cleanSubjects = subjects.map(s => ({
-        ...s,
-        teacher_ids: Array.from(new Set([
-          ...(s.teacher_id ? [s.teacher_id] : []),
-          ...((s.teacher_ids ?? []).filter(Boolean)),
-        ])),
-        teacher_id: (Array.from(new Set([
-          ...(s.teacher_id ? [s.teacher_id] : []),
-          ...((s.teacher_ids ?? []).filter(Boolean)),
-        ]))[0] ?? ""),
-        class_ids: s.class_ids ?? [],
-        sessions_per_week: s.sessions_per_week || 1,
-        // alternating_week_split is DISABLED - auto-balancing is used instead
-        allowed_block_ids: s.allowed_block_ids ?? undefined,
-        allowed_timeslots: s.allowed_timeslots ?? undefined,
-      })).filter(s => s.id); // Remove entries with no id
+      const cleanSubjects = subjects
+        .filter((s) => {
+          if (!s.id) {
+            return false;
+          }
+          // Do not send unassigned fellesfag templates (class_ids.length === 0)
+          // unless they are explicitly referenced by a block.
+          if (s.subject_type === "fellesfag" && (s.class_ids ?? []).length === 0) {
+            return blockReferencedSubjectIds.has(s.id);
+          }
+          return true;
+        })
+        .map((s) => ({
+          ...s,
+          teacher_ids: Array.from(new Set([
+            ...(s.teacher_id ? [s.teacher_id] : []),
+            ...((s.teacher_ids ?? []).filter(Boolean)),
+          ])),
+          teacher_id: (Array.from(new Set([
+            ...(s.teacher_id ? [s.teacher_id] : []),
+            ...((s.teacher_ids ?? []).filter(Boolean)),
+          ]))[0] ?? ""),
+          class_ids: s.class_ids ?? [],
+          sessions_per_week: s.sessions_per_week || 1,
+          force_place: Boolean(s.force_place),
+          force_timeslot_id:
+            typeof s.force_timeslot_id === "string" && s.force_timeslot_id.trim()
+              ? s.force_timeslot_id.trim()
+              : undefined,
+          // alternating_week_split is DISABLED - auto-balancing is used instead
+          allowed_block_ids: s.allowed_block_ids ?? undefined,
+          allowed_timeslots: s.allowed_timeslots ?? undefined,
+        }));
 
       const payload = {
         subjects: cleanSubjects,
@@ -3186,7 +3239,7 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
-      setStatusText(`${data.message} (run ${runId})`);
+      setStatusText(formatGeneratedScheduleStatus(data, runId));
       setSchedule(data.schedule || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -4161,6 +4214,49 @@ export default function Home() {
                                   });
                                 }}
                               />
+                            </div>
+                            <div
+                              className="faggrupper-units-field faggrupper-force-field"
+                              title={
+                                isClassCopy && subject.subject_type === "fellesfag"
+                                  ? "Force one weekly placement into a specific slot (can overlap with blocks)."
+                                  : "Only class-specific fellesfag can be force-placed here."
+                              }
+                            >
+                              <label className="faggrupper-force-label">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(subject.force_place)}
+                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                  onChange={(e) => {
+                                    const checked = e.target.checked;
+                                    updateSubjectCard(subject.id, {
+                                      force_place: checked,
+                                      force_timeslot_id: checked ? subject.force_timeslot_id : undefined,
+                                    });
+                                  }}
+                                />
+                                Force
+                              </label>
+                              <select
+                                value={subject.force_timeslot_id ?? ""}
+                                disabled={!isClassCopy || subject.subject_type !== "fellesfag" || !subject.force_place}
+                                onChange={(e) => {
+                                  const value = e.target.value;
+                                  updateSubjectCard(subject.id, {
+                                    force_place: Boolean(subject.force_place),
+                                    force_timeslot_id: value || undefined,
+                                  });
+                                }}
+                              >
+                                <option value="">Select slot</option>
+                                {sortedTimeslots.map((ts) => (
+                                  <option key={ts.id} value={ts.id}>
+                                    {ts.day} P{ts.period}
+                                    {ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}
+                                  </option>
+                                ))}
+                              </select>
                             </div>
                             <div className="faggrupper-teacher-picker">
                               <div className="faggrupper-teacher-selected">
@@ -5561,7 +5657,7 @@ export default function Home() {
                         concurrentEventCounts.set(event.key, concurrentCount + 1);
                       }
 
-                      return baseEvents.map((event) => {
+                      return baseEvents.map((event, eventIdx) => {
                         const laneWidth = 100 / Math.max(1, event.laneCount);
                         const laneLeft = event.laneIndex * laneWidth;
                         const overlapWidth = laneWidth / Math.max(1, event.overlapCols);
@@ -5623,7 +5719,7 @@ export default function Home() {
                           : undefined;
 
                         return (
-                          <>
+                          <Fragment key={`${event.key}_fragment_${eventIdx}`}>
                             <article
                               key={`${event.key}_base`}
                               className={eventClassName}
@@ -5673,7 +5769,7 @@ export default function Home() {
                                 {eventBody}
                               </article>
                             ) : null}
-                          </>
+                          </Fragment>
                         );
                       });
                     })()}
