@@ -641,6 +641,8 @@ def _generate_schedule_staged(
 
         for subject_id in sorted(relevant_subject_ids):
             subject = subjects_by_id[subject_id]
+            # Classless subjects inside a block should occupy that block's class set.
+            placement_class_ids = list(subject.class_ids or block.class_ids or [])
             teacher_ids = subject_effective_teacher_ids.get(subject_id, _subject_teacher_ids(subject))
             primary_teacher_id = teacher_ids[0] if teacher_ids else ""
             min_units_from_blocks = _minimum_required_units_from_blocks(
@@ -677,13 +679,13 @@ def _generate_schedule_staged(
                 if custom_start and custom_end:
                     reduced_spans_for_subject = {
                         reduced_tail_span_by_class_slot[(class_id, ts_id)]
-                        for class_id in subject.class_ids
+                        for class_id in placement_class_ids
                         if (class_id, ts_id) in reduced_tail_span_by_class_slot
                     }
                     has_subject_reduced_tail = len(reduced_spans_for_subject) > 0
                     if has_subject_reduced_tail:
-                        all_classes_in_tail = len(subject.class_ids) == sum(
-                            1 for class_id in subject.class_ids if (class_id, ts_id) in reduced_tail_span_by_class_slot
+                        all_classes_in_tail = len(placement_class_ids) == sum(
+                            1 for class_id in placement_class_ids if (class_id, ts_id) in reduced_tail_span_by_class_slot
                         )
                         if all_classes_in_tail and not subject_requires_odd_units:
                             continue
@@ -703,7 +705,7 @@ def _generate_schedule_staged(
                             subject_name=subject.name,
                             teacher_id=primary_teacher_id,
                             teacher_ids=teacher_ids,
-                            class_ids=subject.class_ids,
+                            class_ids=placement_class_ids,
                             timeslot_id=ts_id,
                             day=timeslots_by_id[ts_id].day,
                             period=timeslots_by_id[ts_id].period,
@@ -714,17 +716,17 @@ def _generate_schedule_staged(
                         )
                     )
 
-                for class_id in subject.class_ids:
+                for class_id in placement_class_ids:
                     if (class_id, ts_id) not in reduced_tail_span_by_class_slot:
                         class_occupied.add((class_id, ts_id))
                 if teacher_ids and not any(
-                    (class_id, ts_id) in reduced_tail_span_by_class_slot for class_id in subject.class_ids
+                    (class_id, ts_id) in reduced_tail_span_by_class_slot for class_id in placement_class_ids
                 ):
                     for teacher_id in teacher_ids:
                         teacher_occupied.add((teacher_id, ts_id))
 
                 units_placed += timeslot_units_by_id.get(ts_id, 1)
-                for class_id in subject.class_ids:
+                for class_id in placement_class_ids:
                     class_day_load_units[(class_id, timeslots_by_id[ts_id].day)] += timeslot_units_by_id.get(ts_id, 1)
                     class_week_units[class_id] += timeslot_units_by_id.get(ts_id, 1)
                 if not fill_all_block_slots and units_placed >= required_units:
