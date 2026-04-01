@@ -91,7 +91,7 @@ type Room = {
   name: string;
 };
 
-type TabKey = "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate";
+type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate";
 
 type WeekView = "both" | "A" | "B";
 
@@ -135,6 +135,30 @@ type GenerateResponse = {
   message: string;
   schedule: ScheduledItem[];
   metadata?: Record<string, number>;
+};
+
+type SavedJsonExport = {
+  id: string;
+  name: string;
+  created_at: string;
+  payload: string;
+};
+
+type PersistedState = {
+  subjects: Subject[];
+  teachers: Teacher[];
+  meetings: Meeting[];
+  rooms: Room[];
+  classes: SchoolClass[];
+  timeslots: Timeslot[];
+  weekCalendarSetups: WeekCalendarSetup[];
+  blocks: Block[];
+  schedule: ScheduledItem[];
+  activeCalendarDay: string;
+  activeTab: TabKey;
+  activeWeekSetupId: string | null;
+  weekView: WeekView;
+  savedJsonExports?: SavedJsonExport[];
 };
 
 function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
@@ -240,6 +264,7 @@ const COMPARE_PALETTE = [
 ];
 
 const workflowTabs: Array<{ id: TabKey; label: string }> = [
+  { id: "files", label: "Files" },
   { id: "calendar", label: "Week Calendar" },
   { id: "classes", label: "Classes" },
   { id: "subjects", label: "Subjects" },
@@ -800,7 +825,7 @@ export default function Home() {
   const [schedule, setSchedule] = useState<ScheduledItem[]>([]);
   const [statusText, setStatusText] = useState("Ready");
   const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<TabKey>("calendar");
+  const [activeTab, setActiveTab] = useState<TabKey>("files");
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
@@ -832,6 +857,7 @@ export default function Home() {
   const [teacherOnSiteSearchQuery, setTeacherOnSiteSearchQuery] = useState("");
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
+  const [savedJsonExports, setSavedJsonExports] = useState<SavedJsonExport[]>([]);
   const [showUltrawideTimeline, setShowUltrawideTimeline] = useState(true);
   const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
   const [hoveredTimelineSubjectId, setHoveredTimelineSubjectId] = useState<string | null>(null);
@@ -889,18 +915,165 @@ export default function Home() {
     end_time: "09:50",
     week_type: "both" as WeekView,
   });
-  const [blockSubjForm, setBlockSubjForm] = useState({
-    subject_id: "",
-    teacher_id: "",
-    preferred_room_id: "",
-    new_subject_name: "",
-  });
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const [expandedTeacherId, setExpandedTeacherId] = useState<string | null>(null);
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [blockInlineSubjNames, setBlockInlineSubjNames] = useState<Record<string, string>>({});
   const excelFileRef = useRef<HTMLInputElement>(null);
+  const jsonFileRef = useRef<HTMLInputElement>(null);
   const generationRunRef = useRef(0);
+
+  function buildPersistedState(): PersistedState {
+    return {
+      subjects,
+      teachers,
+      meetings,
+      rooms,
+      classes,
+      timeslots,
+      weekCalendarSetups,
+      blocks,
+      schedule,
+      activeCalendarDay,
+      activeTab,
+      activeWeekSetupId,
+      weekView,
+      savedJsonExports,
+    };
+  }
+
+  function applyPersistedState(parsed: Partial<PersistedState>) {
+    if (Array.isArray(parsed.subjects)) {
+      setSubjects(parsed.subjects.map((subject) => normalizeSubject(subject)));
+    }
+    if (Array.isArray(parsed.teachers)) {
+      setTeachers(parsed.teachers.map((teacher) => normalizeTeacher(teacher)));
+    }
+    if (Array.isArray(parsed.meetings)) {
+      setMeetings(parsed.meetings.map((meeting) => normalizeMeeting(meeting)));
+    }
+    if (Array.isArray(parsed.rooms)) {
+      setRooms(parsed.rooms);
+    }
+    if (Array.isArray(parsed.classes)) {
+      setClasses(parsed.classes);
+    }
+    if (Array.isArray(parsed.timeslots)) {
+      setTimeslots(parsed.timeslots.map((timeslot) => normalizeTimeslot(timeslot)));
+    }
+    if (Array.isArray(parsed.weekCalendarSetups)) {
+      setWeekCalendarSetups(parsed.weekCalendarSetups);
+    }
+    if (Array.isArray(parsed.blocks)) {
+      setBlocks(parsed.blocks.map((block) => normalizeBlock(block)));
+    }
+    if (Array.isArray(parsed.schedule)) {
+      setSchedule(parsed.schedule);
+    }
+    if (typeof parsed.activeCalendarDay === "string" && calendarDays.includes(parsed.activeCalendarDay)) {
+      setActiveCalendarDay(parsed.activeCalendarDay);
+    }
+    if (parsed.activeTab && workflowTabs.some((tab) => tab.id === parsed.activeTab)) {
+      setActiveTab(parsed.activeTab);
+    }
+    if (typeof parsed.activeWeekSetupId === "string") {
+      setActiveWeekSetupId(parsed.activeWeekSetupId);
+    }
+    setWeekView(parseWeekView(parsed.weekView));
+
+    if (Array.isArray(parsed.savedJsonExports)) {
+      const normalized = parsed.savedJsonExports
+        .filter((entry): entry is SavedJsonExport => Boolean(entry?.id && entry?.name && entry?.created_at && entry?.payload))
+        .slice(0, 30);
+      setSavedJsonExports(normalized);
+    }
+  }
+
+  function formatExportTimestamp(date = new Date()): string {
+    const yyyy = String(date.getFullYear());
+    const mm = String(date.getMonth() + 1).padStart(2, "0");
+    const dd = String(date.getDate()).padStart(2, "0");
+    const hh = String(date.getHours()).padStart(2, "0");
+    const mi = String(date.getMinutes()).padStart(2, "0");
+    const ss = String(date.getSeconds()).padStart(2, "0");
+    return `${yyyy}${mm}${dd}-${hh}${mi}${ss}`;
+  }
+
+  function downloadJsonFile(fileName: string, content: string) {
+    const blob = new Blob([content], { type: "application/json" });
+    const url = window.URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = fileName;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(url);
+  }
+
+  function exportCurrentState(customName?: string) {
+    const now = new Date();
+    const stamp = formatExportTimestamp(now);
+    const baseName = (customName && customName.trim()) ? customName.trim() : `scheduler-export-${stamp}`;
+    const fileName = baseName.endsWith(".json") ? baseName : `${baseName}.json`;
+    const payloadText = JSON.stringify(buildPersistedState(), null, 2);
+
+    downloadJsonFile(fileName, payloadText);
+
+    const saved: SavedJsonExport = {
+      id: `${now.getTime()}_${Math.random().toString(16).slice(2, 8)}`,
+      name: fileName,
+      created_at: now.toISOString(),
+      payload: payloadText,
+    };
+    setSavedJsonExports((prev) => [saved, ...prev].slice(0, 30));
+    setStatusText(`Exported ${fileName}`);
+  }
+
+  async function importStateFromFile(file: File) {
+    const text = await file.text();
+    const parsed = JSON.parse(text) as Partial<PersistedState>;
+    applyPersistedState(parsed);
+    setStatusText(`Imported ${file.name}`);
+    setActiveTab("files");
+  }
+
+  async function handleImportJsonChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) {
+      return;
+    }
+    try {
+      await importStateFromFile(file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not import file.";
+      setStatusText(`Import failed: ${message}`);
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  function restoreSavedExport(item: SavedJsonExport) {
+    const proceed = window.confirm(`Load ${item.name}? This will replace current in-app data.`);
+    if (!proceed) {
+      return;
+    }
+
+    const saveBefore = window.confirm("Do you want to export your current data to a new JSON before loading this file?");
+    if (saveBefore) {
+      exportCurrentState(`before-restore-${formatExportTimestamp()}`);
+    }
+
+    try {
+      const parsed = JSON.parse(item.payload) as Partial<PersistedState>;
+      applyPersistedState(parsed);
+      setStatusText(`Loaded ${item.name}`);
+      setActiveTab("files");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Could not load saved export.";
+      setStatusText(`Load failed: ${message}`);
+    }
+  }
 
   useEffect(() => {
     try {
@@ -926,45 +1099,10 @@ export default function Home() {
         activeTab: TabKey;
         activeWeekSetupId: string | null;
         weekView: WeekView;
+        savedJsonExports: SavedJsonExport[];
       }>;
 
-      if (Array.isArray(parsed.subjects)) {
-        setSubjects(parsed.subjects.map((subject) => normalizeSubject(subject)));
-      }
-      if (Array.isArray(parsed.teachers)) {
-        setTeachers(parsed.teachers.map((teacher) => normalizeTeacher(teacher)));
-      }
-      if (Array.isArray(parsed.meetings)) {
-        setMeetings(parsed.meetings.map((meeting) => normalizeMeeting(meeting)));
-      }
-      if (Array.isArray(parsed.rooms)) {
-        setRooms(parsed.rooms);
-      }
-      if (Array.isArray(parsed.classes)) {
-        setClasses(parsed.classes);
-      }
-      if (Array.isArray(parsed.timeslots)) {
-        setTimeslots(parsed.timeslots.map((timeslot) => normalizeTimeslot(timeslot)));
-      }
-      if (Array.isArray(parsed.weekCalendarSetups)) {
-        setWeekCalendarSetups(parsed.weekCalendarSetups);
-      }
-      if (Array.isArray(parsed.blocks)) {
-        setBlocks(parsed.blocks.map((block) => normalizeBlock(block)));
-      }
-      if (Array.isArray(parsed.schedule)) {
-        setSchedule(parsed.schedule);
-      }
-      if (typeof parsed.activeCalendarDay === "string" && calendarDays.includes(parsed.activeCalendarDay)) {
-        setActiveCalendarDay(parsed.activeCalendarDay);
-      }
-      if (parsed.activeTab && workflowTabs.some((tab) => tab.id === parsed.activeTab)) {
-        setActiveTab(parsed.activeTab);
-      }
-      if (typeof parsed.activeWeekSetupId === "string") {
-        setActiveWeekSetupId(parsed.activeWeekSetupId);
-      }
-      setWeekView(parseWeekView(parsed.weekView));
+      applyPersistedState(parsed);
     } catch {
       // Ignore malformed localStorage payloads and continue with defaults.
     } finally {
@@ -977,7 +1115,7 @@ export default function Home() {
       return;
     }
 
-    const payload = {
+    const persisted: PersistedState = {
       subjects,
       teachers,
       meetings,
@@ -991,9 +1129,10 @@ export default function Home() {
       activeTab,
       activeWeekSetupId,
       weekView,
+      savedJsonExports,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
   }, [
     isStorageHydrated,
     subjects,
@@ -1009,6 +1148,7 @@ export default function Home() {
     activeTab,
     activeWeekSetupId,
     weekView,
+    savedJsonExports,
   ]);
 
   useEffect(() => {
@@ -2801,7 +2941,6 @@ export default function Home() {
   function resetBlockForm() {
     setBlockForm({ name: "", occurrences: [], class_ids: [], subject_entries: [] });
     setBlockOccForm({ day: "Monday", start_time: "08:20", end_time: "09:50", week_type: "both" });
-    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
     setEditingBlockId(null);
   }
 
@@ -2834,51 +2973,6 @@ export default function Home() {
     return Math.max(1, occurrences?.length ?? 0);
   }
 
-  function addSubjectToBlockForm() {
-    if (!blockSubjForm.subject_id) return;
-    if (blockForm.subject_entries.some((se) => se.subject_id === blockSubjForm.subject_id)) return;
-    const nextSessions = blockOccurrenceSessionCount(blockForm.occurrences);
-    setSubjects((prev) => prev.map((subject) => (
-      subject.id === blockSubjForm.subject_id
-        ? { ...subject, sessions_per_week: nextSessions }
-        : subject
-    )));
-    setBlockForm((prev) => ({
-      ...prev,
-      subject_entries: [
-        ...prev.subject_entries,
-        { subject_id: blockSubjForm.subject_id, teacher_id: blockSubjForm.teacher_id, preferred_room_id: blockSubjForm.preferred_room_id },
-      ],
-    }));
-    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
-  }
-
-  function createAndAddSubjectToBlock() {
-    const name = blockSubjForm.new_subject_name.trim();
-    if (!name) return;
-    const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
-    const occurrenceCount = blockOccurrenceSessionCount(blockForm.occurrences);
-    const newSubject: Subject = {
-      id,
-      name,
-      teacher_id: blockSubjForm.teacher_id,
-      teacher_ids: blockSubjForm.teacher_id ? [blockSubjForm.teacher_id] : [],
-      class_ids: [],
-      subject_type: "programfag",
-      sessions_per_week: occurrenceCount,
-    };
-    setSubjects((prev) => [...prev, newSubject]);
-    if (!blockForm.subject_entries.some((se) => se.subject_id === id)) {
-      setBlockForm((prev) => ({
-        ...prev,
-        subject_entries: [
-          ...prev.subject_entries,
-          { subject_id: id, teacher_id: blockSubjForm.teacher_id, preferred_room_id: blockSubjForm.preferred_room_id },
-        ],
-      }));
-    }
-    setBlockSubjForm({ subject_id: "", teacher_id: "", preferred_room_id: "", new_subject_name: "" });
-  }
 
   function createAndAddSubjectToSavedBlock(blockId: string) {
     const name = (blockInlineSubjNames[blockId] ?? "").trim();
@@ -2897,13 +2991,6 @@ export default function Home() {
       }
     ));
     setBlockInlineSubjNames((prev) => ({ ...prev, [blockId]: "" }));
-  }
-
-  function removeSubjectFromBlockForm(subjectId: string) {
-    setBlockForm((prev) => ({
-      ...prev,
-      subject_entries: prev.subject_entries.filter((se) => se.subject_id !== subjectId),
-    }));
   }
 
   function updateBlockSubjectEntry(blockId: string, subjectId: string, patch: Partial<BlockSubjectEntry>) {
@@ -3234,7 +3321,7 @@ export default function Home() {
         try {
           const errBody = await res.json();
           if (errBody?.detail) detail = `Error: ${errBody.detail}`;
-        } catch (_) { /* ignore parse failure */ }
+        } catch { /* ignore parse failure */ }
         throw new Error(detail);
       }
 
@@ -3297,7 +3384,7 @@ export default function Home() {
             className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
             onClick={() => setActiveTab(tab.id)}
           >
-            <span>{index + 1}</span>
+            <span>{tab.id === "files" ? 0 : index}</span>
             {tab.label}
           </button>
         ))}
@@ -3312,6 +3399,68 @@ export default function Home() {
           Next
         </button>
       </section>
+
+      {activeTab === "files" && (
+      <section className="grid">
+        <article className="card" style={{ gridColumn: "1 / -1" }}>
+          <h2>Files</h2>
+          <p>Export current workspace state to JSON, import a JSON file, and restore earlier exports from this menu.</p>
+
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+            <button type="button" onClick={() => exportCurrentState()}>
+              Export JSON
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => jsonFileRef.current?.click()}
+            >
+              Import JSON
+            </button>
+            <input
+              ref={jsonFileRef}
+              type="file"
+              accept="application/json,.json"
+              style={{ display: "none" }}
+              onChange={handleImportJsonChange}
+            />
+          </div>
+
+          <h3>Saved Exports</h3>
+          <div className="list">
+            {savedJsonExports.length === 0 ? (
+              <div className="item">No saved exports yet.</div>
+            ) : (
+              savedJsonExports.map((item) => (
+                <div key={item.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
+                  <div>
+                    <strong>{item.name}</strong>
+                    <div style={{ fontSize: "0.8rem", color: "#5a5a5a" }}>
+                      {new Date(item.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
+                    <button type="button" className="secondary" onClick={() => restoreSavedExport(item)}>
+                      Load
+                    </button>
+                    <button type="button" className="secondary" onClick={() => downloadJsonFile(item.name, item.payload)}>
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => setSavedJsonExports((prev) => prev.filter((entry) => entry.id !== item.id))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </article>
+      </section>
+      )}
 
       {activeTab === "calendar" && (
       <section className="card week-calendar">
@@ -5814,7 +5963,7 @@ export default function Home() {
                 <div className="list" style={{ maxHeight: "250px", fontSize: "0.84em" }}>
                   {sortedFilteredTeacherOnSiteSummaries.length === 0 ? (
                     <p style={{ color: "#999", margin: 0 }}>
-                      No teacher matches "{teacherOnSiteSearchQuery}".
+                      No teacher matches &quot;{teacherOnSiteSearchQuery}&quot;.
                     </p>
                   ) : (
                     sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => (
