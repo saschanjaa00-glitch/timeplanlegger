@@ -51,9 +51,7 @@ type Timeslot = {
   period: number;
   start_time?: string;
   end_time?: string;
-  is_double?: boolean;
   is_idrett?: boolean;
-  is_lunch?: boolean;
   excluded_from_generation?: boolean;
   generation_allowed_class_ids?: string[];
 };
@@ -322,9 +320,7 @@ function normalizeTimeslot(timeslot: Partial<Timeslot>): Timeslot {
     period: typeof timeslot.period === "number" ? timeslot.period : 1,
     start_time: timeslot.start_time,
     end_time: timeslot.end_time,
-    is_double: Boolean(timeslot.is_double),
     is_idrett: Boolean(timeslot.is_idrett),
-    is_lunch: Boolean(timeslot.is_lunch),
     excluded_from_generation: Boolean(timeslot.excluded_from_generation),
     generation_allowed_class_ids: Array.isArray(timeslot.generation_allowed_class_ids)
       ? timeslot.generation_allowed_class_ids.filter(Boolean)
@@ -550,22 +546,9 @@ function formatDurationMinutes(totalMinutes: number): string {
   return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
-function getMidpointTime(start?: string, end?: string): string | null {
-  const startMinutes = toMinutes(start);
-  const endMinutes = toMinutes(end);
-  if (startMinutes === Number.MAX_SAFE_INTEGER || endMinutes === Number.MAX_SAFE_INTEGER || endMinutes <= startMinutes) {
-    return null;
-  }
-  const midpoint = Math.round((startMinutes + endMinutes) / 2);
-  return minutesToTime(midpoint);
-}
-
 function getSlotToneClass(slot?: Timeslot): string {
   if (!slot) {
     return "";
-  }
-  if (slot.is_lunch) {
-    return "lunch";
   }
   if (slot.is_idrett) {
     return "idrett";
@@ -873,9 +856,7 @@ export default function Home() {
     day: "Monday",
     start_time: "08:00",
     end_time: "08:45",
-    is_double: false,
     is_idrett: false,
-    is_lunch: false,
     excluded_from_generation: false,
     generation_allowed_class_ids: [] as string[],
   });
@@ -1842,19 +1823,28 @@ export default function Home() {
   }, [subjects]);
 
   const timelineMarks = useMemo(() => {
-    const marks = new Set<number>([DAY_START_MINUTES, DAY_END_MINUTES]);
-    for (const ts of timeslots) {
-      const start = toMinutes(ts.start_time);
-      const end = toMinutes(ts.end_time);
+    const mondaySlots = [...(timeslotsByDay["Monday"] ?? [])].sort((a, b) => {
+      const startCmp = toMinutes(a.start_time) - toMinutes(b.start_time);
+      if (startCmp !== 0) {
+        return startCmp;
+      }
+      return toMinutes(a.end_time) - toMinutes(b.end_time);
+    });
+
+    const marksSet = new Set<number>([DAY_START_MINUTES, DAY_END_MINUTES]);
+    for (const slot of mondaySlots) {
+      const start = toMinutes(slot.start_time);
+      const end = toMinutes(slot.end_time);
       if (start !== Number.MAX_SAFE_INTEGER && start >= DAY_START_MINUTES && start <= DAY_END_MINUTES) {
-        marks.add(start);
+        marksSet.add(start);
       }
       if (end !== Number.MAX_SAFE_INTEGER && end >= DAY_START_MINUTES && end <= DAY_END_MINUTES) {
-        marks.add(end);
+        marksSet.add(end);
       }
     }
-    return Array.from(marks).sort((a, b) => a - b);
-  }, [timeslots]);
+
+    return Array.from(marksSet).sort((a, b) => a - b);
+  }, [timeslotsByDay]);
 
   const weekSlotLayouts = useMemo(() => {
     const byDay: Record<string, Record<string, { col: number; count: number }>> = {};
@@ -2846,9 +2836,7 @@ export default function Home() {
         period: dayPeriod,
         start_time: start24,
         end_time: end24,
-        is_double: timeslotForm.is_double,
         is_idrett: timeslotForm.is_idrett,
-        is_lunch: timeslotForm.is_lunch,
         excluded_from_generation: timeslotForm.excluded_from_generation,
         generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       },
@@ -2865,9 +2853,7 @@ export default function Home() {
       day: slot.day,
       start_time: slot.start_time ?? "08:00",
       end_time: slot.end_time ?? "08:45",
-      is_double: Boolean(slot.is_double),
       is_idrett: Boolean(slot.is_idrett),
-      is_lunch: Boolean(slot.is_lunch),
       excluded_from_generation: Boolean(slot.excluded_from_generation),
       generation_allowed_class_ids: slot.generation_allowed_class_ids ?? [],
     });
@@ -2881,9 +2867,7 @@ export default function Home() {
       day: activeCalendarDay,
       start_time: "08:00",
       end_time: "08:45",
-      is_double: false,
       is_idrett: false,
-      is_lunch: false,
       excluded_from_generation: false,
       generation_allowed_class_ids: [],
     }));
@@ -2922,9 +2906,7 @@ export default function Home() {
         period: dayPeriod,
         start_time: start24,
         end_time: end24,
-        is_double: timeslotForm.is_double,
         is_idrett: timeslotForm.is_idrett,
-        is_lunch: timeslotForm.is_lunch,
         excluded_from_generation: timeslotForm.excluded_from_generation,
         generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       };
@@ -3672,28 +3654,10 @@ export default function Home() {
           <label className="calendar-check">
             <input
               type="checkbox"
-              checked={timeslotForm.is_double}
-              onChange={(e) => setTimeslotForm((s) => ({ ...s, is_double: e.target.checked }))}
-            />
-            Double class (visual split, counts as one)
-          </label>
-
-          <label className="calendar-check">
-            <input
-              type="checkbox"
               checked={timeslotForm.is_idrett}
               onChange={(e) => setTimeslotForm((s) => ({ ...s, is_idrett: e.target.checked }))}
             />
             Idrett (green in schedule)
-          </label>
-
-          <label className="calendar-check">
-            <input
-              type="checkbox"
-              checked={timeslotForm.is_lunch}
-              onChange={(e) => setTimeslotForm((s) => ({ ...s, is_lunch: e.target.checked }))}
-            />
-            Lunch (yellow in schedule)
           </label>
 
           <label className="calendar-check">
@@ -3884,14 +3848,7 @@ export default function Home() {
                           onMouseDown={(e) => startResizeFromHandle(e, slot.id, "end")}
                           role="presentation"
                         />
-                        {slot.is_double && getMidpointTime(slot.start_time, slot.end_time) ? (
-                          <div className="slot-split">
-                            <span>{slot.start_time}-{getMidpointTime(slot.start_time, slot.end_time)}</span>
-                            <span>{getMidpointTime(slot.start_time, slot.end_time)}-{slot.end_time}</span>
-                          </div>
-                        ) : (
-                          <div>{slot.start_time} - {slot.end_time}</div>
-                        )}
+                        <div>{slot.start_time} - {slot.end_time}</div>
                         {slot.excluded_from_generation ? (
                           <small>
                             Excluded from generation
@@ -5475,10 +5432,13 @@ export default function Home() {
 
             <div className="weekly-body">
               <aside className="weekly-axis">
-                {timelineMarks.map((minutes) => {
+                {timelineMarks.map((minutes, index) => {
                   const topPct = ((minutes - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                  const isFirst = index === 0;
+                  const isLast = index === timelineMarks.length - 1;
+                  const translateY = isFirst ? "0%" : (isLast ? "-100%" : "-50%");
                   return (
-                    <span key={minutes} style={{ top: `${topPct}%` }}>
+                    <span key={minutes} style={{ top: `${topPct}%`, transform: `translateY(${translateY})` }}>
                       {minutesToTime(minutes)}
                     </span>
                   );
