@@ -4449,7 +4449,7 @@ export default function Home() {
       )}
 
       {activeTab === "blocks" && (
-      <section className="grid">
+      <section className="grid blocks-layout">
         <article className="card">
           <h2>Blokker</h2>
           <p>Define program blocks (e.g. Blokk 1, 2, 3) with their scheduled times, participating classes, and subjects.</p>
@@ -4534,28 +4534,34 @@ export default function Home() {
             )}
 
             <label style={{ marginTop: "8px" }}>Classes (who can pick subjects from this block)</label>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: "4px", marginBottom: "8px" }}>
+            <div className="block-class-grid">
               {sortedClasses.length === 0 ? (
                 <span style={{ fontSize: "0.85em", color: "#999" }}>No classes added yet.</span>
               ) : (
-                sortedClasses.map((cls) => (
-                  <button
-                    key={cls.id}
-                    type="button"
-                    onClick={() => toggleBlockClass(cls.id)}
-                    style={{
-                      padding: "3px 10px",
-                      fontSize: "0.82em",
-                      borderRadius: "12px",
-                      border: "1px solid",
-                      borderColor: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#ccc",
-                      background: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#fff",
-                      color: blockForm.class_ids.includes(cls.id) ? "#fff" : "#333",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {cls.name}
-                  </button>
+                (["1", "2", "3"] as const).map((yearPrefix) => (
+                  <div key={yearPrefix} className="block-class-col">
+                    {sortedClasses
+                      .filter((cls) => cls.name.startsWith(yearPrefix))
+                      .map((cls) => (
+                        <button
+                          key={cls.id}
+                          type="button"
+                          onClick={() => toggleBlockClass(cls.id)}
+                          style={{
+                            padding: "3px 10px",
+                            fontSize: "0.82em",
+                            borderRadius: "12px",
+                            border: "1px solid",
+                            borderColor: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#ccc",
+                            background: blockForm.class_ids.includes(cls.id) ? "#2a9d8f" : "#fff",
+                            color: blockForm.class_ids.includes(cls.id) ? "#fff" : "#333",
+                            cursor: "pointer",
+                          }}
+                        >
+                          {cls.name}
+                        </button>
+                      ))}
+                  </div>
                 ))
               )}
             </div>
@@ -4569,7 +4575,7 @@ export default function Home() {
           </form>
         </article>
 
-        <article className="card">
+        <article className="card blocks-right-column">
           <h2>Block List</h2>
           {blocks.length === 0 ? (
             <p style={{ color: "#999" }}>No blocks added yet.</p>
