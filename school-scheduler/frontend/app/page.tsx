@@ -190,17 +190,25 @@ function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
       merged.push(...bucket.shared);
     }
 
-    const pairCount = Math.min(bucket.a.length, bucket.b.length);
-    for (let i = 0; i < pairCount; i += 1) {
-      merged.push({ ...bucket.a[i], week_type: undefined });
+    const bUsed = new Array(bucket.b.length).fill(false);
+
+    for (const aItem of bucket.a) {
+      // Only collapse A+B into a shared entry when room assignment matches.
+      // If rooms differ by week, keep them separate so the timeline shows that.
+      const matchIdx = bucket.b.findIndex((bItem, idx) => !bUsed[idx] && (bItem.room_id ?? "") === (aItem.room_id ?? ""));
+      if (matchIdx >= 0) {
+        bUsed[matchIdx] = true;
+        merged.push({ ...aItem, week_type: undefined });
+      } else {
+        merged.push(aItem);
+      }
     }
 
-    if (bucket.a.length > pairCount) {
-      merged.push(...bucket.a.slice(pairCount));
-    }
-    if (bucket.b.length > pairCount) {
-      merged.push(...bucket.b.slice(pairCount));
-    }
+    bucket.b.forEach((bItem, idx) => {
+      if (!bUsed[idx]) {
+        merged.push(bItem);
+      }
+    });
   });
 
   return merged.sort((a, b) => {
@@ -6742,8 +6750,12 @@ export default function Home() {
                               
                               let displayTitle = item.subject_name;
                               const isClassView = entityId.startsWith("class:");
+                              const isTeacherView = entityId.startsWith("teacher:");
+                              const isRoomView = entityId.startsWith("room:");
                               if (isClassView && blockInfo) {
                                 displayTitle = blockInfo.block_name;
+                              } else if ((isTeacherView || isRoomView) && blockInfo) {
+                                displayTitle = `${item.subject_name} (${blockInfo.block_name})`;
                               }
 
                               const blockSummaryKey = isClassView && blockInfo

@@ -444,6 +444,324 @@ def _assign_rooms_to_schedule(
                 )
             )
 
+    # Best-effort pass for once_per_week subjects in alternating schedules:
+    # ensure each week (A and B) gets at least one preferred-room placement
+    # when this can be achieved by reusing a free preferred room or a safe
+    # same-slot room swap.
+    subject_preferred_rooms: Dict[str, Set[str]] = {
+        subject_id: {
+            room_id
+            for room_id in (getattr(subject, "preferred_room_ids", []) or [])
+            if room_id in rooms_by_id
+        }
+        for subject_id, subject in subjects_by_id.items()
+    }
+    once_subject_ids: Set[str] = {
+        subject_id
+        for subject_id, subject in subjects_by_id.items()
+        if str(getattr(subject, "room_requirement_mode", "always") or "always") == "once_per_week"
+        and len(subject_preferred_rooms.get(subject_id, set())) > 0
+    }
+
+    items_by_slot_index: Dict[Tuple[str, str | None], List[int]] = defaultdict(list)
+    for idx, item in enumerate(result_items):
+        items_by_slot_index[(item.timeslot_id, item.week_type)].append(idx)
+
+    def _enforced_week_keys(item: ScheduledItem) -> Tuple[str, ...]:
+        # In alternating mode, a both-week item (week_type=None) satisfies both A and B.
+        if data.alternating_weeks_enabled:
+            if item.week_type in {"A", "B"}:
+                return (item.week_type,)
+            if item.week_type is None:
+                return ("A", "B")
+        return ((item.week_type or "base"),)
+
+    subject_week_indexes: Dict[Tuple[str, str], List[int]] = defaultdict(list)
+    for idx, item in enumerate(result_items):
+        for week_key in _enforced_week_keys(item):
+            subject_week_indexes[(item.subject_id, week_key)].append(idx)
+
+    preferred_count_by_subject_week: Dict[Tuple[str, str], int] = defaultdict(int)
+    for item in result_items:
+        preferred_set = subject_preferred_rooms.get(item.subject_id, set())
+        if item.room_id and item.room_id in preferred_set:
+            for week_key in _enforced_week_keys(item):
+                preferred_count_by_subject_week[(item.subject_id, week_key)] += 1
+
+    def _set_item_room(index: int, room_id: str | None) -> None:
+        item = result_items[index]
+        result_items[index] = ScheduledItem(
+            subject_id=item.subject_id,
+            subject_name=item.subject_name,
+            teacher_id=item.teacher_id,
+            teacher_ids=item.teacher_ids,
+            class_ids=item.class_ids,
+            timeslot_id=item.timeslot_id,
+            day=item.day,
+            period=item.period,
+            week_type=item.week_type,
+            room_id=room_id,
+        )
+
+    for (subject_id, week_key), indexes in list(subject_week_indexes.items()):
+        if subject_id not in once_subject_ids:
+            continue
+        if week_key not in ({"A", "B"} if data.alternating_weeks_enabled else {"base"}):
+            continue
+        if preferred_count_by_subject_week[(subject_id, week_key)] > 0:
+            continue
+
+        preferred_set = subject_preferred_rooms.get(subject_id, set())
+        if not preferred_set:
+            continue
+
+        satisfied = False
+        for idx in indexes:
+            item = result_items[idx]
+            slot_key = (item.timeslot_id, item.week_type)
+            slot_indexes = items_by_slot_index.get(slot_key, [])
+            used_rooms = {
+                result_items[slot_idx].room_id
+                for slot_idx in slot_indexes
+                if result_items[slot_idx].room_id
+            }
+
+            free_preferred = [room_id for room_id in preferred_set if room_id not in used_rooms]
+            if free_preferred:
+                chosen_room = _pick_with_consistency(free_preferred, subject_id, week_key)
+                if chosen_room:
+                    _set_item_room(idx, chosen_room)
+                    preferred_count_by_subject_week[(subject_id, week_key)] += 1
+                    satisfied = True
+                    break
+
+            for preferred_room_id in preferred_set:
+                occupant_indexes = [
+                    slot_idx
+                    for slot_idx in slot_indexes
+                    if result_items[slot_idx].room_id == preferred_room_id
+                ]
+                if not occupant_indexes:
+                    continue
+
+                occupant_idx = occupant_indexes[0]
+                if occupant_idx == idx:
+                    preferred_count_by_subject_week[(subject_id, week_key)] += 1
+                    satisfied = True
+                    break
+
+                occupant_item = result_items[occupant_idx]
+                occupant_week_keys = _enforced_week_keys(occupant_item)
+                occupant_subject = subjects_by_id.get(occupant_item.subject_id)
+                occupant_mode = str(getattr(occupant_subject, "room_requirement_mode", "always") or "always")
+                occupant_preferred_set = subject_preferred_rooms.get(occupant_item.subject_id, set())
+
+                used_without_occupant = {
+                    result_items[slot_idx].room_id
+                    for slot_idx in slot_indexes
+                    if slot_idx != occupant_idx and result_items[slot_idx].room_id
+                }
+                available_for_occupant = [
+                    room_id
+                    for room_id in room_ids_ordered
+                    if room_id not in used_without_occupant and room_id != preferred_room_id
+                ]
+                if not available_for_occupant:
+                    continue
+
+                if occupant_mode == "always" and occupant_preferred_set:
+                    available_for_occupant = [
+                        room_id for room_id in available_for_occupant if room_id in occupant_preferred_set
+                    ]
+                    if not available_for_occupant:
+                        continue
+
+                if (
+                    occupant_mode == "once_per_week"
+                    and occupant_preferred_set
+                    and preferred_room_id in occupant_preferred_set
+                    and any(
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] <= 1
+                        for wk in occupant_week_keys
+                    )
+                ):
+                    available_for_occupant = [
+                        room_id for room_id in available_for_occupant if room_id in occupant_preferred_set
+                    ]
+                    if not available_for_occupant:
+                        continue
+
+                swap_room = _pick_with_consistency(
+                    available_for_occupant,
+                    occupant_item.subject_id,
+                    occupant_item.week_type or "base",
+                )
+                if not swap_room:
+                    continue
+
+                _set_item_room(occupant_idx, swap_room)
+                _set_item_room(idx, preferred_room_id)
+
+                if preferred_room_id in occupant_preferred_set and swap_room not in occupant_preferred_set:
+                    for wk in occupant_week_keys:
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] -= 1
+                elif preferred_room_id not in occupant_preferred_set and swap_room in occupant_preferred_set:
+                    for wk in occupant_week_keys:
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] += 1
+
+                for wk in _enforced_week_keys(result_items[idx]):
+                    preferred_count_by_subject_week[(subject_id, wk)] += 1
+                satisfied = True
+                break
+
+            if satisfied:
+                break
+
+    # Mirrored best-effort pass for alternating schedules:
+    # for A/B pairs of the same subject in the same slot, if one week uses a
+    # preferred room and the other does not, try to mirror preferred-room usage
+    # on the opposite week as well.
+    if data.alternating_weeks_enabled:
+        subject_slot_week_index: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(dict)
+        for idx, item in enumerate(result_items):
+            week_label = item.week_type or "base"
+            if week_label in {"A", "B"}:
+                subject_slot_week_index[(item.subject_id, item.timeslot_id)][week_label] = idx
+
+        for (subject_id, _timeslot_id), week_map in subject_slot_week_index.items():
+            if subject_id not in once_subject_ids:
+                continue
+            if "A" not in week_map or "B" not in week_map:
+                continue
+
+            preferred_set = subject_preferred_rooms.get(subject_id, set())
+            if not preferred_set:
+                continue
+
+            idx_a = week_map["A"]
+            idx_b = week_map["B"]
+            room_a = result_items[idx_a].room_id
+            room_b = result_items[idx_b].room_id
+            has_pref_a = bool(room_a and room_a in preferred_set)
+            has_pref_b = bool(room_b and room_b in preferred_set)
+
+            # Only act when one week has preferred room and the other does not.
+            if has_pref_a == has_pref_b:
+                continue
+
+            source_idx = idx_a if has_pref_a else idx_b
+            target_idx = idx_b if has_pref_a else idx_a
+            target_item = result_items[target_idx]
+            target_week_key = target_item.week_type or "base"
+
+            preferred_order: List[str] = []
+            source_room = result_items[source_idx].room_id
+            if source_room and source_room in preferred_set:
+                preferred_order.append(source_room)
+            preferred_order.extend([room_id for room_id in preferred_set if room_id not in preferred_order])
+
+            slot_key = (target_item.timeslot_id, target_item.week_type)
+            slot_indexes = items_by_slot_index.get(slot_key, [])
+            used_rooms = {
+                result_items[slot_idx].room_id
+                for slot_idx in slot_indexes
+                if result_items[slot_idx].room_id
+            }
+
+            mirrored = False
+
+            free_preferred = [room_id for room_id in preferred_order if room_id not in used_rooms]
+            if free_preferred:
+                chosen_room = _pick_with_consistency(free_preferred, subject_id, target_week_key)
+                if chosen_room:
+                    _set_item_room(target_idx, chosen_room)
+                    for wk in _enforced_week_keys(result_items[target_idx]):
+                        preferred_count_by_subject_week[(subject_id, wk)] += 1
+                    mirrored = True
+
+            if mirrored:
+                continue
+
+            for preferred_room_id in preferred_order:
+                occupant_indexes = [
+                    slot_idx
+                    for slot_idx in slot_indexes
+                    if result_items[slot_idx].room_id == preferred_room_id
+                ]
+                if not occupant_indexes:
+                    continue
+
+                occupant_idx = occupant_indexes[0]
+                if occupant_idx == target_idx:
+                    for wk in _enforced_week_keys(result_items[target_idx]):
+                        preferred_count_by_subject_week[(subject_id, wk)] += 1
+                    mirrored = True
+                    break
+
+                occupant_item = result_items[occupant_idx]
+                occupant_week_keys = _enforced_week_keys(occupant_item)
+                occupant_subject = subjects_by_id.get(occupant_item.subject_id)
+                occupant_mode = str(getattr(occupant_subject, "room_requirement_mode", "always") or "always")
+                occupant_preferred_set = subject_preferred_rooms.get(occupant_item.subject_id, set())
+
+                used_without_occupant = {
+                    result_items[slot_idx].room_id
+                    for slot_idx in slot_indexes
+                    if slot_idx != occupant_idx and result_items[slot_idx].room_id
+                }
+                available_for_occupant = [
+                    room_id
+                    for room_id in room_ids_ordered
+                    if room_id not in used_without_occupant and room_id != preferred_room_id
+                ]
+                if not available_for_occupant:
+                    continue
+
+                if occupant_mode == "always" and occupant_preferred_set:
+                    available_for_occupant = [
+                        room_id for room_id in available_for_occupant if room_id in occupant_preferred_set
+                    ]
+                    if not available_for_occupant:
+                        continue
+
+                if (
+                    occupant_mode == "once_per_week"
+                    and occupant_preferred_set
+                    and preferred_room_id in occupant_preferred_set
+                    and any(
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] <= 1
+                        for wk in occupant_week_keys
+                    )
+                ):
+                    available_for_occupant = [
+                        room_id for room_id in available_for_occupant if room_id in occupant_preferred_set
+                    ]
+                    if not available_for_occupant:
+                        continue
+
+                swap_room = _pick_with_consistency(
+                    available_for_occupant,
+                    occupant_item.subject_id,
+                    occupant_item.week_type or "base",
+                )
+                if not swap_room:
+                    continue
+
+                _set_item_room(occupant_idx, swap_room)
+                _set_item_room(target_idx, preferred_room_id)
+
+                if preferred_room_id in occupant_preferred_set and swap_room not in occupant_preferred_set:
+                    for wk in occupant_week_keys:
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] -= 1
+                elif preferred_room_id not in occupant_preferred_set and swap_room in occupant_preferred_set:
+                    for wk in occupant_week_keys:
+                        preferred_count_by_subject_week[(occupant_item.subject_id, wk)] += 1
+
+                for wk in _enforced_week_keys(result_items[target_idx]):
+                    preferred_count_by_subject_week[(subject_id, wk)] += 1
+                mirrored = True
+                break
+
     return result_items
 
 
