@@ -284,6 +284,7 @@ def _assign_rooms_to_schedule(
         for room in data.rooms
         if getattr(room, "prioritize_for_preferred_subjects", False)
     }
+    teachers_by_id = {teacher.id: teacher for teacher in data.teachers}
     result_items: List[ScheduledItem] = []
 
     items_by_slot: Dict[Tuple[str, str | None], List[ScheduledItem]] = defaultdict(list)
@@ -317,6 +318,42 @@ def _assign_rooms_to_schedule(
 
         return min(candidate_room_ids, key=_score)
 
+    def _item_teacher_ids(item: ScheduledItem) -> List[str]:
+        teacher_ids: List[str] = []
+        if item.teacher_id:
+            teacher_ids.append(item.teacher_id)
+        teacher_ids.extend(item.teacher_ids or [])
+        return list(dict.fromkeys([teacher_id for teacher_id in teacher_ids if teacher_id]))
+
+    def _room_policy_for_item(item: ScheduledItem, subject: Subject | None) -> Tuple[List[str], str]:
+        subject_preferred_rooms = [
+            room_id
+            for room_id in (getattr(subject, "preferred_room_ids", []) or [])
+            if room_id in rooms_by_id
+        ]
+        if subject_preferred_rooms:
+            return (
+                subject_preferred_rooms,
+                str(getattr(subject, "room_requirement_mode", "always") or "always"),
+            )
+
+        for teacher_id in _item_teacher_ids(item):
+            teacher = teachers_by_id.get(teacher_id)
+            if not teacher:
+                continue
+            teacher_preferred_rooms = [
+                room_id
+                for room_id in (getattr(teacher, "preferred_room_ids", []) or [])
+                if room_id in rooms_by_id
+            ]
+            if teacher_preferred_rooms:
+                return (
+                    teacher_preferred_rooms,
+                    str(getattr(teacher, "room_requirement_mode", "always") or "always"),
+                )
+
+        return ([], "always")
+
     ordered_slot_keys = sorted(items_by_slot.keys(), key=lambda key: (key[1] or "base", key[0]))
 
     for (timeslot_id, week_type) in ordered_slot_keys:
@@ -324,12 +361,7 @@ def _assign_rooms_to_schedule(
 
         def item_priority(item: ScheduledItem) -> Tuple[int, int, str]:
             subject = subjects_by_id.get(item.subject_id)
-            preferred_rooms = [
-                room_id
-                for room_id in (getattr(subject, "preferred_room_ids", []) or [])
-                if room_id in rooms_by_id
-            ]
-            mode = str(getattr(subject, "room_requirement_mode", "always") or "always")
+            preferred_rooms, mode = _room_policy_for_item(item, subject)
             week_key = item.week_type or "base"
             once_pending = not once_mode_satisfied[(item.subject_id, week_key)]
             prioritized_preferred_rooms = [room_id for room_id in preferred_rooms if room_id in prioritized_rooms]
@@ -361,12 +393,7 @@ def _assign_rooms_to_schedule(
             subject_week_key = (item.subject_id, week_key)
             used_rooms = room_usage[(timeslot_id, week_type)]
 
-            preferred_rooms = [
-                room_id
-                for room_id in (getattr(subject, "preferred_room_ids", []) or [])
-                if room_id in rooms_by_id
-            ]
-            mode = str(getattr(subject, "room_requirement_mode", "always") or "always")
+            preferred_rooms, mode = _room_policy_for_item(item, subject)
 
             assigned_room_id: str | None = None
             available_preferred = [room_id for room_id in preferred_rooms if room_id not in used_rooms]
@@ -448,20 +475,17 @@ def _assign_rooms_to_schedule(
     # ensure each week (A and B) gets at least one preferred-room placement
     # when this can be achieved by reusing a free preferred room or a safe
     # same-slot room swap.
-    subject_preferred_rooms: Dict[str, Set[str]] = {
-        subject_id: {
-            room_id
-            for room_id in (getattr(subject, "preferred_room_ids", []) or [])
-            if room_id in rooms_by_id
-        }
-        for subject_id, subject in subjects_by_id.items()
-    }
-    once_subject_ids: Set[str] = {
-        subject_id
-        for subject_id, subject in subjects_by_id.items()
-        if str(getattr(subject, "room_requirement_mode", "always") or "always") == "once_per_week"
-        and len(subject_preferred_rooms.get(subject_id, set())) > 0
-    }
+    item_preferred_rooms: Dict[int, Set[str]] = {}
+    item_pref_modes: Dict[int, str] = {}
+    once_subject_ids: Set[str] = set()
+    for idx, item in enumerate(result_items):
+        subject = subjects_by_id.get(item.subject_id)
+        preferred_room_list, pref_mode = _room_policy_for_item(item, subject)
+        preferred_room_set = set(preferred_room_list)
+        item_preferred_rooms[idx] = preferred_room_set
+        item_pref_modes[idx] = pref_mode
+        if pref_mode == "once_per_week" and preferred_room_set:
+            once_subject_ids.add(item.subject_id)
 
     items_by_slot_index: Dict[Tuple[str, str | None], List[int]] = defaultdict(list)
     for idx, item in enumerate(result_items):
@@ -482,8 +506,8 @@ def _assign_rooms_to_schedule(
             subject_week_indexes[(item.subject_id, week_key)].append(idx)
 
     preferred_count_by_subject_week: Dict[Tuple[str, str], int] = defaultdict(int)
-    for item in result_items:
-        preferred_set = subject_preferred_rooms.get(item.subject_id, set())
+    for idx, item in enumerate(result_items):
+        preferred_set = item_preferred_rooms.get(idx, set())
         if item.room_id and item.room_id in preferred_set:
             for week_key in _enforced_week_keys(item):
                 preferred_count_by_subject_week[(item.subject_id, week_key)] += 1
@@ -511,13 +535,15 @@ def _assign_rooms_to_schedule(
         if preferred_count_by_subject_week[(subject_id, week_key)] > 0:
             continue
 
-        preferred_set = subject_preferred_rooms.get(subject_id, set())
-        if not preferred_set:
+        if not any(item_preferred_rooms.get(idx, set()) for idx in indexes):
             continue
 
         satisfied = False
         for idx in indexes:
             item = result_items[idx]
+            preferred_set = item_preferred_rooms.get(idx, set())
+            if not preferred_set:
+                continue
             slot_key = (item.timeslot_id, item.week_type)
             slot_indexes = items_by_slot_index.get(slot_key, [])
             used_rooms = {
@@ -552,9 +578,8 @@ def _assign_rooms_to_schedule(
 
                 occupant_item = result_items[occupant_idx]
                 occupant_week_keys = _enforced_week_keys(occupant_item)
-                occupant_subject = subjects_by_id.get(occupant_item.subject_id)
-                occupant_mode = str(getattr(occupant_subject, "room_requirement_mode", "always") or "always")
-                occupant_preferred_set = subject_preferred_rooms.get(occupant_item.subject_id, set())
+                occupant_mode = item_pref_modes.get(occupant_idx, "always")
+                occupant_preferred_set = item_preferred_rooms.get(occupant_idx, set())
 
                 used_without_occupant = {
                     result_items[slot_idx].room_id
@@ -634,16 +659,14 @@ def _assign_rooms_to_schedule(
             if "A" not in week_map or "B" not in week_map:
                 continue
 
-            preferred_set = subject_preferred_rooms.get(subject_id, set())
-            if not preferred_set:
-                continue
-
             idx_a = week_map["A"]
             idx_b = week_map["B"]
             room_a = result_items[idx_a].room_id
             room_b = result_items[idx_b].room_id
-            has_pref_a = bool(room_a and room_a in preferred_set)
-            has_pref_b = bool(room_b and room_b in preferred_set)
+            preferred_set_a = item_preferred_rooms.get(idx_a, set())
+            preferred_set_b = item_preferred_rooms.get(idx_b, set())
+            has_pref_a = bool(room_a and room_a in preferred_set_a)
+            has_pref_b = bool(room_b and room_b in preferred_set_b)
 
             # Only act when one week has preferred room and the other does not.
             if has_pref_a == has_pref_b:
@@ -653,12 +676,15 @@ def _assign_rooms_to_schedule(
             target_idx = idx_b if has_pref_a else idx_a
             target_item = result_items[target_idx]
             target_week_key = target_item.week_type or "base"
+            target_preferred_set = item_preferred_rooms.get(target_idx, set())
+            if not target_preferred_set:
+                continue
 
             preferred_order: List[str] = []
             source_room = result_items[source_idx].room_id
-            if source_room and source_room in preferred_set:
+            if source_room and source_room in target_preferred_set:
                 preferred_order.append(source_room)
-            preferred_order.extend([room_id for room_id in preferred_set if room_id not in preferred_order])
+            preferred_order.extend([room_id for room_id in target_preferred_set if room_id not in preferred_order])
 
             slot_key = (target_item.timeslot_id, target_item.week_type)
             slot_indexes = items_by_slot_index.get(slot_key, [])
@@ -700,9 +726,8 @@ def _assign_rooms_to_schedule(
 
                 occupant_item = result_items[occupant_idx]
                 occupant_week_keys = _enforced_week_keys(occupant_item)
-                occupant_subject = subjects_by_id.get(occupant_item.subject_id)
-                occupant_mode = str(getattr(occupant_subject, "room_requirement_mode", "always") or "always")
-                occupant_preferred_set = subject_preferred_rooms.get(occupant_item.subject_id, set())
+                occupant_mode = item_pref_modes.get(occupant_idx, "always")
+                occupant_preferred_set = item_preferred_rooms.get(occupant_idx, set())
 
                 used_without_occupant = {
                     result_items[slot_idx].room_id

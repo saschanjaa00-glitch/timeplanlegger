@@ -27,6 +27,8 @@ type Teacher = {
   preferred_avoid_timeslots: string[];
   unavailable_timeslots: string[];
   workload_percent: number;
+  preferred_room_ids: string[];
+  room_requirement_mode: "always" | "once_per_week";
 };
 
 type MeetingTeacherAssignment = {
@@ -393,6 +395,8 @@ function normalizeTeacher(teacher: Partial<Teacher>): Teacher {
       ? teacher.unavailable_timeslots
       : [],
     workload_percent: workloadPercent,
+    preferred_room_ids: Array.isArray(teacher.preferred_room_ids) ? teacher.preferred_room_ids.filter(Boolean) : [],
+    room_requirement_mode: teacher.room_requirement_mode === "once_per_week" ? "once_per_week" : "always",
   };
 }
 
@@ -830,7 +834,12 @@ export default function Home() {
   const [subjectForm, setSubjectForm] = useState({
     name: "",
   });
-  const [teacherForm, setTeacherForm] = useState({ name: "", unavailable_timeslots: "", workload_percent: "100" });
+  const [teacherForm, setTeacherForm] = useState({
+    name: "",
+    unavailable_timeslots: "",
+    workload_percent: "100",
+    room_requirement_mode: "always" as "always" | "once_per_week",
+  });
   const [meetingForm, setMeetingForm] = useState<MeetingFormState>({
     name: "",
     timeslot_id: "",
@@ -845,6 +854,7 @@ export default function Home() {
   const [preferencesRoomId, setPreferencesRoomId] = useState<string | null>(null);
   const [preferencesRoomPriorityOnly, setPreferencesRoomPriorityOnly] = useState(false);
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
+  const [teacherRoomSearchByTeacherId, setTeacherRoomSearchByTeacherId] = useState<Record<string, string>>({});
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [activeSubjectClassPickerId, setActiveSubjectClassPickerId] = useState<string | null>(null);
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
@@ -2547,9 +2557,16 @@ export default function Home() {
         preferred_avoid_timeslots: [],
         unavailable_timeslots: splitCsv(teacherForm.unavailable_timeslots),
         workload_percent: workloadPercent,
+        preferred_room_ids: [],
+        room_requirement_mode: teacherForm.room_requirement_mode,
       },
     ]);
-    setTeacherForm({ name: "", unavailable_timeslots: "", workload_percent: "100" });
+    setTeacherForm({
+      name: "",
+      unavailable_timeslots: "",
+      workload_percent: "100",
+      room_requirement_mode: "always",
+    });
   }
 
   function deleteTeacher(teacherId: string) {
@@ -2623,6 +2640,8 @@ export default function Home() {
             preferred_avoid_timeslots: [],
             unavailable_timeslots: [],
             workload_percent: 100,
+            preferred_room_ids: [],
+            room_requirement_mode: "always",
           });
         });
 
@@ -6289,7 +6308,7 @@ export default function Home() {
                       <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
                       <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
                         <span style={{ fontSize: "0.85em", color: "#666" }}>
-                          {t.workload_percent}% workload, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
+                          {t.workload_percent}% workload, {t.preferred_room_ids.length} room pref, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
                         </span>
                         <button
                           type="button"
@@ -6317,6 +6336,132 @@ export default function Home() {
 
                     {expandedTeacherId === t.id && (
                       <div style={{ padding: "8px", backgroundColor: "#fafafa", borderTop: "1px solid #eee" }}>
+                        {(() => {
+                          const teacherPreferredRoomIds = Array.from(new Set((t.preferred_room_ids ?? []).filter((roomId) => rooms.some((room) => room.id === roomId))));
+                          const teacherRoomDraft = teacherRoomSearchByTeacherId[t.id] ?? "";
+
+                          return (
+                            <div style={{ marginBottom: "8px" }}>
+                              <label style={{ display: "block", fontSize: "0.85em", fontWeight: 600, marginBottom: "4px" }}>Room requirements</label>
+                              <div className="room-requirements-top-row">
+                                <div className="faggrupper-force-field" style={{ minWidth: 0 }}>
+                                  <label className="faggrupper-force-label">Mode</label>
+                                  <select
+                                    value={t.room_requirement_mode ?? "always"}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      const nextMode = e.target.value === "once_per_week" ? "once_per_week" : "always";
+                                      setTeachers((prev) => prev.map((teacher) => (
+                                        teacher.id === t.id
+                                          ? { ...teacher, room_requirement_mode: nextMode }
+                                          : teacher
+                                      )));
+                                    }}
+                                  >
+                                    <option value="always">Always in selected rooms</option>
+                                    <option value="once_per_week">At least once per week</option>
+                                  </select>
+                                </div>
+                                <div className="faggrupper-teacher-add-row room-requirements-search-row">
+                                  <input
+                                    list={`teacher-room-options-${t.id}`}
+                                    value={teacherRoomDraft}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value;
+                                      const resolvedRoomId = resolveRoomIdFromInput(nextValue);
+                                      if (resolvedRoomId) {
+                                        if (!teacherPreferredRoomIds.includes(resolvedRoomId)) {
+                                          setTeachers((prev) => prev.map((teacher) => (
+                                            teacher.id === t.id
+                                              ? { ...teacher, preferred_room_ids: [...teacherPreferredRoomIds, resolvedRoomId] }
+                                              : teacher
+                                          )));
+                                        }
+                                        setTeacherRoomSearchByTeacherId((prev) => ({
+                                          ...prev,
+                                          [t.id]: "",
+                                        }));
+                                        return;
+                                      }
+
+                                      setTeacherRoomSearchByTeacherId((prev) => ({
+                                        ...prev,
+                                        [t.id]: nextValue,
+                                      }));
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter") {
+                                        return;
+                                      }
+                                      e.preventDefault();
+                                      const resolvedRoomIds = resolveRoomIdsFromInput(teacherRoomDraft);
+                                      if (resolvedRoomIds === null) {
+                                        setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                        return;
+                                      }
+                                      if (resolvedRoomIds.length === 0) {
+                                        return;
+                                      }
+                                      const nextSet = new Set(teacherPreferredRoomIds);
+                                      for (const roomId of resolvedRoomIds) {
+                                        nextSet.add(roomId);
+                                      }
+                                      setTeachers((prev) => prev.map((teacher) => (
+                                        teacher.id === t.id
+                                          ? { ...teacher, preferred_room_ids: Array.from(nextSet) }
+                                          : teacher
+                                      )));
+                                      setTeacherRoomSearchByTeacherId((prev) => ({
+                                        ...prev,
+                                        [t.id]: "",
+                                      }));
+                                    }}
+                                    placeholder="Search room(s), comma-separated"
+                                  />
+                                </div>
+                              </div>
+                              <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "90px", overflowY: "auto", alignContent: "flex-start" }}>
+                                {teacherPreferredRoomIds.length === 0 ? (
+                                  <span className="faggrupper-teacher-empty">No preferred rooms selected</span>
+                                ) : (
+                                  teacherPreferredRoomIds.map((roomId) => {
+                                    const roomLabel = roomNameById[roomId] ?? roomId;
+                                    return (
+                                      <span key={`${t.id}_${roomId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                                        <span className="excluded-session-chip-label">{roomLabel}</span>
+                                        <button
+                                          type="button"
+                                          className="subject-class-chip-remove"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setTeachers((prev) => prev.map((teacher) => (
+                                              teacher.id === t.id
+                                                ? {
+                                                    ...teacher,
+                                                    preferred_room_ids: teacherPreferredRoomIds.filter((id) => id !== roomId),
+                                                  }
+                                                : teacher
+                                            )));
+                                          }}
+                                          aria-label={`Remove preferred room ${roomLabel}`}
+                                        >
+                                          x
+                                        </button>
+                                      </span>
+                                    );
+                                  })
+                                )}
+                              </div>
+                              <datalist id={`teacher-room-options-${t.id}`}>
+                                {filterRoomsForQuery(teacherRoomDraft).map((room) => (
+                                  <option key={room.id} value={room.name} />
+                                ))}
+                              </datalist>
+                            </div>
+                          );
+                        })()}
+
                         <div style={{ marginBottom: "8px", display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", alignItems: "center" }}>
                           <label style={{ fontSize: "0.85em", fontWeight: 600 }}>Workload percentage</label>
                           <input
