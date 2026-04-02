@@ -764,9 +764,37 @@ p {
 
 .subject-card-grid {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) minmax(180px, 1fr) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.35rem;
-  align-items: end;
+  align-items: start;
+}
+
+.subject-card-grid > .calendar-field {
+  min-width: 0;
+}
+
+.subject-name-field {
+  grid-column: 1;
+}
+
+.subject-sessions-field {
+  grid-column: 2;
+}
+
+.subject-type-stack {
+  grid-column: 2;
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+  align-content: start;
+}
+
+.subject-type-stack.with-sessions {
+  grid-column: 3;
+}
+
+.excluded-session-row {
+  grid-column: 1 / -1;
 }
 
 .subject-card-action {
@@ -959,6 +987,54 @@ p {
   align-items: center;
   gap: 0.35rem;
   min-width: 0;
+}
+
+.excluded-session-field {
+  min-width: 0;
+  width: 100%;
+}
+
+.faggrupper-units-field.excluded-session-field {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.excluded-session-field .faggrupper-teacher-add-row {
+  min-width: 0;
+}
+
+.excluded-session-field .faggrupper-teacher-add-row input {
+  width: 100%;
+  min-width: 0;
+}
+
+.excluded-session-selected {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 0.22rem;
+  align-content: start;
+}
+
+.excluded-session-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  width: auto;
+  max-width: min(300px, 100%);
+  min-width: 0;
+}
+
+.excluded-session-chip-label {
+  display: inline-block;
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .faggrupper-units-field label {

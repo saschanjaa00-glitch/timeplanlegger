@@ -868,6 +868,7 @@ export default function Home() {
   const [activeFaggruppeClassId, setActiveFaggruppeClassId] = useState<string | null>(null);
   const [faggrupperClassSearchQuery, setFaggrupperClassSearchQuery] = useState("");
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
+  const [excludedSessionSearchBySubjectEntity, setExcludedSessionSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
   const [newFellesfagNameByClass, setNewFellesfagNameByClass] = useState<Record<string, string>>({});
   const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
@@ -1432,6 +1433,57 @@ export default function Home() {
 
   function filterTeachersForQuery(query: string): Teacher[] {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(query, teacher.name));
+  }
+
+  function formatTimeslotLabel(slot: Timeslot): string {
+    return `${slot.day} P${slot.period}${slot.start_time && slot.end_time ? ` (${slot.start_time}-${slot.end_time})` : ""}`;
+  }
+
+  function filterTimeslotsForQuery(query: string): Timeslot[] {
+    const normalizedQuery = normalizeSearchText(query);
+    if (!normalizedQuery) {
+      return sortedTimeslots;
+    }
+    return sortedTimeslots.filter((slot) => {
+      const label = formatTimeslotLabel(slot);
+      return normalizeSearchText(label).includes(normalizedQuery) || normalizeSearchText(slot.id).includes(normalizedQuery);
+    });
+  }
+
+  function resolveTimeslotIdFromInput(inputValue: string): string | null {
+    const normalizedInput = normalizeSearchText(inputValue);
+    if (!normalizedInput) {
+      return "";
+    }
+    const exactMatch = sortedTimeslots.find((slot) => {
+      const label = formatTimeslotLabel(slot);
+      return normalizeSearchText(label) === normalizedInput || normalizeSearchText(slot.id) === normalizedInput;
+    });
+    return exactMatch ? exactMatch.id : null;
+  }
+
+  function resolveTimeslotIdsFromInput(inputValue: string): string[] | null {
+    const tokens = inputValue
+      .split(",")
+      .map((token) => token.trim())
+      .filter(Boolean);
+
+    if (!tokens.length) {
+      return [];
+    }
+
+    const resolved: string[] = [];
+    for (const token of tokens) {
+      const resolvedId = resolveTimeslotIdFromInput(token);
+      if (resolvedId === null) {
+        return null;
+      }
+      if (resolvedId) {
+        resolved.push(resolvedId);
+      }
+    }
+
+    return Array.from(new Set(resolved));
   }
 
   function resetMeetingForm() {
@@ -3540,6 +3592,56 @@ export default function Home() {
     });
   }
 
+  function getExcludedTimeslotsForSubject(subject: Subject): string[] {
+    const allSlotIds = sortedTimeslots.map((slot) => slot.id);
+    if (!subject.allowed_timeslots) {
+      return [];
+    }
+
+    const allowed = new Set(subject.allowed_timeslots);
+    return allSlotIds.filter((slotId) => !allowed.has(slotId));
+  }
+
+  function updateFellesfagExcludedTimeslots(
+    subjectId: string,
+    excludedSlotIds: string[],
+    propagateToClassCopies: boolean = true,
+  ) {
+    const excluded = new Set(excludedSlotIds);
+    const allowed = sortedTimeslots
+      .map((slot) => slot.id)
+      .filter((slotId) => !excluded.has(slotId));
+
+    setSubjects((prev) => {
+      const target = prev.find((subject) => subject.id === subjectId);
+      if (!target) {
+        return prev;
+      }
+
+      const nextAllowed = excluded.size === 0 ? undefined : allowed;
+
+      return prev.map((subject) => {
+        const isTarget = subject.id === subjectId;
+        const isPerClassCopy =
+          propagateToClassCopies &&
+          target.subject_type === "fellesfag" &&
+          subject.id !== subjectId &&
+          subject.subject_type === "fellesfag" &&
+          subject.class_ids.length === 1 &&
+          subject.name === target.name;
+
+        if (!isTarget && !isPerClassCopy) {
+          return subject;
+        }
+
+        return {
+          ...subject,
+          allowed_timeslots: nextAllowed,
+        };
+      });
+    });
+  }
+
   function deleteSubjectCard(subjectId: string) {
     // Find the template so we can also remove all per-class copies with the same name
     const template = subjects.find((s) => s.id === subjectId);
@@ -3713,6 +3815,11 @@ export default function Home() {
           : `${assignedTeacherNames.slice(0, 2).join(", ")} +${assignedTeacherNames.length - 2}`;
       const searchKey = `subjects_${subject.id}`;
       const teacherDraft = teacherSearchBySubjectEntity[searchKey] ?? "";
+      const excludedTimeslots = subject.subject_type === "fellesfag"
+        ? getExcludedTimeslotsForSubject(subject)
+        : [];
+      const excludedSearchKey = `exclude_subjects_${subject.id}`;
+      const excludedDraft = excludedSessionSearchBySubjectEntity[excludedSearchKey] ?? "";
 
       return (
       <article
@@ -3749,7 +3856,7 @@ export default function Home() {
         {expandedSubjectId === subject.id && (
           <div className="subject-expand-panel">
             <div className="subject-card-grid">
-              <div className="calendar-field">
+              <div className="calendar-field subject-name-field">
                 <label>Subject Name</label>
                 <input
                   type="text"
@@ -3764,7 +3871,7 @@ export default function Home() {
               </div>
 
               {subject.subject_type === "fellesfag" && (
-                <div className="calendar-field">
+                <div className="calendar-field subject-sessions-field">
                   <label>Sessions Per Week (x45m)</label>
                   <input
                     type="number"
@@ -3779,20 +3886,109 @@ export default function Home() {
                 </div>
               )}
 
-              <div className="calendar-field">
-                <label>Subject Type</label>
-                <select
-                  value={subject.subject_type}
-                  onChange={(e) =>
-                    updateSubjectCard(subject.id, {
-                      subject_type: e.target.value as "fellesfag" | "programfag",
-                    })
-                  }
-                >
-                  <option value="fellesfag">Fellesfag</option>
-                  <option value="programfag">Blokkfag</option>
-                </select>
+              <div className={`subject-type-stack${subject.subject_type === "fellesfag" ? " with-sessions" : ""}`}>
+                <div className="calendar-field">
+                  <label>Subject Type</label>
+                  <select
+                    value={subject.subject_type}
+                    onChange={(e) =>
+                      updateSubjectCard(subject.id, {
+                        subject_type: e.target.value as "fellesfag" | "programfag",
+                      })
+                    }
+                  >
+                    <option value="fellesfag">Fellesfag</option>
+                    <option value="programfag">Blokkfag</option>
+                  </select>
+                </div>
               </div>
+
+              {subject.subject_type === "fellesfag" && (
+                <div className="calendar-field excluded-session-field excluded-session-row">
+                  <label>Excluded Sessions</label>
+                  <div className="faggrupper-teacher-add-row">
+                    <input
+                      list={`excluded-session-options-subject-${subject.id}`}
+                      value={excludedDraft}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
+                        if (resolvedTimeslotId) {
+                          if (!excludedTimeslots.includes(resolvedTimeslotId)) {
+                            updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId]);
+                          }
+                          setExcludedSessionSearchBySubjectEntity((prev) => ({
+                            ...prev,
+                            [excludedSearchKey]: "",
+                          }));
+                          return;
+                        }
+
+                        setExcludedSessionSearchBySubjectEntity((prev) => ({
+                          ...prev,
+                          [excludedSearchKey]: nextValue,
+                        }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") {
+                          return;
+                        }
+                        e.preventDefault();
+                        const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
+                        if (resolvedTimeslotIds === null) {
+                          setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                          return;
+                        }
+                        if (resolvedTimeslotIds.length === 0) {
+                          return;
+                        }
+                        const nextSet = new Set(excludedTimeslots);
+                        for (const tsId of resolvedTimeslotIds) {
+                          nextSet.add(tsId);
+                        }
+                        updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet));
+                        setExcludedSessionSearchBySubjectEntity((prev) => ({
+                          ...prev,
+                          [excludedSearchKey]: "",
+                        }));
+                      }}
+                      placeholder="Search session(s), comma-separated"
+                    />
+                  </div>
+                  <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "118px", overflowY: "auto", alignContent: "flex-start" }}>
+                    {excludedTimeslots.length === 0 ? (
+                      <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                    ) : (
+                      excludedTimeslots.map((slotId) => {
+                        const slot = timeslotById[slotId];
+                        const label = slot ? formatTimeslotLabel(slot) : slotId;
+                        return (
+                          <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                            <span className="excluded-session-chip-label">{label}</span>
+                            <button
+                              type="button"
+                              className="subject-class-chip-remove"
+                              onClick={() => {
+                                const next = excludedTimeslots.filter((id) => id !== slotId);
+                                updateFellesfagExcludedTimeslots(subject.id, next);
+                              }}
+                              aria-label={`Remove excluded slot ${label}`}
+                            >
+                              x
+                            </button>
+                          </span>
+                        );
+                      })
+                    )}
+                  </div>
+                  <datalist id={`excluded-session-options-subject-${subject.id}`}>
+                    {filterTimeslotsForQuery(excludedDraft).map((slot) => (
+                      <option key={slot.id} value={formatTimeslotLabel(slot)} />
+                    ))}
+                  </datalist>
+                  <small>Force in Fellesfag tab can still place this subject in an excluded session.</small>
+                </div>
+              )}
 
               <div className="calendar-field" style={{ display: "none" }}>
                 <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
@@ -4785,6 +4981,9 @@ export default function Home() {
                         const searchKey = `faggrupper_${subject.id}`;
                         const assignedTeacherIds = getSubjectTeacherIds(subject);
                         const teacherDraft = teacherSearchBySubjectEntity[searchKey] ?? "";
+                        const excludedTimeslots = getExcludedTimeslotsForSubject(subject);
+                        const excludedSearchKey = `exclude_faggrupper_${subject.id}`;
+                        const excludedDraft = excludedSessionSearchBySubjectEntity[excludedSearchKey] ?? "";
                         const isClassCopy =
                           subject.class_ids.length === 1 &&
                           subject.class_ids[0] === activeFaggruppeClassId;
@@ -4848,6 +5047,98 @@ export default function Home() {
                                   </option>
                                 ))}
                               </select>
+                            </div>
+                            <div
+                              className="faggrupper-units-field excluded-session-field"
+                              title={
+                                isClassCopy && subject.subject_type === "fellesfag"
+                                  ? "Exclude slots from feasible placement for this class copy."
+                                  : "Only class-specific fellesfag copies can be edited here."
+                              }
+                            >
+                              <label>Excluded</label>
+                              <div className="faggrupper-teacher-add-row">
+                                <input
+                                  list={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}
+                                  value={excludedDraft}
+                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
+                                    if (resolvedTimeslotId) {
+                                      if (!excludedTimeslots.includes(resolvedTimeslotId)) {
+                                        updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId], false);
+                                      }
+                                      setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                        ...prev,
+                                        [excludedSearchKey]: "",
+                                      }));
+                                      return;
+                                    }
+
+                                    setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                      ...prev,
+                                      [excludedSearchKey]: nextValue,
+                                    }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") {
+                                      return;
+                                    }
+                                    e.preventDefault();
+                                    const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
+                                    if (resolvedTimeslotIds === null) {
+                                      setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                                      return;
+                                    }
+                                    if (resolvedTimeslotIds.length === 0) {
+                                      return;
+                                    }
+                                    const nextSet = new Set(excludedTimeslots);
+                                    for (const tsId of resolvedTimeslotIds) {
+                                      nextSet.add(tsId);
+                                    }
+                                    updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet), false);
+                                    setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                      ...prev,
+                                      [excludedSearchKey]: "",
+                                    }));
+                                  }}
+                                  placeholder="Search session(s), comma-separated"
+                                />
+                              </div>
+                              <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "96px", overflowY: "auto", alignContent: "flex-start" }}>
+                                {excludedTimeslots.length === 0 ? (
+                                  <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                                ) : (
+                                  excludedTimeslots.map((slotId) => {
+                                    const slot = timeslotById[slotId];
+                                    const label = slot ? formatTimeslotLabel(slot) : slotId;
+                                    return (
+                                      <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                                        <span className="excluded-session-chip-label">{label}</span>
+                                        <button
+                                          type="button"
+                                          className="subject-class-chip-remove"
+                                          disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                          onClick={() => {
+                                            const next = excludedTimeslots.filter((id) => id !== slotId);
+                                            updateFellesfagExcludedTimeslots(subject.id, next, false);
+                                          }}
+                                          aria-label={`Remove excluded slot ${label}`}
+                                        >
+                                          x
+                                        </button>
+                                      </span>
+                                    );
+                                  })
+                                )}
+                              </div>
+                              <datalist id={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}>
+                                {filterTimeslotsForQuery(excludedDraft).map((ts) => (
+                                  <option key={ts.id} value={formatTimeslotLabel(ts)} />
+                                ))}
+                              </datalist>
                             </div>
                             <div className="faggrupper-teacher-picker">
                               <div className="faggrupper-teacher-selected">
