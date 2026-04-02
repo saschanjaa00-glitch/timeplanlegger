@@ -1325,11 +1325,6 @@ p {
   bottom: 0;
 }
 
-.slot-pill.idrett {
-  border-color: var(--success-line);
-  background: var(--success-bg);
-}
-
 .slot-pill.lunch {
   border-color: var(--warn-line);
   background: var(--warn-bg);
@@ -1689,11 +1684,6 @@ button.secondary {
   );
 }
 
-.weekly-event.idrett {
-  background: var(--success-bg);
-  border-color: var(--success-line);
-}
-
 .weekly-event.lunch {
   background: var(--warn-bg);
   border-color: var(--warn-line);
@@ -1748,15 +1738,6 @@ th {
   text-align: right;
   white-space: nowrap;
 }
-.chip.idrett {
-  background: var(--success-bg);
-  border-color: var(--success-line);
-}
-
-td.idrett-row {
-  background: #eef5ef;
-}
-
 @keyframes rise-in {
   from {
     opacity: 0;

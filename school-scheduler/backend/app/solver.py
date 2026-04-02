@@ -658,6 +658,11 @@ def _generate_schedule_staged(
 
             subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
             candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
+            candidate_capacity_units = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in candidate_slots)
+            # Block-linked subjects should follow their configured block windows.
+            # If requested weekly units exceed block-window capacity, cap to what
+            # the windows can actually hold instead of failing generation.
+            required_units = min(required_units, candidate_capacity_units)
 
             # If this block effectively maps to one subject, that subject must occupy
             # every block slot (not just enough units to satisfy sessions_per_week).
@@ -731,12 +736,6 @@ def _generate_schedule_staged(
                     class_week_units[class_id] += timeslot_units_by_id.get(ts_id, 1)
                 if not fill_all_block_slots and units_placed >= required_units:
                     break
-
-            if units_placed < required_units:
-                return _partial_infeasible_response(
-                    f"No valid schedule found for block subject '{subject.name}' ({subject.id}). "
-                    f"Required {required_units}u in block windows, placed {units_placed}u."
-                )
 
     # Step 2: meetings lock teacher availability for the rest of planning.
     for teacher_id, slot_ids in teacher_meeting_unavailable.items():

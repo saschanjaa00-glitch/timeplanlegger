@@ -51,7 +51,6 @@ type Timeslot = {
   period: number;
   start_time?: string;
   end_time?: string;
-  is_idrett?: boolean;
   excluded_from_generation?: boolean;
   generation_allowed_class_ids?: string[];
 };
@@ -325,7 +324,6 @@ function normalizeTimeslot(timeslot: Partial<Timeslot>): Timeslot {
     period: typeof timeslot.period === "number" ? timeslot.period : 1,
     start_time: timeslot.start_time,
     end_time: timeslot.end_time,
-    is_idrett: Boolean(timeslot.is_idrett),
     excluded_from_generation: Boolean(timeslot.excluded_from_generation),
     generation_allowed_class_ids: Array.isArray(timeslot.generation_allowed_class_ids)
       ? timeslot.generation_allowed_class_ids.filter(Boolean)
@@ -549,16 +547,6 @@ function formatDurationMinutes(totalMinutes: number): string {
   const h = Math.floor(safeMinutes / 60);
   const m = safeMinutes % 60;
   return `${h}h ${String(m).padStart(2, "0")}m`;
-}
-
-function getSlotToneClass(slot?: Timeslot): string {
-  if (!slot) {
-    return "";
-  }
-  if (slot.is_idrett) {
-    return "idrett";
-  }
-  return "";
 }
 
 function toOpaqueTint(hexColor: string, mixWithWhite = 0.82): string {
@@ -861,7 +849,6 @@ export default function Home() {
     day: "Monday",
     start_time: "08:00",
     end_time: "08:45",
-    is_idrett: false,
     excluded_from_generation: false,
     generation_allowed_class_ids: [] as string[],
   });
@@ -882,6 +869,7 @@ export default function Home() {
   const [faggrupperClassSearchQuery, setFaggrupperClassSearchQuery] = useState("");
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
+  const [newFellesfagNameByClass, setNewFellesfagNameByClass] = useState<Record<string, string>>({});
   const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
   const [blockForm, setBlockForm] = useState<{
     name: string;
@@ -2814,6 +2802,94 @@ export default function Home() {
     setStatusText(`Added fellesfag ${template.name} to ${className} (independent lesson).`);
   }
 
+  function addOrCreateFellesfagForClass(classId: string) {
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+    const rawName = newFellesfagNameByClass[classId] ?? "";
+    const requestedName = rawName.trim();
+    if (!requestedName) {
+      setStatusText("Enter a fellesfag name first.");
+      return;
+    }
+
+    const normalizedRequestedName = requestedName.toLocaleLowerCase();
+    let action: string = "reused-and-added";
+
+    setSubjects((prev) => {
+      const existingTemplate = prev.find((subject) => (
+        subject.subject_type === "fellesfag" &&
+        subject.class_ids.length !== 1 &&
+        subject.name.trim().toLocaleLowerCase() === normalizedRequestedName
+      ));
+
+      const alreadyInClass = prev.some((subject) => (
+        subject.subject_type === "fellesfag" &&
+        subject.class_ids.length === 1 &&
+        subject.class_ids[0] === classId &&
+        subject.name.trim().toLocaleLowerCase() === normalizedRequestedName
+      ));
+
+      if (alreadyInClass) {
+        action = "already-in-class";
+        return prev;
+      }
+
+      let next = [...prev];
+      let template: Subject;
+
+      if (existingTemplate) {
+        template = existingTemplate;
+        action = "reused-and-added";
+      } else {
+        const templateId = makeUniqueId(
+          `subject_${toSlug(requestedName) || "item"}`,
+          next.map((subject) => subject.id),
+        );
+
+        template = {
+          id: templateId,
+          name: requestedName,
+          teacher_id: "",
+          teacher_ids: [],
+          class_ids: [],
+          subject_type: "fellesfag",
+          sessions_per_week: 1,
+          force_place: false,
+        };
+        next = [...next, template];
+        action = "created-and-added";
+      }
+
+      const copyId = makeUniqueId(
+        `subject_${toSlug(template.name) || "item"}_${toSlug(className) || "class"}`,
+        next.map((subject) => subject.id),
+      );
+      const copy: Subject = {
+        ...template,
+        id: copyId,
+        class_ids: [classId],
+      };
+
+      return [...next, copy];
+    });
+
+    if (action === "already-in-class") {
+      setStatusText(`${requestedName} is already assigned to ${className}.`);
+      return;
+    }
+
+    setNewFellesfagNameByClass((prev) => ({
+      ...prev,
+      [classId]: "",
+    }));
+
+    if (action === "created-and-added") {
+      setStatusText(`Created new fellesfag ${requestedName} and added it to ${className}.`);
+      return;
+    }
+
+    setStatusText(`Added fellesfag ${requestedName} to ${className} from existing templates.`);
+  }
+
   function removeFellesfagFromClass(classId: string, subjectId: string) {
     const className = classes.find((c) => c.id === classId)?.name ?? classId;
     const subject = subjects.find((s) => s.id === subjectId);
@@ -3095,7 +3171,6 @@ export default function Home() {
         period: dayPeriod,
         start_time: start24,
         end_time: end24,
-        is_idrett: timeslotForm.is_idrett,
         excluded_from_generation: timeslotForm.excluded_from_generation,
         generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       },
@@ -3112,7 +3187,6 @@ export default function Home() {
       day: slot.day,
       start_time: slot.start_time ?? "08:00",
       end_time: slot.end_time ?? "08:45",
-      is_idrett: Boolean(slot.is_idrett),
       excluded_from_generation: Boolean(slot.excluded_from_generation),
       generation_allowed_class_ids: slot.generation_allowed_class_ids ?? [],
     });
@@ -3126,7 +3200,6 @@ export default function Home() {
       day: activeCalendarDay,
       start_time: "08:00",
       end_time: "08:45",
-      is_idrett: false,
       excluded_from_generation: false,
       generation_allowed_class_ids: [],
     }));
@@ -3165,7 +3238,6 @@ export default function Home() {
         period: dayPeriod,
         start_time: start24,
         end_time: end24,
-        is_idrett: timeslotForm.is_idrett,
         excluded_from_generation: timeslotForm.excluded_from_generation,
         generation_allowed_class_ids: timeslotForm.excluded_from_generation ? timeslotForm.generation_allowed_class_ids : [],
       };
@@ -4206,15 +4278,6 @@ export default function Home() {
           <label className="calendar-check">
             <input
               type="checkbox"
-              checked={timeslotForm.is_idrett}
-              onChange={(e) => setTimeslotForm((s) => ({ ...s, is_idrett: e.target.checked }))}
-            />
-            Idrett (green in schedule)
-          </label>
-
-          <label className="calendar-check">
-            <input
-              type="checkbox"
               checked={timeslotForm.excluded_from_generation}
               onChange={(e) => setTimeslotForm((s) => ({
                 ...s,
@@ -4360,7 +4423,7 @@ export default function Home() {
                     return (
                       <div
                         key={slot.id}
-                        className={`slot-pill ${getSlotToneClass(slot)}${slot.excluded_from_generation ? " excluded" : ""}`}
+                        className={`slot-pill${slot.excluded_from_generation ? " excluded" : ""}`}
                         draggable={!resizeState}
                         onDragStart={() => setDraggingTimeslotId(slot.id)}
                         onDragEnd={() => {
@@ -4859,6 +4922,52 @@ export default function Home() {
                         );
                       })
                     )}
+                  </div>
+                  <div className="calendar-field" style={{ marginTop: "0.55rem" }}>
+                    <label>Add Fellesfag To This Class</label>
+                    <div className="class-setup-controls" style={{ marginBottom: "0.38rem" }}>
+                      <select
+                        value={fellesfagSelectionByClass[activeFaggruppeClassId] ?? ""}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          setFellesfagSelectionByClass((prev) => ({
+                            ...prev,
+                            [activeFaggruppeClassId]: value,
+                          }));
+                        }}
+                      >
+                        <option value="">Choose fellesfag</option>
+                        {fellesfagTemplates.map((subject) => (
+                          <option key={subject.id} value={subject.id}>
+                            {subject.name}
+                          </option>
+                        ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => addFellesfagToClass(activeFaggruppeClassId, fellesfagSelectionByClass[activeFaggruppeClassId] ?? "")}
+                        disabled={!fellesfagSelectionByClass[activeFaggruppeClassId]}
+                      >
+                        Add Existing
+                      </button>
+                    </div>
+                    <div className="class-setup-controls">
+                      <input
+                        value={newFellesfagNameByClass[activeFaggruppeClassId] ?? ""}
+                        onChange={(e) => setNewFellesfagNameByClass((prev) => ({
+                          ...prev,
+                          [activeFaggruppeClassId]: e.target.value,
+                        }))}
+                        placeholder="Or create new fellesfag"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => addOrCreateFellesfagForClass(activeFaggruppeClassId)}
+                        disabled={!(newFellesfagNameByClass[activeFaggruppeClassId] ?? "").trim()}
+                      >
+                        Add New
+                      </button>
+                    </div>
                   </div>
                 </>
               ) : (
@@ -6208,7 +6317,7 @@ export default function Home() {
                         );
                         const isExpanded = canExpand && expandedTimelineEventKey === event.key;
 
-                        const eventClassName = `weekly-event ${event.kind === "meeting" ? "meeting" : getSlotToneClass(event.ts)}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
+                        const eventClassName = `weekly-event${event.kind === "meeting" ? " meeting" : ""}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
 
                         const shouldShowClassLine =
                           !event.isBlockSummary &&
