@@ -1144,6 +1144,36 @@ export default function Home() {
     setBlocks((prev) => prev.map((block) => normalizeBlock(block)));
   }, [isStorageHydrated]);
 
+  useEffect(() => {
+    if (!weekCalendarSetups.length || !classes.length) {
+      return;
+    }
+
+    const assignedClassIds = new Set(weekCalendarSetups.flatMap((setup) => setup.class_ids));
+    const unassignedClassIds = classes
+      .map((schoolClass) => schoolClass.id)
+      .filter((classId) => !assignedClassIds.has(classId));
+
+    if (!unassignedClassIds.length) {
+      return;
+    }
+
+    const fallbackSetupId =
+      (activeWeekSetupId && weekCalendarSetups.some((setup) => setup.id === activeWeekSetupId)
+        ? activeWeekSetupId
+        : weekCalendarSetups[0]?.id) ?? "";
+
+    if (!fallbackSetupId) {
+      return;
+    }
+
+    setWeekCalendarSetups((prev) => prev.map((setup) => (
+      setup.id === fallbackSetupId
+        ? { ...setup, class_ids: Array.from(new Set([...setup.class_ids, ...unassignedClassIds])) }
+        : setup
+    )));
+  }, [classes, weekCalendarSetups, activeWeekSetupId]);
+
   const sortedTimeslots = useMemo(() => {
     return [...timeslots].sort((a, b) => {
       const dayCmp = dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
@@ -2451,10 +2481,18 @@ export default function Home() {
     }
     const id = makeUniqueId(`class_${toSlug(classForm.name) || "item"}`, classes.map((c) => c.id));
     setClasses((prev) => [...prev, { id, name: classForm.name }]);
-    if (classForm.setupId) {
-      assignClassesToSetup([id], classForm.setupId);
+    const setupId = classForm.setupId || getDefaultSetupId();
+    if (setupId) {
+      assignClassesToSetup([id], setupId);
     }
     setClassForm({ name: "", setupId: "" });
+  }
+
+  function getDefaultSetupId(): string {
+    if (activeWeekSetupId && weekCalendarSetups.some((setup) => setup.id === activeWeekSetupId)) {
+      return activeWeekSetupId;
+    }
+    return weekCalendarSetups[0]?.id ?? "";
   }
 
   function assignClassesToSetup(classIds: string[], setupId: string) {
@@ -2462,13 +2500,20 @@ export default function Home() {
       return;
     }
 
+    const resolvedSetupId =
+      setupId ||
+      (activeWeekSetupId && weekCalendarSetups.some((setup) => setup.id === activeWeekSetupId)
+        ? activeWeekSetupId
+        : (weekCalendarSetups[0]?.id ?? ""));
+
+    if (!resolvedSetupId) {
+      return;
+    }
+
     setWeekCalendarSetups((prev) => prev.map((setup) => {
       const filtered = setup.class_ids.filter((id) => !classIds.includes(id));
-      if (!setupId) {
-        return { ...setup, class_ids: filtered };
-      }
-      if (setup.id === setupId) {
-        return { ...setup, class_ids: [...filtered, ...classIds] };
+      if (setup.id === resolvedSetupId) {
+        return { ...setup, class_ids: Array.from(new Set([...filtered, ...classIds])) };
       }
       return { ...setup, class_ids: filtered };
     }));
@@ -2489,12 +2534,24 @@ export default function Home() {
       class_ids: (block.class_ids ?? []).filter((id) => id !== classId),
     })));
 
-    setSubjects((prev) => prev
-      .map((subject) => ({
+    setSubjects((prev) => prev.flatMap((subject) => {
+      const cleanedClassIds = subject.class_ids.filter((id) => id !== classId);
+
+      // Drop only per-class fellesfag copies that belonged exclusively to the deleted class.
+      const isDeletedClassFellesfagCopy =
+        subject.subject_type === "fellesfag" &&
+        subject.class_ids.length === 1 &&
+        subject.class_ids[0] === classId;
+
+      if (isDeletedClassFellesfagCopy) {
+        return [];
+      }
+
+      return [{
         ...subject,
-        class_ids: subject.class_ids.filter((id) => id !== classId),
-      }))
-      .filter((subject) => subject.class_ids.length > 0));
+        class_ids: cleanedClassIds,
+      }];
+    }));
 
     setSchedule((prev) => prev
       .map((item) => ({
@@ -2573,10 +2630,11 @@ export default function Home() {
 
     setClasses((prev) => [...prev, ...toAdd]);
 
-    if (bulkClassForm.setupId) {
+    const setupId = bulkClassForm.setupId || getDefaultSetupId();
+    if (setupId) {
       assignClassesToSetup(
         toAdd.map((c) => c.id),
-        bulkClassForm.setupId,
+        setupId,
       );
     }
 
@@ -2663,10 +2721,34 @@ export default function Home() {
   }
 
   function deleteWeekSetup(setupId: string) {
-    setWeekCalendarSetups((prev) => prev.filter((setup) => setup.id !== setupId));
+    if (weekCalendarSetups.length <= 1) {
+      setStatusText("At least one setup is required. You cannot delete the last setup.");
+      return;
+    }
+
+    const setupToDelete = weekCalendarSetups.find((setup) => setup.id === setupId);
+    const fallbackSetup =
+      weekCalendarSetups.find((setup) => setup.id !== setupId && setup.id === activeWeekSetupId) ||
+      weekCalendarSetups.find((setup) => setup.id !== setupId);
+
+    if (!fallbackSetup) {
+      setStatusText("Could not find a replacement setup.");
+      return;
+    }
+
+    const classesToReassign = setupToDelete?.class_ids ?? [];
+
+    setWeekCalendarSetups((prev) => prev
+      .filter((setup) => setup.id !== setupId)
+      .map((setup) => (
+        setup.id === fallbackSetup.id
+          ? { ...setup, class_ids: Array.from(new Set([...setup.class_ids, ...classesToReassign])) }
+          : setup
+      )));
+
     if (activeWeekSetupId === setupId) {
-      setActiveWeekSetupId(null);
-      setWeekSetupForm({ name: "" });
+      setActiveWeekSetupId(fallbackSetup.id);
+      setWeekSetupForm({ name: fallbackSetup.name });
     }
     if (renamingWeekSetupId === setupId) {
       setRenamingWeekSetupId(null);
@@ -2677,20 +2759,21 @@ export default function Home() {
 
   function getSetupIdForClass(classId: string): string {
     const found = weekCalendarSetups.find((setup) => setup.class_ids.includes(classId));
-    return found?.id ?? "";
+    return found?.id ?? getDefaultSetupId();
   }
 
   function assignClassToSetup(classId: string, setupId: string) {
-    const className = classes.find((c) => c.id === classId)?.name ?? classId;
-    assignClassesToSetup([classId], setupId);
-
-    if (setupId) {
-      const target = weekCalendarSetups.find((setup) => setup.id === setupId);
-      setStatusText(`Assigned class ${className} to ${target?.name ?? setupId}.`);
+    const resolvedSetupId = setupId || getDefaultSetupId();
+    if (!resolvedSetupId) {
+      setStatusText("Create a week setup first.");
       return;
     }
 
-    setStatusText(`Cleared setup assignment for class ${className}.`);
+    const className = classes.find((c) => c.id === classId)?.name ?? classId;
+    assignClassesToSetup([classId], resolvedSetupId);
+
+    const target = weekCalendarSetups.find((setup) => setup.id === resolvedSetupId);
+    setStatusText(`Assigned class ${className} to ${target?.name ?? resolvedSetupId}.`);
   }
 
   function addFellesfagToClass(classId: string, subjectId: string) {
@@ -4020,7 +4103,10 @@ export default function Home() {
                   )} ({setup.id})
                   <div>
                     Slots: {setup.timeslots.length} | Classes: {setup.class_ids.length
-                      ? setup.class_ids.map((id) => classNameById[id] ?? id).join(", ")
+                      ? setup.class_ids
+                        .map((id) => classNameById[id] ?? id)
+                        .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
+                        .join(", ")
                       : "none assigned"}
                   </div>
                 </div>
@@ -4343,12 +4429,11 @@ export default function Home() {
           <form onSubmit={(e) => { e.preventDefault(); addClass(); }}>
             <label>Name</label>
             <input value={classForm.name} onChange={(e) => setClassForm((s) => ({ ...s, name: e.target.value }))} />
-            <label>Calendar Setup (optional)</label>
+            <label>Calendar Setup</label>
             <select
-              value={classForm.setupId}
+              value={classForm.setupId || getDefaultSetupId()}
               onChange={(e) => setClassForm((s) => ({ ...s, setupId: e.target.value }))}
             >
-              <option value="">No setup assigned</option>
               {weekCalendarSetups.map((setup) => (
                 <option key={setup.id} value={setup.id}>
                   {setup.name} ({setup.id})
@@ -4392,12 +4477,11 @@ export default function Home() {
               />
             </div>
             <div className="calendar-field">
-              <label>Calendar Setup (optional)</label>
+              <label>Calendar Setup</label>
               <select
-                value={bulkClassForm.setupId}
+                value={bulkClassForm.setupId || getDefaultSetupId()}
                 onChange={(e) => setBulkClassForm((s) => ({ ...s, setupId: e.target.value }))}
               >
-                <option value="">No setup assigned</option>
                 {weekCalendarSetups.map((setup) => (
                   <option key={setup.id} value={setup.id}>
                     {setup.name} ({setup.id})
@@ -4435,7 +4519,6 @@ export default function Home() {
                         value={getSetupIdForClass(c.id)}
                         onChange={(e) => assignClassToSetup(c.id, e.target.value)}
                       >
-                        <option value="">No setup assigned</option>
                         {weekCalendarSetups.map((setup) => (
                           <option key={setup.id} value={setup.id}>
                             {setup.name}
