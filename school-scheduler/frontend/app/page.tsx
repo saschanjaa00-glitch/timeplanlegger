@@ -70,6 +70,7 @@ type BlockOccurrence = {
 type BlockSubjectEntry = {
   subject_id: string;
   teacher_id: string;
+  teacher_ids: string[];
   preferred_room_id: string;
 };
 
@@ -149,6 +150,12 @@ type SavedJsonExport = {
 type SubjectTabEntry = {
   subject: Subject;
   derivedClassIds: string[];
+};
+
+type BlokkfagGroup = {
+  key: string;
+  title: string;
+  entries: SubjectTabEntry[];
 };
 
 type PersistedState = {
@@ -313,11 +320,22 @@ function normalizeBlock(block: Partial<Block>): Block {
     occurrences: normalizedOccurrences,
     class_ids: Array.isArray(block.class_ids) ? block.class_ids : [],
     subject_entries: Array.isArray(block.subject_entries)
-      ? block.subject_entries.map((se) => ({
-          subject_id: se.subject_id ?? "",
-          teacher_id: se.teacher_id ?? "",
-          preferred_room_id: se.preferred_room_id ?? "",
-        }))
+      ? block.subject_entries.map((se) => {
+          const normalizedTeacherIds = Array.isArray(se.teacher_ids)
+            ? se.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
+            : [];
+          const fallbackTeacherId = typeof se.teacher_id === "string" ? se.teacher_id.trim() : "";
+          const teacherIds = Array.from(new Set([
+            ...(fallbackTeacherId ? [fallbackTeacherId] : []),
+            ...normalizedTeacherIds,
+          ]));
+          return {
+            subject_id: se.subject_id ?? "",
+            teacher_id: teacherIds[0] ?? "",
+            teacher_ids: teacherIds,
+            preferred_room_id: se.preferred_room_id ?? "",
+          };
+        })
       : [],
     // Legacy fields
     timeslot_ids: hasOccurrences ? [] : (Array.isArray(block.timeslot_ids) ? block.timeslot_ids : []),
@@ -901,6 +919,8 @@ export default function Home() {
   const [activeFaggruppeClassId, setActiveFaggruppeClassId] = useState<string | null>(null);
   const [faggrupperClassSearchQuery, setFaggrupperClassSearchQuery] = useState("");
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
+  const [blokkfagSortMode, setBlokkfagSortMode] = useState<"block" | "subject">("block");
+  const [expandedBlokkfagSubjectGroups, setExpandedBlokkfagSubjectGroups] = useState<Set<string>>(new Set());
   const [excludedSessionSearchBySubjectEntity, setExcludedSessionSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [roomSearchBySubjectEntity, setRoomSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
@@ -1855,8 +1875,12 @@ export default function Home() {
       new Set(
         blocks
           .flatMap((block) => block.subject_entries ?? [])
-          .filter((entry) => entry.subject_id === subjectId && Boolean(entry.teacher_id))
-          .map((entry) => entry.teacher_id)
+          .filter((entry) => entry.subject_id === subjectId)
+          .flatMap((entry) => [
+            ...(entry.teacher_id ? [entry.teacher_id] : []),
+            ...(entry.teacher_ids ?? []),
+          ])
+          .filter(Boolean)
       )
     );
   }
@@ -1891,10 +1915,23 @@ export default function Home() {
       }
     }
 
-    const fallbackTeacherId = subject.teacher_id || (subject.teacher_ids?.[0] ?? "");
+    const fallbackTeacherIds = getSubjectTeacherIds(subject);
     const nextEntry: BlockSubjectEntry = carriedEntry
-      ? { ...carriedEntry, subject_id: subjectId }
-      : { subject_id: subjectId, teacher_id: fallbackTeacherId, preferred_room_id: "" };
+      ? {
+          ...carriedEntry,
+          subject_id: subjectId,
+          teacher_id: carriedEntry.teacher_id || (carriedEntry.teacher_ids?.[0] ?? ""),
+          teacher_ids: Array.from(new Set([
+            ...(carriedEntry.teacher_id ? [carriedEntry.teacher_id] : []),
+            ...(carriedEntry.teacher_ids ?? []),
+          ].filter(Boolean))),
+        }
+      : {
+          subject_id: subjectId,
+          teacher_id: fallbackTeacherIds[0] ?? "",
+          teacher_ids: fallbackTeacherIds,
+          preferred_room_id: "",
+        };
 
     setBlocks((prev) => prev.map((block) => {
       const cleanedEntries = (block.subject_entries ?? []).filter((entry) => entry.subject_id !== subjectId);
@@ -1929,8 +1966,8 @@ export default function Home() {
 
   function addTeachersToSubject(subject: Subject, teacherIdsToAdd: string[]) {
     if (subject.subject_type === "programfag") {
-      const nextTeacherId = teacherIdsToAdd.find(Boolean);
-      if (!nextTeacherId) {
+      const normalizedTeacherIdsToAdd = Array.from(new Set(teacherIdsToAdd.filter(Boolean)));
+      if (!normalizedTeacherIdsToAdd.length) {
         return;
       }
 
@@ -1938,21 +1975,32 @@ export default function Home() {
         (block.subject_entries ?? []).some((entry) => entry.subject_id === subject.id)
       );
 
+      const mergedTeacherIds = Array.from(new Set([
+        ...getProgramfagTeacherIdsFromBlocks(subject.id),
+        ...getSubjectTeacherIds(subject),
+        ...normalizedTeacherIdsToAdd,
+      ]));
+
       if (hasBlockEntry) {
         setBlocks((prev) => prev.map((block) => ({
           ...block,
           subject_entries: (block.subject_entries ?? []).map((entry) =>
             entry.subject_id === subject.id
-              ? { ...entry, teacher_id: nextTeacherId }
+              ? {
+                  ...entry,
+                  teacher_id: mergedTeacherIds[0] ?? "",
+                  teacher_ids: mergedTeacherIds,
+                }
               : entry
           ),
         })));
-        updateSubjectCard(subject.id, {
-          teacher_id: nextTeacherId,
-          teacher_ids: [nextTeacherId],
-        });
-        return;
       }
+
+      updateSubjectCard(subject.id, {
+        teacher_id: mergedTeacherIds[0] ?? "",
+        teacher_ids: mergedTeacherIds,
+      });
+      return;
     }
 
     const mergedTeacherIds = Array.from(new Set([
@@ -1967,7 +2015,10 @@ export default function Home() {
 
   function removeTeacherFromSubject(subject: Subject, teacherIdToRemove: string) {
     if (subject.subject_type === "programfag") {
-      const currentIds = getProgramfagTeacherIdsFromBlocks(subject.id);
+      const currentIds = Array.from(new Set([
+        ...getProgramfagTeacherIdsFromBlocks(subject.id),
+        ...getSubjectTeacherIds(subject),
+      ]));
       const nextTeacherIds = currentIds.filter((teacherId) => teacherId !== teacherIdToRemove);
       const replacementTeacherId = nextTeacherIds[0] ?? "";
 
@@ -1980,13 +2031,17 @@ export default function Home() {
           ...block,
           subject_entries: (block.subject_entries ?? []).map((entry) =>
             entry.subject_id === subject.id
-              ? { ...entry, teacher_id: replacementTeacherId }
+              ? {
+                  ...entry,
+                  teacher_id: replacementTeacherId,
+                  teacher_ids: nextTeacherIds,
+                }
               : entry
           ),
         })));
         updateSubjectCard(subject.id, {
           teacher_id: replacementTeacherId,
-          teacher_ids: replacementTeacherId ? [replacementTeacherId] : [],
+          teacher_ids: nextTeacherIds,
         });
         return;
       }
@@ -2030,6 +2085,27 @@ export default function Home() {
       normalizeSearchText(schoolClass.name).includes(normalizedQuery)
     );
   }, [sortedClasses, faggrupperClassSearchQuery]);
+
+  const faggrupperClassColumns = useMemo(() => {
+    const startsWithDigit = (value: string, digit: "1" | "2" | "3") => value.trim().startsWith(digit);
+    return [
+      {
+        key: "1",
+        title: "1",
+        classes: filteredFaggrupperClasses.filter((schoolClass) => startsWithDigit(schoolClass.name, "1")),
+      },
+      {
+        key: "2",
+        title: "2",
+        classes: filteredFaggrupperClasses.filter((schoolClass) => startsWithDigit(schoolClass.name, "2")),
+      },
+      {
+        key: "3",
+        title: "3",
+        classes: filteredFaggrupperClasses.filter((schoolClass) => startsWithDigit(schoolClass.name, "3")),
+      },
+    ];
+  }, [filteredFaggrupperClasses]);
 
   useEffect(() => {
     if (!filteredFaggrupperClasses.length) {
@@ -2145,7 +2221,7 @@ export default function Home() {
     [subjectTabEntries]
   );
 
-  const blokkfagGroups = useMemo(() => {
+  const blokkfagGroupsByBlock = useMemo<BlokkfagGroup[]>(() => {
     const blockById = new Map(blocks.map((block) => [block.id, block]));
     const blockIdBySubjectId = new Map<string, string>();
 
@@ -2195,6 +2271,43 @@ export default function Home() {
 
     return groups;
   }, [blokkfagSubjectTabEntries, blocks]);
+
+  const blokkfagGroupsBySubject = useMemo<BlokkfagGroup[]>(() => {
+    const grouped = new Map<string, BlokkfagGroup>();
+
+    for (const entry of blokkfagSubjectTabEntries) {
+      const trimmedName = entry.subject.name.trim();
+      const normalizedName = trimmedName.toLocaleLowerCase();
+      const key = normalizedName || `subject:${entry.subject.id}`;
+      const title = trimmedName || "Unnamed Subject";
+
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.entries.push(entry);
+        continue;
+      }
+
+      grouped.set(key, {
+        key,
+        title,
+        entries: [entry],
+      });
+    }
+
+    return Array.from(grouped.values())
+      .map((group) => ({
+        ...group,
+        entries: group.entries.sort((a, b) => a.subject.id.localeCompare(b.subject.id)),
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+  }, [blokkfagSubjectTabEntries]);
+
+  const blokkfagDisplayedGroups = useMemo<BlokkfagGroup[]>(() => {
+    if (blokkfagSortMode === "subject") {
+      return blokkfagGroupsBySubject;
+    }
+    return blokkfagGroupsByBlock;
+  }, [blokkfagSortMode, blokkfagGroupsBySubject, blokkfagGroupsByBlock]);
 
   const sortedBlocksByName = useMemo(() => {
     return [...blocks].sort((a, b) => a.name.localeCompare(b.name));
@@ -3541,7 +3654,7 @@ export default function Home() {
         ...b,
         subject_entries: b.subject_entries.some((se) => se.subject_id === id)
           ? b.subject_entries
-          : [...b.subject_entries, { subject_id: id, teacher_id: "", preferred_room_id: "" }],
+          : [...b.subject_entries, { subject_id: id, teacher_id: "", teacher_ids: [], preferred_room_id: "" }],
       }
     ));
     setBlockInlineSubjNames((prev) => ({ ...prev, [blockId]: "" }));
@@ -5231,17 +5344,79 @@ export default function Home() {
             </section>
 
             <section className="subject-column subject-column-blokkfag">
-              <h3 className="subject-column-title">Blokkfag</h3>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+                <h3 className="subject-column-title" style={{ marginBottom: 0 }}>Blokkfag</h3>
+                <div style={{ display: "flex", gap: "6px" }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setBlokkfagSortMode("block")}
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: "0.78rem",
+                      borderColor: blokkfagSortMode === "block" ? "#2a9d8f" : undefined,
+                      color: blokkfagSortMode === "block" ? "#2a9d8f" : undefined,
+                    }}
+                  >
+                    By Block
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setBlokkfagSortMode("subject")}
+                    style={{
+                      padding: "2px 8px",
+                      fontSize: "0.78rem",
+                      borderColor: blokkfagSortMode === "subject" ? "#2a9d8f" : undefined,
+                      color: blokkfagSortMode === "subject" ? "#2a9d8f" : undefined,
+                    }}
+                  >
+                    By Subject
+                  </button>
+                </div>
+              </div>
               <div className="list subject-card-list subject-card-list-column">
-                {blokkfagGroups.length === 0 ? (
+                {blokkfagDisplayedGroups.length === 0 ? (
                   <p className="subject-column-empty">No blokkfag subjects yet.</p>
                 ) : (
-                  blokkfagGroups.map((group) => (
-                    <section key={group.key} className="subject-block-group">
-                      <h4 className="subject-block-group-title">{group.title}</h4>
-                      {renderSubjectCards(group.entries, "No subjects in this block.")}
-                    </section>
-                  ))
+                  blokkfagDisplayedGroups.map((group) => {
+                    const isSubjectMode = blokkfagSortMode === "subject";
+                    const isCollapsible = isSubjectMode && group.entries.length > 1;
+                    const isExpanded = !isCollapsible || expandedBlokkfagSubjectGroups.has(group.key);
+
+                    return (
+                      <section key={group.key} className="subject-block-group">
+                        {isCollapsible ? (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => {
+                              setExpandedBlokkfagSubjectGroups((prev) => {
+                                const next = new Set(prev);
+                                if (next.has(group.key)) {
+                                  next.delete(group.key);
+                                } else {
+                                  next.add(group.key);
+                                }
+                                return next;
+                              });
+                            }}
+                            style={{ width: "100%", textAlign: "left", fontSize: "0.84rem", padding: "4px 8px" }}
+                          >
+                            {isExpanded ? "▼" : "▶"} {group.title} ({group.entries.length})
+                          </button>
+                        ) : (
+                          <h4 className="subject-block-group-title">
+                            {group.title}{isSubjectMode ? "" : ""}
+                          </h4>
+                        )}
+                        {isExpanded && renderSubjectCards(
+                          group.entries,
+                          isSubjectMode ? "No subjects with this name." : "No subjects in this block."
+                        )}
+                      </section>
+                    );
+                  })
                 )}
               </div>
             </section>
@@ -5277,17 +5452,25 @@ export default function Home() {
                 placeholder="Search classes"
                 style={{ marginBottom: "6px" }}
               />
-              {filteredFaggrupperClasses.map((schoolClass) => (
-                <button
-                  key={schoolClass.id}
-                  type="button"
-                  className={`faggrupper-class-item${activeFaggruppeClassId === schoolClass.id ? " active" : ""}`}
-                  onClick={() => setActiveFaggruppeClassId(schoolClass.id)}
-                >
-                  <span>{schoolClass.name}</span>
-                  <span>{(classSubjectsById[schoolClass.id] ?? []).length}</span>
-                </button>
-              ))}
+              <div className="faggrupper-class-columns">
+                {faggrupperClassColumns.map((column) => (
+                  <section key={column.key} className="faggrupper-class-column">
+                    <div className="faggrupper-class-column-list">
+                      {column.classes.map((schoolClass) => (
+                        <button
+                          key={schoolClass.id}
+                          type="button"
+                          className={`faggrupper-class-item${activeFaggruppeClassId === schoolClass.id ? " active" : ""}`}
+                          onClick={() => setActiveFaggruppeClassId(schoolClass.id)}
+                        >
+                          <span>{schoolClass.name}</span>
+                          <span>{(classSubjectsById[schoolClass.id] ?? []).length}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
               {filteredFaggrupperClasses.length === 0 ? (
                 <p style={{ margin: "4px 0", color: "#777", fontSize: "0.78rem" }}>No class matches.</p>
               ) : null}
@@ -5433,7 +5616,7 @@ export default function Home() {
                                   placeholder="Search session(s), comma-separated"
                                 />
                               </div>
-                              <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "96px", overflowY: "auto", alignContent: "flex-start" }}>
+                              <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.18rem" }}>
                                 {excludedTimeslots.length === 0 ? (
                                   <span className="faggrupper-teacher-empty">No excluded sessions</span>
                                 ) : (
@@ -5467,25 +5650,7 @@ export default function Home() {
                               </datalist>
                             </div>
                             <div className="faggrupper-teacher-picker">
-                              <div className="faggrupper-teacher-selected">
-                                {assignedTeacherIds.length === 0 ? (
-                                  <span className="faggrupper-teacher-empty">No teachers</span>
-                                ) : (
-                                  assignedTeacherIds.map((teacherId) => (
-                                    <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
-                                      {teacherNameById[teacherId] ?? teacherId}
-                                      <button
-                                        type="button"
-                                        className="subject-class-chip-remove"
-                                        onClick={() => removeTeacherFromSubject(subject, teacherId)}
-                                        aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
-                                      >
-                                        x
-                                      </button>
-                                    </span>
-                                  ))
-                                )}
-                              </div>
+                              <label>Teachers</label>
                               <div className="faggrupper-teacher-add-row">
                                 <input
                                   list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
@@ -5528,6 +5693,25 @@ export default function Home() {
                                   }}
                                   placeholder="Search teacher(s), comma-separated"
                                 />
+                              </div>
+                              <div className="faggrupper-teacher-selected" style={{ marginTop: "0.18rem" }}>
+                                {assignedTeacherIds.length === 0 ? (
+                                  <span className="faggrupper-teacher-empty">No teachers</span>
+                                ) : (
+                                  assignedTeacherIds.map((teacherId) => (
+                                    <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
+                                      {teacherNameById[teacherId] ?? teacherId}
+                                      <button
+                                        type="button"
+                                        className="subject-class-chip-remove"
+                                        onClick={() => removeTeacherFromSubject(subject, teacherId)}
+                                        aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                                      >
+                                        x
+                                      </button>
+                                    </span>
+                                  ))
+                                )}
                               </div>
                               <datalist id={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}>
                                 {filterTeachersForQuery(teacherDraft).map((teacher) => (
@@ -5775,30 +5959,116 @@ export default function Home() {
                           {subjectEntries.map((se) => {
                             const subj = subjects.find((s) => s.id === se.subject_id);
                             const searchKey = `block_${block.id}_${se.subject_id}`;
+                            const teacherDraft = teacherSearchBySubjectEntity[searchKey] ?? "";
+                            const assignedTeacherIds = Array.from(new Set([
+                              ...(se.teacher_id ? [se.teacher_id] : []),
+                              ...(se.teacher_ids ?? []),
+                            ].filter(Boolean)));
                             return (
                               <div key={se.subject_id} className="subject-teacher-row block-subject-row" style={{ background: "#fafafa", borderRadius: "4px", padding: "4px 8px" }}>
                                 <span className="subject-teacher-classname" style={{ fontSize: "0.85em", fontWeight: 600 }}>
                                   {subj?.name ?? se.subject_id}
                                 </span>
                                 <div className="block-subject-row-controls">
+                                  <div className="faggrupper-teacher-selected" style={{ marginBottom: "0.25rem" }}>
+                                    {assignedTeacherIds.length === 0 ? (
+                                      <span className="faggrupper-teacher-empty">No teachers</span>
+                                    ) : (
+                                      assignedTeacherIds.map((teacherId) => (
+                                        <span key={`${se.subject_id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
+                                          {teacherNameById[teacherId] ?? teacherId}
+                                          <button
+                                            type="button"
+                                            className="subject-class-chip-remove"
+                                            onClick={() => {
+                                              const nextTeacherIds = assignedTeacherIds.filter((id) => id !== teacherId);
+                                              updateBlockSubjectEntry(block.id, se.subject_id, {
+                                                teacher_id: nextTeacherIds[0] ?? "",
+                                                teacher_ids: nextTeacherIds,
+                                              });
+                                              updateSubjectCard(se.subject_id, {
+                                                teacher_id: nextTeacherIds[0] ?? "",
+                                                teacher_ids: nextTeacherIds,
+                                              });
+                                            }}
+                                            aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                                          >
+                                            x
+                                          </button>
+                                        </span>
+                                      ))
+                                    )}
+                                  </div>
                                   <div className="faggrupper-teacher-picker block-subject-teacher-picker">
                                     <input
                                       className="block-subject-teacher-input"
                                       list={`block-teacher-opts-${block.id}-${se.subject_id}`}
-                                      value={getTeacherInputValue(searchKey, se.teacher_id)}
+                                      value={getTeacherInputValue(searchKey, se.teacher_id, se.teacher_ids ?? [])}
                                       onChange={(e) => {
                                         const nextValue = e.target.value;
-                                        setTeacherSearchBySubjectEntity((prev) => ({ ...prev, [searchKey]: nextValue }));
-                                        const resolvedId = resolveTeacherIdFromInput(nextValue);
-                                        if (resolvedId !== null) {
-                                          updateBlockSubjectEntry(block.id, se.subject_id, { teacher_id: resolvedId });
+                                        const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                        if (resolvedTeacherId) {
+                                          const mergedTeacherIds = Array.from(new Set([
+                                            ...assignedTeacherIds,
+                                            resolvedTeacherId,
+                                          ]));
+                                          updateBlockSubjectEntry(block.id, se.subject_id, {
+                                            teacher_id: mergedTeacherIds[0] ?? "",
+                                            teacher_ids: mergedTeacherIds,
+                                          });
+                                          updateSubjectCard(se.subject_id, {
+                                            teacher_id: mergedTeacherIds[0] ?? "",
+                                            teacher_ids: mergedTeacherIds,
+                                          });
+                                          setTeacherSearchBySubjectEntity((prev) => ({
+                                            ...prev,
+                                            [searchKey]: "",
+                                          }));
+                                          return;
                                         }
+
+                                        setTeacherSearchBySubjectEntity((prev) => ({
+                                          ...prev,
+                                          [searchKey]: nextValue,
+                                        }));
                                       }}
-                                      placeholder="Assign teacher"
+                                      onKeyDown={(e) => {
+                                        if (e.key !== "Enter") {
+                                          return;
+                                        }
+                                        e.preventDefault();
+                                        const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
+                                        if (resolvedTeacherIds === null) {
+                                          setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                                          return;
+                                        }
+                                        if (resolvedTeacherIds.length === 0) {
+                                          return;
+                                        }
+
+                                        const mergedTeacherIds = Array.from(new Set([
+                                          ...assignedTeacherIds,
+                                          ...resolvedTeacherIds,
+                                        ]));
+
+                                        updateBlockSubjectEntry(block.id, se.subject_id, {
+                                          teacher_id: mergedTeacherIds[0] ?? "",
+                                          teacher_ids: mergedTeacherIds,
+                                        });
+                                        updateSubjectCard(se.subject_id, {
+                                          teacher_id: mergedTeacherIds[0] ?? "",
+                                          teacher_ids: mergedTeacherIds,
+                                        });
+                                        setTeacherSearchBySubjectEntity((prev) => ({
+                                          ...prev,
+                                          [searchKey]: "",
+                                        }));
+                                      }}
+                                      placeholder="Assign teacher(s), comma separated"
                                       style={{ fontSize: "0.85em" }}
                                     />
                                     <datalist id={`block-teacher-opts-${block.id}-${se.subject_id}`}>
-                                      {filterTeachersForQuery(teacherSearchBySubjectEntity[searchKey] ?? "").map((t) => (
+                                      {filterTeachersForQuery(teacherDraft).map((t) => (
                                         <option key={t.id} value={t.name} />
                                       ))}
                                     </datalist>

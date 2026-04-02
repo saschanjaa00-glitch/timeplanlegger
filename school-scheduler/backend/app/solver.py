@@ -11,7 +11,7 @@ from typing import Dict, List, Set, Tuple
 
 from ortools.sat.python import cp_model
 
-from .models import Block, BlockOccurrence, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
+from .models import Block, BlockOccurrence, BlockSubjectEntry, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
 
 
 MAX_WEEKLY_WORK_MINUTES_100_PERCENT = 29 * 60
@@ -151,6 +151,14 @@ def _subject_teacher_ids(subject: Subject) -> List[str]:
     if getattr(subject, "teacher_id", ""):
         candidates.append(subject.teacher_id)
     candidates.extend(getattr(subject, "teacher_ids", []) or [])
+    return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
+
+
+def _block_entry_teacher_ids(entry: BlockSubjectEntry) -> List[str]:
+    candidates: List[str] = []
+    if getattr(entry, "teacher_id", ""):
+        candidates.append(entry.teacher_id)
+    candidates.extend(getattr(entry, "teacher_ids", []) or [])
     return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
 
 
@@ -874,8 +882,14 @@ def _generate_schedule_staged(
     subject_effective_teacher_ids: Dict[str, List[str]] = {s.id: _subject_teacher_ids(s) for s in data.subjects}
     for block in data.blocks:
         for entry in block.subject_entries:
-            if entry.subject_id in subject_effective_teacher_ids and entry.teacher_id and not subject_effective_teacher_ids[entry.subject_id]:
-                subject_effective_teacher_ids[entry.subject_id] = [entry.teacher_id]
+            if entry.subject_id not in subject_effective_teacher_ids:
+                continue
+            entry_teacher_ids = _block_entry_teacher_ids(entry)
+            if not entry_teacher_ids:
+                continue
+            subject_effective_teacher_ids[entry.subject_id] = list(
+                dict.fromkeys(subject_effective_teacher_ids[entry.subject_id] + entry_teacher_ids)
+            )
 
     teacher_meeting_unavailable: Dict[str, Set[str]] = defaultdict(set)
     for meeting in data.meetings:

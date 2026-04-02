@@ -71,6 +71,7 @@ class BlockOccurrence(BaseModel):
 class BlockSubjectEntry(BaseModel):
     subject_id: str
     teacher_id: str = ""
+    teacher_ids: List[str] = Field(default_factory=list)
     preferred_room_id: str = ""
 
 

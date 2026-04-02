@@ -933,6 +933,35 @@ p {
   padding-top: 0;
 }
 
+.faggrupper-class-columns {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.35rem;
+}
+
+.faggrupper-class-column {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.faggrupper-class-column-title {
+  margin: 0;
+  padding: 0.1rem 0.25rem;
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #575651;
+  border-bottom: 1px solid #d7d6d2;
+}
+
+.faggrupper-class-column-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
 .faggrupper-class-item {
   width: 100%;
   margin: 0;
@@ -950,6 +979,12 @@ p {
 
 .faggrupper-class-item:last-child {
   border-bottom: 1px solid #d3d3ce;
+}
+
+@media (max-width: 980px) {
+  .faggrupper-class-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .faggrupper-class-item.active {
@@ -978,12 +1013,12 @@ p {
 
 .faggrupper-subject-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.8fr) minmax(88px, 0.35fr) minmax(170px, 0.7fr) minmax(260px, 1.5fr);
-  align-items: center;
-  gap: 0.45rem;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(82px, 0.28fr) minmax(160px, 0.55fr) minmax(240px, 1.05fr) minmax(240px, 1.05fr);
+  align-items: start;
+  gap: 0.35rem;
   border: 1px solid #deddd8;
   background: #fbfbf9;
-  padding: 0.25rem 0.35rem;
+  padding: 0.22rem 0.3rem;
 }
 
 .faggrupper-units-field {
@@ -1077,6 +1112,15 @@ p {
 .faggrupper-teacher-picker {
   display: grid;
   gap: 0.22rem;
+  min-width: 0;
+}
+
+.faggrupper-subject-row .faggrupper-teacher-picker {
+  align-items: stretch;
+}
+
+.faggrupper-subject-row .faggrupper-teacher-picker label {
+  margin-bottom: 0;
 }
 
 .faggrupper-teacher-picker input {
@@ -1104,12 +1148,22 @@ p {
   align-items: center;
 }
 
+.faggrupper-subject-row .faggrupper-teacher-selected,
+.faggrupper-subject-row .excluded-session-selected {
+  min-height: 20px;
+  max-height: 52px;
+  overflow-y: auto;
+  align-content: flex-start;
+  padding-right: 2px;
+}
+
 .faggrupper-force-field {
   display: grid;
   grid-template-columns: auto 1fr;
   align-items: center;
   gap: 0.3rem;
   min-width: 170px;
+  margin-left: 0.35rem;
 }
 
 .faggrupper-force-label {
@@ -1117,6 +1171,13 @@ p {
   gap: 0.2rem;
   align-items: center;
   white-space: nowrap;
+}
+
+.faggrupper-force-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 auto;
 }
 
 .faggrupper-force-field select {
@@ -1127,6 +1188,10 @@ p {
 @media (max-width: 1450px) {
   .faggrupper-subject-row {
     grid-template-columns: minmax(140px, 1fr) minmax(84px, 0.45fr) minmax(220px, 1fr);
+  }
+
+  .excluded-session-field {
+    grid-column: 1 / -1;
   }
 
   .faggrupper-teacher-picker {
