@@ -581,6 +581,45 @@ p {
   margin-top: 0.1rem;
 }
 
+.subject-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.35rem;
+}
+
+.subject-column {
+  min-width: 0;
+}
+
+.subject-column-title {
+  margin: 0;
+  font-size: 0.82rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #2f3646;
+}
+
+.subject-column-empty {
+  margin: 0;
+  padding: 0.4rem 0.1rem;
+  font-size: 0.78rem;
+  color: #66645f;
+}
+
+.subject-block-group {
+  margin-bottom: 0.55rem;
+}
+
+.subject-block-group-title {
+  margin: 0 0 0.22rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #4f5d79;
+}
+
 .subject-class-chip {
   background: #e8eaef;
   border: 1px solid #c5cad5;
@@ -1387,6 +1426,11 @@ button.secondary {
   max-height: 600px;
 }
 
+.list.subject-card-list.subject-card-list-column {
+  height: 560px;
+  max-height: 560px;
+}
+
 .item {
   border-bottom: 1px dashed #d6d5d0;
   padding: 0.22rem 0;
@@ -1413,6 +1457,12 @@ button.secondary {
   overflow: auto;
   border: 1px solid #d4d3ce;
   background: #fff;
+}
+
+@media (max-width: 980px) {
+  .subject-columns {
+    grid-template-columns: 1fr;
+  }
 }
 
 .weekly-timeline {

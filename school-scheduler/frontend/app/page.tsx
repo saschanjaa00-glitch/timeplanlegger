@@ -142,6 +142,11 @@ type SavedJsonExport = {
   payload: string;
 };
 
+type SubjectTabEntry = {
+  subject: Subject;
+  derivedClassIds: string[];
+};
+
 type PersistedState = {
   subjects: Subject[];
   teachers: Teacher[];
@@ -1789,9 +1794,9 @@ export default function Home() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [subjects]);
 
-  // Subjects tab only shows templates: fellesfag templates + programfag (always shared).
+  // Subjects tab only shows templates: fellesfag templates + blokkfag (stored as programfag).
   // For each template, derive which classes are assigned via per-class copies.
-  const subjectTabEntries = useMemo(() => {
+  const subjectTabEntries = useMemo<SubjectTabEntry[]>(() => {
     // Build a map: subjectName -> [classIds] from per-class copies
     const assignedByName = new Map<string, string[]>();
     for (const s of subjects) {
@@ -1821,6 +1826,67 @@ export default function Home() {
         return a.subject.name.localeCompare(b.subject.name);
       });
   }, [subjects]);
+
+  const fellesfagSubjectTabEntries = useMemo(
+    () => subjectTabEntries.filter(({ subject }) => subject.subject_type === "fellesfag"),
+    [subjectTabEntries]
+  );
+
+  const blokkfagSubjectTabEntries = useMemo(
+    () => subjectTabEntries.filter(({ subject }) => subject.subject_type === "programfag"),
+    [subjectTabEntries]
+  );
+
+  const blokkfagGroups = useMemo(() => {
+    const blockById = new Map(blocks.map((block) => [block.id, block]));
+    const blockIdBySubjectId = new Map<string, string>();
+
+    for (const block of blocks) {
+      for (const entry of block.subject_entries ?? []) {
+        if (!blockIdBySubjectId.has(entry.subject_id)) {
+          blockIdBySubjectId.set(entry.subject_id, block.id);
+        }
+      }
+      for (const subjectId of block.subject_ids ?? []) {
+        if (!blockIdBySubjectId.has(subjectId)) {
+          blockIdBySubjectId.set(subjectId, block.id);
+        }
+      }
+    }
+
+    const grouped = new Map<string, SubjectTabEntry[]>();
+    const unassigned: SubjectTabEntry[] = [];
+
+    for (const entry of blokkfagSubjectTabEntries) {
+      const blockId = blockIdBySubjectId.get(entry.subject.id);
+      if (!blockId) {
+        unassigned.push(entry);
+        continue;
+      }
+
+      const list = grouped.get(blockId) ?? [];
+      list.push(entry);
+      grouped.set(blockId, list);
+    }
+
+    const groups = Array.from(grouped.entries())
+      .map(([blockId, entries]) => ({
+        key: blockId,
+        title: blockById.get(blockId)?.name ?? blockId,
+        entries: entries.sort((a, b) => a.subject.name.localeCompare(b.subject.name)),
+      }))
+      .sort((a, b) => a.title.localeCompare(b.title));
+
+    if (unassigned.length > 0) {
+      groups.push({
+        key: "unassigned",
+        title: "Unassigned",
+        entries: unassigned.sort((a, b) => a.subject.name.localeCompare(b.subject.name)),
+      });
+    }
+
+    return groups;
+  }, [blokkfagSubjectTabEntries, blocks]);
 
   const timelineMarks = useMemo(() => {
     const mondaySlots = [...(timeslotsByDay["Monday"] ?? [])].sort((a, b) => {
@@ -3160,27 +3226,53 @@ export default function Home() {
   }
 
   function updateSubjectCard(subjectId: string, patch: Partial<Subject>) {
-    setSubjects((prev) => prev.map((subject) => {
-      if (subject.id !== subjectId) {
-        return subject;
+    setSubjects((prev) => {
+      const target = prev.find((subject) => subject.id === subjectId);
+      if (!target) {
+        return prev;
       }
 
-      const merged = { ...subject, ...patch };
-      const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
-      const mergedTeacherIds = Array.from(new Set([
-        ...(typeof merged.teacher_id === "string" && merged.teacher_id.trim() ? [merged.teacher_id.trim()] : []),
-        ...(Array.isArray(merged.teacher_ids)
-          ? merged.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
-          : []),
-      ]));
-      return {
-        ...merged,
-        teacher_id: mergedTeacherIds[0] ?? "",
-        teacher_ids: mergedTeacherIds,
-        class_ids: cleanedClassIds,
-        sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
-      };
-    }));
+      const oldName = target.name;
+      const oldType = target.subject_type;
+      const hasNamePatch = typeof patch.name === "string";
+      const nextName: string = hasNamePatch ? patch.name as string : oldName;
+      const shouldPropagateName =
+        hasNamePatch &&
+        nextName !== oldName;
+
+      return prev.map((subject) => {
+        const isTarget = subject.id === subjectId;
+        const isPerClassCopyOfTarget =
+          shouldPropagateName &&
+          subject.id !== subjectId &&
+          subject.subject_type === oldType &&
+          subject.name === oldName &&
+          subject.class_ids.length === 1;
+
+        if (!isTarget && !isPerClassCopyOfTarget) {
+          return subject;
+        }
+
+        const merged = isTarget
+          ? { ...subject, ...patch, name: nextName }
+          : { ...subject, name: nextName };
+        const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
+        const mergedTeacherIds = Array.from(new Set([
+          ...(typeof merged.teacher_id === "string" && merged.teacher_id.trim() ? [merged.teacher_id.trim()] : []),
+          ...(Array.isArray(merged.teacher_ids)
+            ? merged.teacher_ids.map((id) => String(id).trim()).filter(Boolean)
+            : []),
+        ]));
+        return {
+          ...merged,
+          name: merged.name ?? "",
+          teacher_id: mergedTeacherIds[0] ?? "",
+          teacher_ids: mergedTeacherIds,
+          class_ids: cleanedClassIds,
+          sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
+        };
+      });
+    });
   }
 
   function deleteSubjectCard(subjectId: string) {
@@ -3338,6 +3430,176 @@ export default function Home() {
     }
     setActiveTab(workflowTabs[activeTabIndex - 1].id);
   }
+
+  const renderSubjectCards = (entries: SubjectTabEntry[], emptyText: string) => {
+    if (entries.length === 0) {
+      return <p className="subject-column-empty">{emptyText}</p>;
+    }
+
+    return entries.map(({ subject, derivedClassIds }) => (
+      <article
+        key={subject.id}
+        className={`item subject-card-item${expandedSubjectId === subject.id ? " expanded" : ""}`}
+      >
+        <button
+          type="button"
+          className="subject-expand-trigger"
+          onClick={() => setExpandedSubjectId((prev) => (prev === subject.id ? null : subject.id))}
+          aria-expanded={expandedSubjectId === subject.id}
+        >
+          <span className="subject-expand-summary">
+            <span className="subject-expand-name">{subject.name}</span>
+            <span className="subject-expand-meta">
+              {subject.subject_type === "fellesfag" ? "Fellesfag" : "Blokkfag"}
+              {" "}({subject.sessions_per_week}x45)
+            </span>
+            {derivedClassIds.length > 0 && (
+              <span className="subject-expand-chips">
+                {derivedClassIds.map((cid) => (
+                  <span key={cid} className="subject-class-chip">
+                    {classNameById[cid] ?? cid}
+                  </span>
+                ))}
+              </span>
+            )}
+          </span>
+          <span className="subject-expand-symbol">{expandedSubjectId === subject.id ? "-" : "+"}</span>
+        </button>
+
+        {expandedSubjectId === subject.id && (
+          <div className="subject-expand-panel">
+            <div className="subject-card-grid">
+              <div className="calendar-field">
+                <label>Subject Name</label>
+                <input
+                  type="text"
+                  value={subject.name}
+                  onChange={(e) =>
+                    updateSubjectCard(subject.id, {
+                      name: e.target.value,
+                    })
+                  }
+                  placeholder="Subject name"
+                />
+              </div>
+
+              <div className="calendar-field">
+                <label>Sessions Per Week (x45m)</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={subject.sessions_per_week}
+                  onChange={(e) =>
+                    updateSubjectCard(subject.id, {
+                      sessions_per_week: Number(e.target.value) || 1,
+                    })
+                  }
+                />
+              </div>
+
+              <div className="calendar-field">
+                <label>Subject Type</label>
+                <select
+                  value={subject.subject_type}
+                  onChange={(e) =>
+                    updateSubjectCard(subject.id, {
+                      subject_type: e.target.value as "fellesfag" | "programfag",
+                    })
+                  }
+                >
+                  <option value="fellesfag">Fellesfag</option>
+                  <option value="programfag">Blokkfag</option>
+                </select>
+              </div>
+
+              <div className="calendar-field" style={{ display: "none" }}>
+                <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
+                <input
+                  type="text"
+                  value=""
+                  disabled
+                  placeholder="e.g. 4/6"
+                />
+              </div>
+
+              <div className="subject-card-action">
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => deleteSubjectCard(subject.id)}
+                >
+                  Delete Subject
+                </button>
+              </div>
+            </div>
+
+            <div className="subject-class-manager">
+              <span className="subject-teacher-section-title">Classes With Subject</span>
+
+              <div className="subject-class-manager-chips">
+                {derivedClassIds.length === 0 ? (
+                  <span className="subject-class-empty">No classes assigned</span>
+                ) : (
+                  derivedClassIds
+                    .slice()
+                    .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
+                    .map((cid) => (
+                      <span key={cid} className="subject-class-chip subject-class-chip-editable">
+                        {classNameById[cid] ?? cid}
+                        <button
+                          type="button"
+                          className="subject-class-chip-remove"
+                          onClick={() => removeSubjectFromClass(subject, cid)}
+                          aria-label={`Remove ${classNameById[cid] ?? cid}`}
+                        >
+                          x
+                        </button>
+                      </span>
+                    ))
+                )}
+              </div>
+
+              <div className="subject-class-manager-add">
+                <select
+                  value={subjectClassSelectionBySubject[subject.id] ?? ""}
+                  onChange={(e) =>
+                    setSubjectClassSelectionBySubject((prev) => ({
+                      ...prev,
+                      [subject.id]: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select class to add</option>
+                  {sortedClasses
+                    .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
+                    .map((schoolClass) => (
+                      <option key={schoolClass.id} value={schoolClass.id}>
+                        {schoolClass.name}
+                      </option>
+                    ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const classId = subjectClassSelectionBySubject[subject.id] ?? "";
+                    addSubjectToClass(subject, classId, derivedClassIds);
+                    setSubjectClassSelectionBySubject((prev) => ({
+                      ...prev,
+                      [subject.id]: "",
+                    }));
+                  }}
+                  disabled={!subjectClassSelectionBySubject[subject.id]}
+                >
+                  Add Class
+                </button>
+              </div>
+            </div>
+
+          </div>
+        )}
+      </article>
+    ));
+  };
 
   return (
     <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
@@ -4088,156 +4350,29 @@ export default function Home() {
             <button type="submit">Add Subject Card</button>
           </form>
 
-          <div className="list subject-card-list">
-            {subjectTabEntries.map(({ subject, derivedClassIds }) => (
-              <article
-                key={subject.id}
-                className={`item subject-card-item${expandedSubjectId === subject.id ? " expanded" : ""}`}
-              >
-                <button
-                  type="button"
-                  className="subject-expand-trigger"
-                  onClick={() => setExpandedSubjectId((prev) => (prev === subject.id ? null : subject.id))}
-                  aria-expanded={expandedSubjectId === subject.id}
-                >
-                  <span className="subject-expand-summary">
-                    <span className="subject-expand-name">{subject.name}</span>
-                    <span className="subject-expand-meta">
-                      {subject.subject_type === "fellesfag" ? "Fellesfag" : "Programfag"}
-                      {" "}({subject.sessions_per_week}x45)
-                    </span>
-                    {derivedClassIds.length > 0 && (
-                      <span className="subject-expand-chips">
-                        {derivedClassIds.map((cid) => (
-                          <span key={cid} className="subject-class-chip">
-                            {classNameById[cid] ?? cid}
-                          </span>
-                        ))}
-                      </span>
-                    )}
-                  </span>
-                  <span className="subject-expand-symbol">{expandedSubjectId === subject.id ? "-" : "+"}</span>
-                </button>
+          <div className="subject-columns">
+            <section className="subject-column">
+              <h3 className="subject-column-title">Fellesfag</h3>
+              <div className="list subject-card-list subject-card-list-column">
+                {renderSubjectCards(fellesfagSubjectTabEntries, "No fellesfag subjects yet.")}
+              </div>
+            </section>
 
-                {expandedSubjectId === subject.id && (
-                  <div className="subject-expand-panel">
-                    <div className="subject-card-grid">
-                      <div className="calendar-field">
-                        <label>Sessions Per Week (x45m)</label>
-                        <input
-                          type="number"
-                          min={1}
-                          value={subject.sessions_per_week}
-                          onChange={(e) =>
-                            updateSubjectCard(subject.id, {
-                              sessions_per_week: Number(e.target.value) || 1,
-                            })
-                          }
-                        />
-                      </div>
-
-                      <div className="calendar-field">
-                        <label>Subject Type</label>
-                        <select
-                          value={subject.subject_type}
-                          onChange={(e) =>
-                            updateSubjectCard(subject.id, {
-                              subject_type: e.target.value as "fellesfag" | "programfag",
-                            })
-                          }
-                        >
-                          <option value="fellesfag">Fellesfag</option>
-                          <option value="programfag">Programfag</option>
-                        </select>
-                      </div>
-
-                      <div className="calendar-field" style={{ display: "none" }}>
-                        <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
-                        <input
-                          type="text"
-                          value=""
-                          disabled
-                          placeholder="e.g. 4/6"
-                        />
-                      </div>
-
-                      <div className="subject-card-action">
-                        <button
-                          type="button"
-                          className="secondary"
-                          onClick={() => deleteSubjectCard(subject.id)}
-                        >
-                          Delete Subject
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="subject-class-manager">
-                      <span className="subject-teacher-section-title">Classes With Subject</span>
-
-                      <div className="subject-class-manager-chips">
-                        {derivedClassIds.length === 0 ? (
-                          <span className="subject-class-empty">No classes assigned</span>
-                        ) : (
-                          derivedClassIds
-                            .slice()
-                            .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
-                            .map((cid) => (
-                              <span key={cid} className="subject-class-chip subject-class-chip-editable">
-                                {classNameById[cid] ?? cid}
-                                <button
-                                  type="button"
-                                  className="subject-class-chip-remove"
-                                  onClick={() => removeSubjectFromClass(subject, cid)}
-                                  aria-label={`Remove ${classNameById[cid] ?? cid}`}
-                                >
-                                  x
-                                </button>
-                              </span>
-                            ))
-                        )}
-                      </div>
-
-                      <div className="subject-class-manager-add">
-                        <select
-                          value={subjectClassSelectionBySubject[subject.id] ?? ""}
-                          onChange={(e) =>
-                            setSubjectClassSelectionBySubject((prev) => ({
-                              ...prev,
-                              [subject.id]: e.target.value,
-                            }))
-                          }
-                        >
-                          <option value="">Select class to add</option>
-                          {sortedClasses
-                            .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
-                            .map((schoolClass) => (
-                              <option key={schoolClass.id} value={schoolClass.id}>
-                                {schoolClass.name}
-                              </option>
-                            ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const classId = subjectClassSelectionBySubject[subject.id] ?? "";
-                            addSubjectToClass(subject, classId, derivedClassIds);
-                            setSubjectClassSelectionBySubject((prev) => ({
-                              ...prev,
-                              [subject.id]: "",
-                            }));
-                          }}
-                          disabled={!subjectClassSelectionBySubject[subject.id]}
-                        >
-                          Add Class
-                        </button>
-                      </div>
-                    </div>
-
-                  </div>
+            <section className="subject-column">
+              <h3 className="subject-column-title">Blokkfag</h3>
+              <div className="list subject-card-list subject-card-list-column">
+                {blokkfagGroups.length === 0 ? (
+                  <p className="subject-column-empty">No blokkfag subjects yet.</p>
+                ) : (
+                  blokkfagGroups.map((group) => (
+                    <section key={group.key} className="subject-block-group">
+                      <h4 className="subject-block-group-title">{group.title}</h4>
+                      {renderSubjectCards(group.entries, "No subjects in this block.")}
+                    </section>
+                  ))
                 )}
-              </article>
-            ))}
+              </div>
+            </section>
           </div>
         </article>
       </section>
