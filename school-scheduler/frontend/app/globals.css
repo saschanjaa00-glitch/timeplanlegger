@@ -781,6 +781,10 @@ p {
   grid-column: 2;
 }
 
+.subject-block-field {
+  grid-column: 3;
+}
+
 .subject-type-stack {
   grid-column: 2;
   min-width: 0;
@@ -1008,6 +1012,21 @@ p {
   min-width: 0;
 }
 
+.room-requirements-top-row {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(0, 1.2fr);
+  gap: 0.35rem;
+  align-items: end;
+}
+
+.room-requirements-search-row {
+  min-width: 0;
+}
+
+.room-requirements-search-row input {
+  margin-bottom: 0;
+}
+
 .excluded-session-selected {
   width: 100%;
   min-width: 0;
@@ -1204,6 +1223,10 @@ p {
   }
 
   .block-subject-row {
+    grid-template-columns: 1fr;
+  }
+
+  .room-requirements-top-row {
     grid-template-columns: 1fr;
   }
 }

@@ -277,66 +277,173 @@ def _assign_rooms_to_schedule(
         return schedule_items
 
     rooms_by_id = {r.id: r for r in data.rooms}
+    room_ids_ordered = list(rooms_by_id.keys())
+    room_order_index = {room_id: idx for idx, room_id in enumerate(room_ids_ordered)}
+    prioritized_rooms = {
+        room.id
+        for room in data.rooms
+        if getattr(room, "prioritize_for_preferred_subjects", False)
+    }
     result_items: List[ScheduledItem] = []
-    
-    # Group items by (timeslot_id, week_type)
+
     items_by_slot: Dict[Tuple[str, str | None], List[ScheduledItem]] = defaultdict(list)
     for item in schedule_items:
-        key = (item.timeslot_id, item.week_type)
-        items_by_slot[key].append(item)
-    
-    # Assign rooms slot by slot, giving priority to fellesfag with base rooms
-    room_usage: Dict[Tuple[str, str | None], Set[str]] = defaultdict(set)  # (timeslot, week) -> used room ids
-    
-    for (timeslot_id, week_type), items in items_by_slot.items():
-        # Sort items: fellesfag with base room first
-        def item_priority(item: ScheduledItem) -> Tuple[int, str]:
+        items_by_slot[(item.timeslot_id, item.week_type)].append(item)
+
+    remaining_by_subject_week: Dict[Tuple[str, str], int] = defaultdict(int)
+    for item in schedule_items:
+        remaining_by_subject_week[(item.subject_id, item.week_type or "base")] += 1
+
+    once_mode_satisfied: Dict[Tuple[str, str], bool] = defaultdict(bool)
+    once_preferred_grants: Dict[Tuple[str, str, str], int] = defaultdict(int)
+    room_usage: Dict[Tuple[str, str | None], Set[str]] = defaultdict(set)
+    subject_room_usage_any: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    subject_room_usage_by_week: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+    def _pick_with_consistency(
+        candidate_room_ids: List[str],
+        subject_id: str,
+        week_key: str,
+    ) -> str | None:
+        if not candidate_room_ids:
+            return None
+        # Low-priority preference: when several rooms are equally feasible,
+        # reuse rooms already used by this subject to keep sessions consistent.
+        def _score(room_id: str) -> Tuple[int, int, int]:
+            week_count = subject_room_usage_by_week[(subject_id, week_key)].get(room_id, 0)
+            any_count = subject_room_usage_any[subject_id].get(room_id, 0)
+            order_idx = room_order_index.get(room_id, len(room_order_index))
+            return (-week_count, -any_count, order_idx)
+
+        return min(candidate_room_ids, key=_score)
+
+    ordered_slot_keys = sorted(items_by_slot.keys(), key=lambda key: (key[1] or "base", key[0]))
+
+    for (timeslot_id, week_type) in ordered_slot_keys:
+        items = items_by_slot[(timeslot_id, week_type)]
+
+        def item_priority(item: ScheduledItem) -> Tuple[int, int, str]:
             subject = subjects_by_id.get(item.subject_id)
+            preferred_rooms = [
+                room_id
+                for room_id in (getattr(subject, "preferred_room_ids", []) or [])
+                if room_id in rooms_by_id
+            ]
+            mode = str(getattr(subject, "room_requirement_mode", "always") or "always")
+            week_key = item.week_type or "base"
+            once_pending = not once_mode_satisfied[(item.subject_id, week_key)]
+            prioritized_preferred_rooms = [room_id for room_id in preferred_rooms if room_id in prioritized_rooms]
+            once_grant_count = sum(
+                once_preferred_grants[(room_id, week_key, item.subject_id)]
+                for room_id in prioritized_preferred_rooms
+            )
+
+            if preferred_rooms and mode == "once_per_week" and once_pending:
+                # Strongly prioritize guaranteeing at least one preferred-room placement.
+                return (0, once_grant_count, item.subject_id)
+            if preferred_rooms and mode == "always":
+                return (1, once_grant_count, item.subject_id)
             if subject and subject.subject_type == "fellesfag" and item.class_ids:
-                # Check if first class has a base room
                 first_class_id = item.class_ids[0]
                 if first_class_id in class_to_base_room:
-                    return (0, item.subject_id)  # Priority 0: fellesfag with base room
-            return (1, item.subject_id)  # Priority 1: other subjects
-        
+                    return (2, once_grant_count, item.subject_id)
+            if preferred_rooms and mode == "once_per_week":
+                # After the once-per-week requirement is satisfied, deprioritize
+                # further preferred-room claims so base rooms can be used.
+                return (4, once_grant_count, item.subject_id)
+            return (3, once_grant_count, item.subject_id)
+
         sorted_items = sorted(items, key=item_priority)
-        
+
         for item in sorted_items:
             subject = subjects_by_id.get(item.subject_id)
+            week_key = item.week_type or "base"
+            subject_week_key = (item.subject_id, week_key)
+            used_rooms = room_usage[(timeslot_id, week_type)]
+
+            preferred_rooms = [
+                room_id
+                for room_id in (getattr(subject, "preferred_room_ids", []) or [])
+                if room_id in rooms_by_id
+            ]
+            mode = str(getattr(subject, "room_requirement_mode", "always") or "always")
+
             assigned_room_id: str | None = None
-            
-            # First, try to assign base room if it's fellesfag
+            available_preferred = [room_id for room_id in preferred_rooms if room_id not in used_rooms]
+            available_any = [room_id for room_id in room_ids_ordered if room_id not in used_rooms]
+            available_non_prioritized = [room_id for room_id in available_any if room_id not in prioritized_rooms]
+            available_prioritized = [room_id for room_id in available_any if room_id in prioritized_rooms]
+            available_non_preferred_non_prioritized = [
+                room_id for room_id in available_non_prioritized if room_id not in preferred_rooms
+            ]
+            available_non_preferred_prioritized = [
+                room_id for room_id in available_prioritized if room_id not in preferred_rooms
+            ]
+            base_room_id: str | None = None
             if subject and subject.subject_type == "fellesfag" and item.class_ids:
                 first_class_id = item.class_ids[0]
-                if first_class_id in class_to_base_room:
-                    base_room_id = class_to_base_room[first_class_id]
-                    if base_room_id not in room_usage[(timeslot_id, week_type)]:
-                        assigned_room_id = base_room_id
-                        room_usage[(timeslot_id, week_type)].add(base_room_id)
-            
-            # If not assigned yet, try any available room
-            if not assigned_room_id:
-                for room_id in rooms_by_id.keys():
-                    if room_id not in room_usage[(timeslot_id, week_type)]:
-                        assigned_room_id = room_id
-                        room_usage[(timeslot_id, week_type)].add(room_id)
-                        break
-            
-            # Create new item with assigned room
-            new_item = ScheduledItem(
-                subject_id=item.subject_id,
-                subject_name=item.subject_name,
-                teacher_id=item.teacher_id,
-                teacher_ids=item.teacher_ids,
-                class_ids=item.class_ids,
-                timeslot_id=item.timeslot_id,
-                day=item.day,
-                period=item.period,
-                week_type=item.week_type,
-                room_id=assigned_room_id,
+                base_room_id = class_to_base_room.get(first_class_id)
+
+            if preferred_rooms and mode == "always":
+                if available_preferred:
+                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+            elif preferred_rooms and mode == "once_per_week":
+                if not once_mode_satisfied[subject_week_key] and available_preferred:
+                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+                    once_mode_satisfied[subject_week_key] = True
+                elif base_room_id and base_room_id not in used_rooms:
+                    assigned_room_id = base_room_id
+                elif available_non_preferred_non_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_preferred_non_prioritized,
+                        item.subject_id,
+                        week_key,
+                    )
+                elif available_non_preferred_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_preferred_prioritized,
+                        item.subject_id,
+                        week_key,
+                    )
+                elif available_preferred:
+                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+                elif available_non_prioritized:
+                    assigned_room_id = _pick_with_consistency(available_non_prioritized, item.subject_id, week_key)
+                elif available_prioritized:
+                    assigned_room_id = _pick_with_consistency(available_prioritized, item.subject_id, week_key)
+            else:
+                if base_room_id and base_room_id not in used_rooms:
+                    assigned_room_id = base_room_id
+                if not assigned_room_id and available_non_prioritized:
+                    assigned_room_id = _pick_with_consistency(available_non_prioritized, item.subject_id, week_key)
+                if not assigned_room_id and available_prioritized:
+                    assigned_room_id = _pick_with_consistency(available_prioritized, item.subject_id, week_key)
+
+            if assigned_room_id:
+                used_rooms.add(assigned_room_id)
+                subject_room_usage_any[item.subject_id][assigned_room_id] += 1
+                subject_room_usage_by_week[(item.subject_id, week_key)][assigned_room_id] += 1
+                if assigned_room_id in preferred_rooms and mode == "once_per_week":
+                    once_preferred_grants[(assigned_room_id, week_key, item.subject_id)] += 1
+                    once_mode_satisfied[subject_week_key] = True
+
+            remaining_by_subject_week[subject_week_key] = max(0, remaining_by_subject_week[subject_week_key] - 1)
+
+            result_items.append(
+                ScheduledItem(
+                    subject_id=item.subject_id,
+                    subject_name=item.subject_name,
+                    teacher_id=item.teacher_id,
+                    teacher_ids=item.teacher_ids,
+                    class_ids=item.class_ids,
+                    timeslot_id=item.timeslot_id,
+                    day=item.day,
+                    period=item.period,
+                    week_type=item.week_type,
+                    room_id=assigned_room_id,
+                )
             )
-            result_items.append(new_item)
-    
+
     return result_items
 
 
@@ -389,6 +496,8 @@ def _generate_schedule_staged(
 
     subject_to_room: Dict[str, str] = {}
     for subject in data.subjects:
+        if subject.subject_type != "fellesfag":
+            continue
         for class_id in subject.class_ids:
             if class_id in class_to_base_room:
                 subject_to_room[subject.id] = class_to_base_room[class_id]
@@ -2064,6 +2173,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             block_subject_ids.add(sid)
 
     timeslot_units_map: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
+    subjects_by_id: Dict[str, Subject] = {s.id: s for s in data.subjects}
+    class_to_base_room: Dict[str, str] = {
+        cls.id: cls.base_room_id
+        for cls in data.classes
+        if cls.base_room_id
+    }
 
     # A/B splits are DISABLED - use auto-balancing instead
     explicit_a_overrides: Dict[str, int] = {}
@@ -2772,6 +2887,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 )
 
             combined_partial_schedule = response_primary.schedule + response_secondary.schedule
+            combined_partial_schedule = _assign_rooms_to_schedule(
+                combined_partial_schedule,
+                data,
+                {s.id: s for s in data.subjects},
+                {cls.id: cls.base_room_id for cls in data.classes if cls.base_room_id},
+            )
             metadata = dict(response_secondary.metadata or {})
             if combined_partial_schedule:
                 metadata["partial"] = 1.0
@@ -2798,6 +2919,13 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 message=hard_message,
                 schedule=[],
             )
+
+        combined_schedule = _assign_rooms_to_schedule(
+            combined_schedule,
+            data,
+            {s.id: s for s in data.subjects},
+            {cls.id: cls.base_room_id for cls in data.classes if cls.base_room_id},
+        )
 
         return ScheduleResponse(
             status="success",
@@ -3036,6 +3164,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     # Build subject_id -> room_id mapping (use first class's base room if available)
     subject_to_room: Dict[str, str] = {}
     for subject in data.subjects:
+        if subject.subject_type != "fellesfag":
+            continue
         if subject.class_ids:
             for class_id in subject.class_ids:
                 if class_id in class_to_base_room:
@@ -3103,6 +3233,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             id=subject.id,
             name=subject.name,
             teacher_id=teacher_override,
+            teacher_ids=list(subject.teacher_ids or []),
             class_ids=list(subject.class_ids),
             subject_type=subject.subject_type,
             sessions_per_week=subject.sessions_per_week,
@@ -3110,6 +3241,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             force_timeslot_id=subject.force_timeslot_id,
             allowed_timeslots=subject.allowed_timeslots,
             allowed_block_ids=merged_block_ids if merged_block_ids else None,
+            preferred_room_ids=list(subject.preferred_room_ids or []),
+            room_requirement_mode=(subject.room_requirement_mode or "always"),
         ))
     data = ScheduleRequest(
         subjects=augmented_subjects,
