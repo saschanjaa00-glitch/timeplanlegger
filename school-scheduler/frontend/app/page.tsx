@@ -835,7 +835,7 @@ export default function Home() {
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
-  const [subjectClassSelectionBySubject, setSubjectClassSelectionBySubject] = useState<Record<string, string>>({});
+  const [activeSubjectClassPickerId, setActiveSubjectClassPickerId] = useState<string | null>(null);
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
   const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
   const [selectedRoomCompareIds, setSelectedRoomCompareIds] = useState<string[]>([]);
@@ -1672,7 +1672,45 @@ export default function Home() {
     ].filter(Boolean)));
   }
 
+  function getProgramfagTeacherIdsFromBlocks(subjectId: string): string[] {
+    return Array.from(
+      new Set(
+        blocks
+          .flatMap((block) => block.subject_entries ?? [])
+          .filter((entry) => entry.subject_id === subjectId && Boolean(entry.teacher_id))
+          .map((entry) => entry.teacher_id)
+      )
+    );
+  }
+
   function addTeachersToSubject(subject: Subject, teacherIdsToAdd: string[]) {
+    if (subject.subject_type === "programfag") {
+      const nextTeacherId = teacherIdsToAdd.find(Boolean);
+      if (!nextTeacherId) {
+        return;
+      }
+
+      const hasBlockEntry = blocks.some((block) =>
+        (block.subject_entries ?? []).some((entry) => entry.subject_id === subject.id)
+      );
+
+      if (hasBlockEntry) {
+        setBlocks((prev) => prev.map((block) => ({
+          ...block,
+          subject_entries: (block.subject_entries ?? []).map((entry) =>
+            entry.subject_id === subject.id
+              ? { ...entry, teacher_id: nextTeacherId }
+              : entry
+          ),
+        })));
+        updateSubjectCard(subject.id, {
+          teacher_id: nextTeacherId,
+          teacher_ids: [nextTeacherId],
+        });
+        return;
+      }
+    }
+
     const mergedTeacherIds = Array.from(new Set([
       ...getSubjectTeacherIds(subject),
       ...teacherIdsToAdd.filter(Boolean),
@@ -1684,6 +1722,32 @@ export default function Home() {
   }
 
   function removeTeacherFromSubject(subject: Subject, teacherIdToRemove: string) {
+    if (subject.subject_type === "programfag") {
+      const currentIds = getProgramfagTeacherIdsFromBlocks(subject.id);
+      const nextTeacherIds = currentIds.filter((teacherId) => teacherId !== teacherIdToRemove);
+      const replacementTeacherId = nextTeacherIds[0] ?? "";
+
+      const hasBlockEntry = blocks.some((block) =>
+        (block.subject_entries ?? []).some((entry) => entry.subject_id === subject.id)
+      );
+
+      if (hasBlockEntry) {
+        setBlocks((prev) => prev.map((block) => ({
+          ...block,
+          subject_entries: (block.subject_entries ?? []).map((entry) =>
+            entry.subject_id === subject.id
+              ? { ...entry, teacher_id: replacementTeacherId }
+              : entry
+          ),
+        })));
+        updateSubjectCard(subject.id, {
+          teacher_id: replacementTeacherId,
+          teacher_ids: replacementTeacherId ? [replacementTeacherId] : [],
+        });
+        return;
+      }
+    }
+
     const nextTeacherIds = getSubjectTeacherIds(subject).filter((teacherId) => teacherId !== teacherIdToRemove);
     updateSubjectCard(subject.id, {
       teacher_id: nextTeacherIds[0] ?? "",
@@ -1927,6 +1991,52 @@ export default function Home() {
     }
     return marks;
   }, []);
+
+  useEffect(() => {
+    if (!activeSubjectClassPickerId) {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+
+      const pickerRoot = target.closest(`[data-subject-class-picker-root="${activeSubjectClassPickerId}"]`);
+      if (!pickerRoot) {
+        setActiveSubjectClassPickerId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [activeSubjectClassPickerId]);
+
+  useEffect(() => {
+    if (!expandedSubjectId || activeTab !== "subjects") {
+      return;
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) {
+        return;
+      }
+
+      const cardRoot = target.closest(`[data-subject-card-root="${expandedSubjectId}"]`);
+      if (!cardRoot) {
+        setExpandedSubjectId(null);
+      }
+    };
+
+    document.addEventListener("mousedown", handleMouseDown);
+    return () => {
+      document.removeEventListener("mousedown", handleMouseDown);
+    };
+  }, [expandedSubjectId, activeTab]);
 
   // Build a map: subject_id → block info (for displaying block name in schedules)
   const subjectToBlockInfo = useMemo(() => {
@@ -3436,10 +3546,24 @@ export default function Home() {
       return <p className="subject-column-empty">{emptyText}</p>;
     }
 
-    return entries.map(({ subject, derivedClassIds }) => (
+    return entries.map(({ subject, derivedClassIds }) => {
+      const assignedTeacherIds = subject.subject_type === "programfag"
+        ? getProgramfagTeacherIdsFromBlocks(subject.id)
+        : getSubjectTeacherIds(subject);
+      const assignedTeacherNames = assignedTeacherIds.map((teacherId) => teacherNameById[teacherId] ?? teacherId);
+      const blokkfagTeacherSummary = assignedTeacherNames.length === 0
+        ? "No teacher assigned"
+        : assignedTeacherNames.length <= 2
+          ? assignedTeacherNames.join(", ")
+          : `${assignedTeacherNames.slice(0, 2).join(", ")} +${assignedTeacherNames.length - 2}`;
+      const searchKey = `subjects_${subject.id}`;
+      const teacherDraft = teacherSearchBySubjectEntity[searchKey] ?? "";
+
+      return (
       <article
         key={subject.id}
         className={`item subject-card-item${expandedSubjectId === subject.id ? " expanded" : ""}`}
+        data-subject-card-root={subject.id}
       >
         <button
           type="button"
@@ -3450,8 +3574,9 @@ export default function Home() {
           <span className="subject-expand-summary">
             <span className="subject-expand-name">{subject.name}</span>
             <span className="subject-expand-meta">
-              {subject.subject_type === "fellesfag" ? "Fellesfag" : "Blokkfag"}
-              {" "}({subject.sessions_per_week}x45)
+              {subject.subject_type === "fellesfag"
+                ? `Fellesfag (${subject.sessions_per_week}x45)`
+                : blokkfagTeacherSummary}
             </span>
             {derivedClassIds.length > 0 && (
               <span className="subject-expand-chips">
@@ -3483,19 +3608,21 @@ export default function Home() {
                 />
               </div>
 
-              <div className="calendar-field">
-                <label>Sessions Per Week (x45m)</label>
-                <input
-                  type="number"
-                  min={1}
-                  value={subject.sessions_per_week}
-                  onChange={(e) =>
-                    updateSubjectCard(subject.id, {
-                      sessions_per_week: Number(e.target.value) || 1,
-                    })
-                  }
-                />
-              </div>
+              {subject.subject_type === "fellesfag" && (
+                <div className="calendar-field">
+                  <label>Sessions Per Week (x45m)</label>
+                  <input
+                    type="number"
+                    min={1}
+                    value={subject.sessions_per_week}
+                    onChange={(e) =>
+                      updateSubjectCard(subject.id, {
+                        sessions_per_week: Number(e.target.value) || 1,
+                      })
+                    }
+                  />
+                </div>
+              )}
 
               <div className="calendar-field">
                 <label>Subject Type</label>
@@ -3533,72 +3660,149 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="subject-class-manager">
-              <span className="subject-teacher-section-title">Classes With Subject</span>
+            {subject.subject_type === "fellesfag" && (
+              <div className="subject-class-manager">
+                <span className="subject-teacher-section-title">Classes With Subject</span>
 
-              <div className="subject-class-manager-chips">
-                {derivedClassIds.length === 0 ? (
-                  <span className="subject-class-empty">No classes assigned</span>
-                ) : (
-                  derivedClassIds
-                    .slice()
-                    .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
-                    .map((cid) => (
-                      <span key={cid} className="subject-class-chip subject-class-chip-editable">
-                        {classNameById[cid] ?? cid}
+                <div className="subject-class-manager-chips">
+                  {derivedClassIds.length === 0 ? (
+                    <span className="subject-class-empty">No classes assigned</span>
+                  ) : (
+                    derivedClassIds
+                      .slice()
+                      .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
+                      .map((cid) => (
+                        <span key={cid} className="subject-class-chip subject-class-chip-editable">
+                          {classNameById[cid] ?? cid}
+                          <button
+                            type="button"
+                            className="subject-class-chip-remove"
+                            onClick={() => removeSubjectFromClass(subject, cid)}
+                            aria-label={`Remove ${classNameById[cid] ?? cid}`}
+                          >
+                            x
+                          </button>
+                        </span>
+                      ))
+                  )}
+                </div>
+
+                <div className="subject-class-manager-add">
+                  <div className="subject-class-picker" data-subject-class-picker-root={subject.id}>
+                    <button
+                      type="button"
+                      className="secondary subject-class-picker-trigger"
+                      onClick={() =>
+                        setActiveSubjectClassPickerId((prev) => (prev === subject.id ? null : subject.id))
+                      }
+                      disabled={sortedClasses.every((schoolClass) => derivedClassIds.includes(schoolClass.id))}
+                    >
+                      Select class to add
+                    </button>
+
+                    {activeSubjectClassPickerId === subject.id && (
+                      <div className="subject-class-picker-menu">
+                        {sortedClasses
+                          .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
+                          .map((schoolClass) => (
+                            <button
+                              key={schoolClass.id}
+                              type="button"
+                              className="subject-class-picker-option"
+                              onClick={() => addSubjectToClass(subject, schoolClass.id, derivedClassIds)}
+                            >
+                              {schoolClass.name}
+                            </button>
+                          ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {subject.subject_type === "programfag" && (
+              <div className="subject-teacher-section">
+                <span className="subject-teacher-section-title">Assigned Teachers</span>
+
+                <div className="faggrupper-teacher-selected">
+                  {assignedTeacherIds.length === 0 ? (
+                    <span className="subject-class-empty">No teachers assigned</span>
+                  ) : (
+                    assignedTeacherIds.map((teacherId) => (
+                      <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
+                        {teacherNameById[teacherId] ?? teacherId}
                         <button
                           type="button"
                           className="subject-class-chip-remove"
-                          onClick={() => removeSubjectFromClass(subject, cid)}
-                          aria-label={`Remove ${classNameById[cid] ?? cid}`}
+                          onClick={() => removeTeacherFromSubject(subject, teacherId)}
+                          aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
                         >
                           x
                         </button>
                       </span>
                     ))
-                )}
-              </div>
+                  )}
+                </div>
 
-              <div className="subject-class-manager-add">
-                <select
-                  value={subjectClassSelectionBySubject[subject.id] ?? ""}
-                  onChange={(e) =>
-                    setSubjectClassSelectionBySubject((prev) => ({
-                      ...prev,
-                      [subject.id]: e.target.value,
-                    }))
-                  }
-                >
-                  <option value="">Select class to add</option>
-                  {sortedClasses
-                    .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
-                    .map((schoolClass) => (
-                      <option key={schoolClass.id} value={schoolClass.id}>
-                        {schoolClass.name}
-                      </option>
+                <div className="faggrupper-teacher-picker">
+                  <div className="faggrupper-teacher-add-row">
+                    <input
+                      list={`subjects-teacher-options-${subject.id}`}
+                      value={teacherDraft}
+                      onChange={(e) => {
+                        const nextValue = e.target.value;
+                        const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                        if (resolvedTeacherId) {
+                          addTeachersToSubject(subject, [resolvedTeacherId]);
+                          setTeacherSearchBySubjectEntity((prev) => ({
+                            ...prev,
+                            [searchKey]: "",
+                          }));
+                          return;
+                        }
+
+                        setTeacherSearchBySubjectEntity((prev) => ({
+                          ...prev,
+                          [searchKey]: nextValue,
+                        }));
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") {
+                          return;
+                        }
+                        e.preventDefault();
+                        const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
+                        if (resolvedTeacherIds === null) {
+                          setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                          return;
+                        }
+                        if (resolvedTeacherIds.length === 0) {
+                          return;
+                        }
+                        addTeachersToSubject(subject, resolvedTeacherIds);
+                        setTeacherSearchBySubjectEntity((prev) => ({
+                          ...prev,
+                          [searchKey]: "",
+                        }));
+                      }}
+                      placeholder="Search teacher(s), comma-separated"
+                    />
+                  </div>
+                  <datalist id={`subjects-teacher-options-${subject.id}`}>
+                    {filterTeachersForQuery(teacherDraft).map((teacher) => (
+                      <option key={teacher.id} value={teacher.name} />
                     ))}
-                </select>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const classId = subjectClassSelectionBySubject[subject.id] ?? "";
-                    addSubjectToClass(subject, classId, derivedClassIds);
-                    setSubjectClassSelectionBySubject((prev) => ({
-                      ...prev,
-                      [subject.id]: "",
-                    }));
-                  }}
-                  disabled={!subjectClassSelectionBySubject[subject.id]}
-                >
-                  Add Class
-                </button>
+                  </datalist>
+                </div>
               </div>
-            </div>
+            )}
 
           </div>
         )}
       </article>
-    ));
+      );
+    });
   };
 
   return (
@@ -4351,14 +4555,14 @@ export default function Home() {
           </form>
 
           <div className="subject-columns">
-            <section className="subject-column">
+            <section className="subject-column subject-column-fellesfag">
               <h3 className="subject-column-title">Fellesfag</h3>
               <div className="list subject-card-list subject-card-list-column">
                 {renderSubjectCards(fellesfagSubjectTabEntries, "No fellesfag subjects yet.")}
               </div>
             </section>
 
-            <section className="subject-column">
+            <section className="subject-column subject-column-blokkfag">
               <h3 className="subject-column-title">Blokkfag</h3>
               <div className="list subject-card-list subject-card-list-column">
                 {blokkfagGroups.length === 0 ? (
