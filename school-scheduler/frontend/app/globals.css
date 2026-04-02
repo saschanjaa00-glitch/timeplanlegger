@@ -1529,7 +1529,6 @@ p {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 0.45rem;
-  animation: rise-in 720ms ease-out;
 }
 
 .grid.blocks-layout {
