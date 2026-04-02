@@ -4095,22 +4095,6 @@ export default function Home() {
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
-  const activeTabIndex = workflowTabs.findIndex((tab) => tab.id === activeTab);
-
-  function goToNextTab() {
-    if (activeTabIndex >= workflowTabs.length - 1) {
-      return;
-    }
-    setActiveTab(workflowTabs[activeTabIndex + 1].id);
-  }
-
-  function goToPreviousTab() {
-    if (activeTabIndex <= 0) {
-      return;
-    }
-    setActiveTab(workflowTabs[activeTabIndex - 1].id);
-  }
-
   const renderSubjectCards = (entries: SubjectTabEntry[], emptyText: string) => {
     if (entries.length === 0) {
       return <p className="subject-column-empty">{emptyText}</p>;
@@ -4626,16 +4610,6 @@ export default function Home() {
             {tab.label}
           </button>
         ))}
-      </section>
-
-      <section className="tab-controls">
-        <button type="button" className="secondary" onClick={goToPreviousTab} disabled={activeTabIndex === 0}>
-          Previous
-        </button>
-        <div className="status">Step {activeTabIndex + 1} of {workflowTabs.length}</div>
-        <button type="button" className="secondary" onClick={goToNextTab} disabled={activeTabIndex === workflowTabs.length - 1}>
-          Next
-        </button>
       </section>
 
       {activeTab === "files" && (

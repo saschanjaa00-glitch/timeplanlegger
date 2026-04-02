@@ -291,14 +291,6 @@ p {
   color: #1a2234;
 }
 
-.tab-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.35rem;
-  margin-bottom: 0.5rem;
-}
-
 .week-settings {
   display: grid;
   grid-template-columns: minmax(200px, 1.2fr) minmax(160px, 0.9fr) minmax(160px, 0.9fr);
@@ -1920,11 +1912,6 @@ th {
 
   .tab-strip {
     grid-template-columns: 1fr;
-  }
-
-  .tab-controls {
-    flex-direction: column;
-    align-items: stretch;
   }
 
   .hero-title-row {
