@@ -4354,75 +4354,182 @@ export default function Home() {
               )}
 
               {subject.subject_type === "fellesfag" && (
-                <div className="calendar-field excluded-session-field excluded-session-row">
-                  <label>Excluded Sessions</label>
-                  <div className="faggrupper-teacher-add-row">
-                    <input
-                      list={`excluded-session-options-subject-${subject.id}`}
-                      value={excludedDraft}
-                      onChange={(e) => {
-                        const nextValue = e.target.value;
-                        const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
-                        if (resolvedTimeslotId) {
-                          if (!excludedTimeslots.includes(resolvedTimeslotId)) {
-                            updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId]);
+                <details className="calendar-field excluded-session-field excluded-session-row subject-collapsible">
+                  <summary className="subject-collapsible-summary">Excluded Sessions</summary>
+                  <div className="subject-collapsible-body">
+                    <div className="faggrupper-teacher-add-row">
+                      <input
+                        list={`excluded-session-options-subject-${subject.id}`}
+                        value={excludedDraft}
+                        onChange={(e) => {
+                          const nextValue = e.target.value;
+                          const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
+                          if (resolvedTimeslotId) {
+                            if (!excludedTimeslots.includes(resolvedTimeslotId)) {
+                              updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId]);
+                            }
+                            setExcludedSessionSearchBySubjectEntity((prev) => ({
+                              ...prev,
+                              [excludedSearchKey]: "",
+                            }));
+                            return;
                           }
+
+                          setExcludedSessionSearchBySubjectEntity((prev) => ({
+                            ...prev,
+                            [excludedSearchKey]: nextValue,
+                          }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") {
+                            return;
+                          }
+                          e.preventDefault();
+                          const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
+                          if (resolvedTimeslotIds === null) {
+                            setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                            return;
+                          }
+                          if (resolvedTimeslotIds.length === 0) {
+                            return;
+                          }
+                          const nextSet = new Set(excludedTimeslots);
+                          for (const tsId of resolvedTimeslotIds) {
+                            nextSet.add(tsId);
+                          }
+                          updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet));
                           setExcludedSessionSearchBySubjectEntity((prev) => ({
                             ...prev,
                             [excludedSearchKey]: "",
                           }));
-                          return;
-                        }
-
-                        setExcludedSessionSearchBySubjectEntity((prev) => ({
-                          ...prev,
-                          [excludedSearchKey]: nextValue,
-                        }));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key !== "Enter") {
-                          return;
-                        }
-                        e.preventDefault();
-                        const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
-                        if (resolvedTimeslotIds === null) {
-                          setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
-                          return;
-                        }
-                        if (resolvedTimeslotIds.length === 0) {
-                          return;
-                        }
-                        const nextSet = new Set(excludedTimeslots);
-                        for (const tsId of resolvedTimeslotIds) {
-                          nextSet.add(tsId);
-                        }
-                        updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet));
-                        setExcludedSessionSearchBySubjectEntity((prev) => ({
-                          ...prev,
-                          [excludedSearchKey]: "",
-                        }));
-                      }}
-                      placeholder="Search session(s), comma-separated"
-                    />
+                        }}
+                        placeholder="Search session(s), comma-separated"
+                      />
+                    </div>
+                    <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "118px", overflowY: "auto", alignContent: "flex-start" }}>
+                      {excludedTimeslots.length === 0 ? (
+                        <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                      ) : (
+                        excludedTimeslots.map((slotId) => {
+                          const slot = timeslotById[slotId];
+                          const label = slot ? formatTimeslotLabel(slot) : slotId;
+                          return (
+                            <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                              <span className="excluded-session-chip-label">{label}</span>
+                              <button
+                                type="button"
+                                className="subject-class-chip-remove"
+                                onClick={() => {
+                                  const next = excludedTimeslots.filter((id) => id !== slotId);
+                                  updateFellesfagExcludedTimeslots(subject.id, next);
+                                }}
+                                aria-label={`Remove excluded slot ${label}`}
+                              >
+                                x
+                              </button>
+                            </span>
+                          );
+                        })
+                      )}
+                    </div>
+                    <datalist id={`excluded-session-options-subject-${subject.id}`}>
+                      {filterTimeslotsForQuery(excludedDraft).map((slot) => (
+                        <option key={slot.id} value={formatTimeslotLabel(slot)} />
+                      ))}
+                    </datalist>
+                    <small>Force in Fellesfag tab can still place this subject in an excluded session.</small>
                   </div>
-                  <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "118px", overflowY: "auto", alignContent: "flex-start" }}>
-                    {excludedTimeslots.length === 0 ? (
-                      <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                </details>
+              )}
+
+              <details className="calendar-field excluded-session-field excluded-session-row subject-collapsible">
+                <summary className="subject-collapsible-summary">Room Requirements</summary>
+                <div className="subject-collapsible-body">
+                  <div className="room-requirements-top-row">
+                    <div className="faggrupper-force-field" style={{ minWidth: 0 }}>
+                      <label className="faggrupper-force-label">Mode</label>
+                      <select
+                        value={subject.room_requirement_mode ?? "always"}
+                        onChange={(e) => updateSubjectCard(subject.id, {
+                          room_requirement_mode: e.target.value === "once_per_week" ? "once_per_week" : "always",
+                        })}
+                      >
+                        <option value="always">Always in selected rooms</option>
+                        <option value="once_per_week">At least once per week</option>
+                      </select>
+                    </div>
+                    <div className="faggrupper-teacher-add-row room-requirements-search-row">
+                      <input
+                        list={`room-options-subject-${subject.id}`}
+                        value={roomDraft}
+                        onChange={(e) => {
+                          const nextValue = e.target.value;
+                          const resolvedRoomId = resolveRoomIdFromInput(nextValue);
+                          if (resolvedRoomId) {
+                            if (!preferredRoomIds.includes(resolvedRoomId)) {
+                              updateSubjectCard(subject.id, {
+                                preferred_room_ids: [...preferredRoomIds, resolvedRoomId],
+                              });
+                            }
+                            setRoomSearchBySubjectEntity((prev) => ({
+                              ...prev,
+                              [roomSearchKey]: "",
+                            }));
+                            return;
+                          }
+
+                          setRoomSearchBySubjectEntity((prev) => ({
+                            ...prev,
+                            [roomSearchKey]: nextValue,
+                          }));
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key !== "Enter") {
+                            return;
+                          }
+                          e.preventDefault();
+                          const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
+                          if (resolvedRoomIds === null) {
+                            setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                            return;
+                          }
+                          if (resolvedRoomIds.length === 0) {
+                            return;
+                          }
+                          const nextSet = new Set(preferredRoomIds);
+                          for (const roomId of resolvedRoomIds) {
+                            nextSet.add(roomId);
+                          }
+                          updateSubjectCard(subject.id, {
+                            preferred_room_ids: Array.from(nextSet),
+                          });
+                          setRoomSearchBySubjectEntity((prev) => ({
+                            ...prev,
+                            [roomSearchKey]: "",
+                          }));
+                        }}
+                        placeholder="Search room(s), comma-separated"
+                      />
+                    </div>
+                  </div>
+                  <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "98px", overflowY: "auto", alignContent: "flex-start" }}>
+                    {preferredRoomIds.length === 0 ? (
+                      <span className="faggrupper-teacher-empty">No preferred rooms selected</span>
                     ) : (
-                      excludedTimeslots.map((slotId) => {
-                        const slot = timeslotById[slotId];
-                        const label = slot ? formatTimeslotLabel(slot) : slotId;
+                      preferredRoomIds.map((roomId) => {
+                        const roomLabel = roomNameById[roomId] ?? roomId;
                         return (
-                          <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
-                            <span className="excluded-session-chip-label">{label}</span>
+                          <span key={`${subject.id}_${roomId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                            <span className="excluded-session-chip-label">{roomLabel}</span>
                             <button
                               type="button"
                               className="subject-class-chip-remove"
                               onClick={() => {
-                                const next = excludedTimeslots.filter((id) => id !== slotId);
-                                updateFellesfagExcludedTimeslots(subject.id, next);
+                                updateSubjectCard(subject.id, {
+                                  preferred_room_ids: preferredRoomIds.filter((id) => id !== roomId),
+                                });
                               }}
-                              aria-label={`Remove excluded slot ${label}`}
+                              aria-label={`Remove preferred room ${roomLabel}`}
                             >
                               x
                             </button>
@@ -4431,116 +4538,13 @@ export default function Home() {
                       })
                     )}
                   </div>
-                  <datalist id={`excluded-session-options-subject-${subject.id}`}>
-                    {filterTimeslotsForQuery(excludedDraft).map((slot) => (
-                      <option key={slot.id} value={formatTimeslotLabel(slot)} />
+                  <datalist id={`room-options-subject-${subject.id}`}>
+                    {filterRoomsForQuery(roomDraft).map((room) => (
+                      <option key={room.id} value={room.name} />
                     ))}
                   </datalist>
-                  <small>Force in Fellesfag tab can still place this subject in an excluded session.</small>
                 </div>
-              )}
-
-              <div className="calendar-field excluded-session-field excluded-session-row">
-                <label>Room Requirements</label>
-                <div className="room-requirements-top-row">
-                  <div className="faggrupper-force-field" style={{ minWidth: 0 }}>
-                    <label className="faggrupper-force-label">Mode</label>
-                    <select
-                      value={subject.room_requirement_mode ?? "always"}
-                      onChange={(e) => updateSubjectCard(subject.id, {
-                        room_requirement_mode: e.target.value === "once_per_week" ? "once_per_week" : "always",
-                      })}
-                    >
-                      <option value="always">Always in selected rooms</option>
-                      <option value="once_per_week">At least once per week</option>
-                    </select>
-                  </div>
-                  <div className="faggrupper-teacher-add-row room-requirements-search-row">
-                    <input
-                      list={`room-options-subject-${subject.id}`}
-                      value={roomDraft}
-                      onChange={(e) => {
-                        const nextValue = e.target.value;
-                        const resolvedRoomId = resolveRoomIdFromInput(nextValue);
-                        if (resolvedRoomId) {
-                          if (!preferredRoomIds.includes(resolvedRoomId)) {
-                            updateSubjectCard(subject.id, {
-                              preferred_room_ids: [...preferredRoomIds, resolvedRoomId],
-                            });
-                          }
-                          setRoomSearchBySubjectEntity((prev) => ({
-                            ...prev,
-                            [roomSearchKey]: "",
-                          }));
-                          return;
-                        }
-
-                        setRoomSearchBySubjectEntity((prev) => ({
-                          ...prev,
-                          [roomSearchKey]: nextValue,
-                        }));
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key !== "Enter") {
-                          return;
-                        }
-                        e.preventDefault();
-                        const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
-                        if (resolvedRoomIds === null) {
-                          setStatusText("Could not resolve one or more room names. Use exact names from the list.");
-                          return;
-                        }
-                        if (resolvedRoomIds.length === 0) {
-                          return;
-                        }
-                        const nextSet = new Set(preferredRoomIds);
-                        for (const roomId of resolvedRoomIds) {
-                          nextSet.add(roomId);
-                        }
-                        updateSubjectCard(subject.id, {
-                          preferred_room_ids: Array.from(nextSet),
-                        });
-                        setRoomSearchBySubjectEntity((prev) => ({
-                          ...prev,
-                          [roomSearchKey]: "",
-                        }));
-                      }}
-                      placeholder="Search room(s), comma-separated"
-                    />
-                  </div>
-                </div>
-                <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "98px", overflowY: "auto", alignContent: "flex-start" }}>
-                  {preferredRoomIds.length === 0 ? (
-                    <span className="faggrupper-teacher-empty">No preferred rooms selected</span>
-                  ) : (
-                    preferredRoomIds.map((roomId) => {
-                      const roomLabel = roomNameById[roomId] ?? roomId;
-                      return (
-                        <span key={`${subject.id}_${roomId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
-                          <span className="excluded-session-chip-label">{roomLabel}</span>
-                          <button
-                            type="button"
-                            className="subject-class-chip-remove"
-                            onClick={() => {
-                              updateSubjectCard(subject.id, {
-                                preferred_room_ids: preferredRoomIds.filter((id) => id !== roomId),
-                              });
-                            }}
-                            aria-label={`Remove preferred room ${roomLabel}`}
-                          >
-                            x
-                          </button>
-                        </span>
-                      );
-                    })
-                  )}
-                </div>
-                <datalist id={`room-options-subject-${subject.id}`}>
-                  {filterRoomsForQuery(roomDraft).map((room) => (
-                    <option key={room.id} value={room.name} />
-                  ))}
-                </datalist>
-              </div>
+              </details>
 
               <div className="calendar-field" style={{ display: "none" }}>
                 <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
@@ -4552,15 +4556,6 @@ export default function Home() {
                 />
               </div>
 
-              <div className="subject-card-action">
-                <button
-                  type="button"
-                  className="secondary"
-                  onClick={() => deleteSubjectCard(subject.id)}
-                >
-                  Delete Subject
-                </button>
-              </div>
             </div>
 
             {subject.subject_type === "fellesfag" && (
@@ -4701,6 +4696,16 @@ export default function Home() {
                 </div>
               </div>
             )}
+
+            <div className="subject-card-action">
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => deleteSubjectCard(subject.id)}
+              >
+                Delete Subject
+              </button>
+            </div>
 
           </div>
         )}
@@ -6563,84 +6568,83 @@ export default function Home() {
       <section className="grid">
         <article className="card">
           <h2>Rooms (Rom)</h2>
-          <p>Add rooms and assign a base room to each class for their common subjects (fellesfag).</p>
 
-          <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", marginBottom: "12px", alignItems: "end" }}>
-            <input
-              type="text"
-              placeholder="Room name(s) - separate multiple with commas (e.g., R202, R203, R204)"
-              value={roomForm.name}
-              onChange={(e) => setRoomForm({ name: e.target.value })}
-              onKeyDown={(e) => { if (e.key === "Enter") upsertRoom(); }}
-              style={{ fontSize: "0.86em", padding: "6px 8px", border: "1px solid #ccc" }}
-            />
-            <button
-              type="button"
-              onClick={() => {
-                upsertRoom();
-              }}
-              style={{ padding: "6px 12px", whiteSpace: "nowrap" }}
-            >
-              {editingRoomId ? "Update Room" : "Add Room"}
-            </button>
-            {editingRoomId && (
+          <section className="room-add-panel">
+            <div className="room-add-controls">
+              <input
+                type="text"
+                className="room-add-input"
+                placeholder="Room name(s) - separate multiple with commas (e.g., R202, R203, R204)"
+                value={roomForm.name}
+                onChange={(e) => setRoomForm({ name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") upsertRoom(); }}
+              />
               <button
                 type="button"
+                className="room-add-button"
                 onClick={() => {
-                  setRoomForm({ name: "" });
-                  setEditingRoomId(null);
+                  upsertRoom();
                 }}
-                className="secondary"
-                style={{ gridColumn: "2", padding: "6px 12px", whiteSpace: "nowrap" }}
               >
-                Cancel
+                {editingRoomId ? "Update Room" : "Add Room"}
               </button>
-            )}
-          </div>
-
-          <div className="list" style={{ maxHeight: "320px" }}>
-            {sortedRooms.length === 0 ? (
-              <p className="meeting-empty">No rooms added yet.</p>
-            ) : (
-              sortedRooms.map((room) => (
-                <div key={room.id} style={{ display: "flex", justifyContent: "space-between", padding: "6px", borderBottom: "1px solid #eee" }}>
-                  <span>{room.name}</span>
-                  <div style={{ display: "flex", gap: "6px" }}>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => openRoomPreferences(room)}
-                      style={{
-                        padding: "4px 8px",
-                        fontSize: "0.75em",
-                        background: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
-                        borderColor: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
-                        color: room.prioritize_for_preferred_subjects ? "#fff" : undefined,
-                      }}
-                    >
-                      Preferences
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => loadRoomIntoForm(room)}
-                      style={{ padding: "4px 8px", fontSize: "0.75em" }}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => deleteRoom(room.id)}
-                      style={{ padding: "4px 8px", fontSize: "0.75em", color: "#c53" }}
-                    >
-                      Delete
-                    </button>
+              {editingRoomId && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRoomForm({ name: "" });
+                    setEditingRoomId(null);
+                  }}
+                  className="secondary room-add-cancel"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <div className="list room-list" style={{ maxHeight: "288px" }}>
+              {sortedRooms.length === 0 ? (
+                <p className="meeting-empty">No rooms added yet.</p>
+              ) : (
+                sortedRooms.map((room) => (
+                  <div key={room.id} className="room-list-item">
+                    <span>{room.name}</span>
+                    <div style={{ display: "flex", gap: "6px" }}>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => openRoomPreferences(room)}
+                        style={{
+                          padding: "4px 8px",
+                          fontSize: "0.72em",
+                          background: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
+                          borderColor: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
+                          color: room.prioritize_for_preferred_subjects ? "#fff" : undefined,
+                        }}
+                      >
+                        Preferences
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => loadRoomIntoForm(room)}
+                        style={{ padding: "4px 8px", fontSize: "0.72em" }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => deleteRoom(room.id)}
+                        style={{ padding: "4px 8px", fontSize: "0.72em", color: "#c53" }}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
+          </section>
 
           {preferencesRoomId && (
             <div
@@ -6693,43 +6697,52 @@ export default function Home() {
           )}
 
           <h3 style={{ marginTop: "16px" }}>Base Room per Class</h3>
-          <p style={{ fontSize: "0.85em", color: "#666" }}>Assign a base room for each class, which will be used for their fellesfag (common subjects).</p>
-          <div style={{ display: "grid", gap: "6px" }}>
-            {sortedClasses.map((cls) => (
-              <div key={cls.id} style={{ display: "grid", gridTemplateColumns: "110px 1fr", gap: "6px", alignItems: "center", padding: "5px 6px", border: "1px solid #ddd", borderRadius: "4px" }}>
-                <label style={{ fontWeight: 500, fontSize: "0.8em" }}>{cls.name}</label>
-                <select
-                  value={cls.base_room_id ?? ""}
-                  onChange={(e) => {
-                    const newRoomId = e.target.value || undefined;
-                    if (newRoomId) {
-                      // Check if room is already assigned to another class
-                      const isAssignedElsewhere = classes.some((c) => c.id !== cls.id && c.base_room_id === newRoomId);
-                      if (isAssignedElsewhere) {
-                        setStatusText("This room is already assigned to another class.");
-                        return;
-                      }
-                    }
-                    setClasses((prev) => prev.map((c) => (
-                      c.id === cls.id
-                        ? { ...c, base_room_id: newRoomId }
-                        : c
-                    )));
-                  }}
-                  style={{ padding: "4px 6px", fontSize: "0.8em", border: cls.base_room_id ? "1px solid #ccc" : "2px solid #f88", borderRadius: "3px" }}
-                >
-                  <option value="">— No room assigned —</option>
-                  {sortedRooms.map((room) => {
-                    const isCurrentlyAssigned = cls.base_room_id === room.id;
-                    const isAssignedElsewhere = roomsAssignedToClasses.has(room.id) && !isCurrentlyAssigned;
-                    return (
-                      <option key={room.id} value={room.id} disabled={isAssignedElsewhere}>
-                        {room.name}{isAssignedElsewhere ? " (assigned)" : ""}
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
+          <div className="room-base-by-trinn-grid">
+            {classRowsByYear.map((row) => (
+              <section key={row.yearPrefix} className="room-base-trinn-column">
+                {row.classes.length === 0 ? (
+                  <p className="room-base-empty">No classes found.</p>
+                ) : (
+                  <div className="room-base-class-list">
+                    {row.classes.map((cls) => (
+                      <div key={cls.id} className="room-base-class-row">
+                        <label className="room-base-class-label">{cls.name}</label>
+                        <select
+                          value={cls.base_room_id ?? ""}
+                          onChange={(e) => {
+                            const newRoomId = e.target.value || undefined;
+                            if (newRoomId) {
+                              // Check if room is already assigned to another class
+                              const isAssignedElsewhere = classes.some((c) => c.id !== cls.id && c.base_room_id === newRoomId);
+                              if (isAssignedElsewhere) {
+                                setStatusText("This room is already assigned to another class.");
+                                return;
+                              }
+                            }
+                            setClasses((prev) => prev.map((c) => (
+                              c.id === cls.id
+                                ? { ...c, base_room_id: newRoomId }
+                                : c
+                            )));
+                          }}
+                          className={`room-base-select${cls.base_room_id ? "" : " room-base-select-unset"}`}
+                        >
+                          <option value="">— No room assigned —</option>
+                          {sortedRooms.map((room) => {
+                            const isCurrentlyAssigned = cls.base_room_id === room.id;
+                            const isAssignedElsewhere = roomsAssignedToClasses.has(room.id) && !isCurrentlyAssigned;
+                            return (
+                              <option key={room.id} value={room.id} disabled={isAssignedElsewhere}>
+                                {room.name}{isAssignedElsewhere ? " (assigned)" : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </section>
             ))}
           </div>
         </article>

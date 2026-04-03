@@ -923,12 +923,38 @@ p {
 
 .subject-card-action {
   display: flex;
+  justify-content: flex-end;
   align-items: flex-end;
 }
 
 .subject-card-action button {
   width: auto;
-  min-width: 150px;
+  min-width: 76px;
+  padding: 0.18rem 0.42rem;
+  font-size: 0.68rem;
+  line-height: 1.05;
+}
+
+.subject-collapsible {
+  border: 1px solid #d8d8d2;
+  border-radius: 4px;
+  padding: 0.18rem 0.22rem;
+  background: #fafaf8;
+}
+
+.subject-collapsible-summary {
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #34332f;
+}
+
+.subject-collapsible-body {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.28rem;
 }
 
 .subject-class-manager {
@@ -1240,6 +1266,126 @@ p {
   margin-bottom: 0;
 }
 
+.room-add-panel {
+  margin-bottom: 0.6rem;
+  border: 1px solid #d9d5cb;
+  border-radius: 7px;
+  background: linear-gradient(180deg, #faf9f6 0%, #f4f2ec 100%);
+  padding: 0.42rem;
+}
+
+.room-add-controls {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.35rem;
+  align-items: stretch;
+}
+
+.room-add-input {
+  height: 29px;
+  font-size: 0.73rem;
+  padding: 4px 7px;
+  border: 1px solid #cbc8c0;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.room-add-button,
+.room-add-cancel {
+  height: 29px;
+  padding: 4px 10px;
+  font-size: 0.73rem;
+  white-space: nowrap;
+  align-self: stretch;
+}
+
+.room-add-cancel {
+  grid-column: 2;
+}
+
+.room-base-by-trinn-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.room-base-trinn-column {
+  border: 1px solid #ddd8cd;
+  border-radius: 6px;
+  background: #fcfbf7;
+  padding: 0.2rem;
+  display: grid;
+  gap: 0.16rem;
+  align-content: start;
+}
+
+.room-base-trinn-title {
+  margin: 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #575249;
+}
+
+.room-base-empty {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #7a756a;
+}
+
+.room-base-class-list {
+  display: grid;
+  gap: 0.16rem;
+}
+
+.room-base-class-row {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 0.16rem;
+  align-items: center;
+  padding: 0.08rem 0.1rem;
+  border: 1px solid #e1ddd2;
+  border-radius: 4px;
+  background: #fff;
+}
+
+.room-base-class-label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.74rem;
+  line-height: 1.15;
+  color: #2f2f2b;
+}
+
+.room-base-select {
+  width: 100%;
+  height: 24px;
+  padding: 2px 5px;
+  font-size: 0.74rem;
+  border: 1px solid #ccc;
+  border-radius: 3px;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.room-list {
+  margin-top: 0.2rem;
+  padding-top: 0.2rem;
+}
+
+.room-list-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px;
+  border-bottom: 1px solid #eee;
+  font-size: 0.78rem;
+}
+
+.room-base-select-unset {
+  border: 2px solid #f88;
+}
+
 .excluded-session-selected {
   width: 100%;
   min-width: 0;
@@ -1389,6 +1535,10 @@ p {
   .faggrupper-teacher-picker {
     grid-column: 1 / -1;
   }
+
+  .room-base-by-trinn-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .block-subject-row {
   display: grid;
@@ -1468,6 +1618,18 @@ p {
 }
 @media (max-width: 760px) {
   .grid.blocks-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .room-add-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .room-add-cancel {
+    grid-column: auto;
+  }
+
+  .room-base-by-trinn-grid {
     grid-template-columns: 1fr;
   }
 
