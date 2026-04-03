@@ -18,6 +18,7 @@ MAX_WEEKLY_WORK_MINUTES_100_PERCENT = 29 * 60
 PREFERRED_AVOID_WEIGHT = 20
 DAY_IMBALANCE_WEIGHT = 1
 BOUNDARY_SLOT_WEIGHT = 1
+BOUNDARY_REPEAT_EXCESS_WEIGHT = 2
 TEACHER_PRESENCE_EXCESS_WEIGHT = 5
 TEACHER_WORKLOAD_EXCESS_WEIGHT = 10
 FELLESFAG_SAME_DAY_PENALTY_WEIGHT = 3
@@ -939,6 +940,10 @@ def _generate_schedule_staged(
             min_p, max_p = day_period_bounds[ts.day]
             day_period_bounds[ts.day] = (min(min_p, ts.period), max(max_p, ts.period))
 
+    def _is_boundary_period(day: str, period: int) -> bool:
+        min_p, max_p = day_period_bounds.get(day, (period, period))
+        return period in {min_p, max_p}
+
     def _slot_sort_key(ts_id: str) -> Tuple[str, int]:
         ts = timeslots_by_id[ts_id]
         return (ts.day, ts.period)
@@ -1272,6 +1277,18 @@ def _generate_schedule_staged(
         )
     )
 
+    seeded_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
+    seeded_first_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
+    seeded_last_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
+    for existing_item in schedule_items:
+        min_p, max_p = day_period_bounds.get(existing_item.day, (existing_item.period, existing_item.period))
+        if existing_item.period == min_p or existing_item.period == max_p:
+            seeded_boundary_count_by_subject[existing_item.subject_id] += 1
+        if existing_item.period == min_p:
+            seeded_first_boundary_count_by_subject[existing_item.subject_id] += 1
+        if existing_item.period == max_p:
+            seeded_last_boundary_count_by_subject[existing_item.subject_id] += 1
+
     for subject in remaining_subjects:
         teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
@@ -1299,6 +1316,9 @@ def _generate_schedule_staged(
         strict_day_capacity = sum(max_units_by_day.values())
         allow_same_day_if_needed = strict_day_capacity < required_units
         enforce_unique_day = not is_norsk_vg3
+        subject_boundary_count = seeded_boundary_count_by_subject.get(subject.id, 0)
+        subject_first_boundary_count = seeded_first_boundary_count_by_subject.get(subject.id, 0)
+        subject_last_boundary_count = seeded_last_boundary_count_by_subject.get(subject.id, 0)
 
         subject_periods_by_day: Dict[str, Set[int]] = defaultdict(set)
         for existing_item in schedule_items:
@@ -1438,6 +1458,9 @@ def _generate_schedule_staged(
 
                     min_p, max_p = day_period_bounds.get(ts.day, (ts.period, ts.period))
                     boundary_penalty = 1 if ts.period in {min_p, max_p} else 0
+                    boundary_repeat_penalty = subject_boundary_count if boundary_penalty else 0
+                    first_slot_repeat_penalty = subject_first_boundary_count if ts.period == min_p else 0
+                    last_slot_repeat_penalty = subject_last_boundary_count if ts.period == max_p else 0
 
                     class_week_balance_penalty = 0
                     if target_class_units and subject.class_ids:
@@ -1474,7 +1497,10 @@ def _generate_schedule_staged(
                         class_week_balance_penalty,
                         cross_week_pair_penalty,
                         excluded_slot_penalty,
+                        first_slot_repeat_penalty,
+                        last_slot_repeat_penalty,
                         boundary_penalty,
+                        boundary_repeat_penalty,
                         day_load,
                         ts.day,
                         ts.period,
@@ -1522,6 +1548,13 @@ def _generate_schedule_staged(
 
             subject_days_used.add(chosen_ts.day)
             subject_periods_by_day[chosen_ts.day].add(chosen_ts.period)
+            if _is_boundary_period(chosen_ts.day, chosen_ts.period):
+                subject_boundary_count += 1
+            chosen_min_p, chosen_max_p = day_period_bounds.get(chosen_ts.day, (chosen_ts.period, chosen_ts.period))
+            if chosen_ts.period == chosen_min_p:
+                subject_first_boundary_count += 1
+            if chosen_ts.period == chosen_max_p:
+                subject_last_boundary_count += 1
             units_placed += chosen_units
 
         if (
@@ -4457,6 +4490,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     day_imbalance_terms: List[cp_model.IntVar] = []
     preferred_avoid_penalty_vars: List[cp_model.IntVar] = []
     boundary_slot_penalty_vars: List[cp_model.IntVar] = []
+    boundary_repeat_excess_terms: List[cp_model.IntVar] = []
 
     for school_class in data.classes:
         class_subjects = [
@@ -4494,14 +4528,17 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             day_imbalance_terms.extend([under, over])
 
     # Soft preference: avoid assigning too much only to first/last slot of each day.
-    boundary_slot_ids: Set[str] = set()
+    first_slot_ids: Set[str] = set()
+    last_slot_ids: Set[str] = set()
     for day in days:
         day_slots = [t for t in data.timeslots if t.day == day]
         if not day_slots:
             continue
         sorted_day_slots = sorted(day_slots, key=lambda t: t.period)
-        boundary_slot_ids.add(sorted_day_slots[0].id)
-        boundary_slot_ids.add(sorted_day_slots[-1].id)
+        first_slot_ids.add(sorted_day_slots[0].id)
+        last_slot_ids.add(sorted_day_slots[-1].id)
+
+    boundary_slot_ids = first_slot_ids | last_slot_ids
 
     if boundary_slot_ids:
         for subject in data.subjects:
@@ -4510,6 +4547,54 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     key = (subject.id, timeslot_id, week_label)
                     if key in x:
                         boundary_slot_penalty_vars.append(x[key])
+
+        # Low-priority preference: avoid repeatedly placing a subject in the first
+        # or last period. Allow at most one per side without extra penalty.
+        for subject in data.subjects:
+            if subject.id in block_subject_ids:
+                continue
+            for week_label in week_labels:
+                first_literals = [
+                    x[(subject.id, timeslot_id, week_label)]
+                    for timeslot_id in first_slot_ids
+                    if (subject.id, timeslot_id, week_label) in x
+                ]
+                if first_literals:
+                    max_first_count = len(first_literals)
+                    first_count = model.NewIntVar(
+                        0,
+                        max_first_count,
+                        f"first_count_{subject.id}_{week_label}",
+                    )
+                    model.Add(first_count == sum(first_literals))
+                    first_excess = model.NewIntVar(
+                        0,
+                        max_first_count,
+                        f"first_excess_{subject.id}_{week_label}",
+                    )
+                    model.Add(first_excess >= first_count - 1)
+                    boundary_repeat_excess_terms.append(first_excess)
+
+                last_literals = [
+                    x[(subject.id, timeslot_id, week_label)]
+                    for timeslot_id in last_slot_ids
+                    if (subject.id, timeslot_id, week_label) in x
+                ]
+                if last_literals:
+                    max_last_count = len(last_literals)
+                    last_count = model.NewIntVar(
+                        0,
+                        max_last_count,
+                        f"last_count_{subject.id}_{week_label}",
+                    )
+                    model.Add(last_count == sum(last_literals))
+                    last_excess = model.NewIntVar(
+                        0,
+                        max_last_count,
+                        f"last_excess_{subject.id}_{week_label}",
+                    )
+                    model.Add(last_excess >= last_count - 1)
+                    boundary_repeat_excess_terms.append(last_excess)
 
     # Soft preference: avoid orange (preferred_avoid_timeslots) when possible.
     for subject in data.subjects:
@@ -4538,6 +4623,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         objective_parts.append(PREFERRED_AVOID_WEIGHT * sum(preferred_avoid_penalty_vars))
     if boundary_slot_penalty_vars:
         objective_parts.append(BOUNDARY_SLOT_WEIGHT * sum(boundary_slot_penalty_vars))
+    if boundary_repeat_excess_terms:
+        objective_parts.append(BOUNDARY_REPEAT_EXCESS_WEIGHT * sum(boundary_repeat_excess_terms))
     if teacher_presence_excess_terms:
         objective_parts.append(TEACHER_PRESENCE_EXCESS_WEIGHT * sum(teacher_presence_excess_terms))
     if teacher_workload_excess_terms:
