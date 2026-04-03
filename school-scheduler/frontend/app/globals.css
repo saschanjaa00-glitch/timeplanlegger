@@ -2265,6 +2265,54 @@ button.secondary {
   letter-spacing: 0.04em;
 }
 
+.status-warning-panel {
+  flex: 1 1 100%;
+  border: 1px solid #d8bc88;
+  background: #fff5de;
+  color: #5d3f10;
+}
+
+.status-warning-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  align-items: center;
+  padding: 0.45rem 0.56rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.status-warning-panel > summary::-webkit-details-marker {
+  display: none;
+}
+
+.status-warning-summary-hint {
+  font-size: 0.72rem;
+  font-weight: 500;
+  opacity: 0.85;
+}
+
+.status-warning-content {
+  border-top: 1px solid #e0c89f;
+  padding: 0.5rem 0.56rem 0.56rem;
+  font-size: 0.78rem;
+}
+
+.status-warning-content p {
+  margin: 0 0 0.28rem;
+}
+
+.status-warning-content ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.status-warning-content li {
+  margin: 0.15rem 0;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid #d4d3ce;

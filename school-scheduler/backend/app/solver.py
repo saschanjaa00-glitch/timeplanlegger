@@ -24,6 +24,15 @@ TEACHER_WORKLOAD_EXCESS_WEIGHT = 10
 FELLESFAG_SAME_DAY_PENALTY_WEIGHT = 3
 NORSK_VG3_NO_DOUBLE90_PENALTY_WEIGHT = 12
 SOLVER_LOG_PATH = Path(__file__).resolve().parents[1] / "solver_last_run.log"
+DAY_ORDER_INDEX = {
+    "monday": 0,
+    "tuesday": 1,
+    "wednesday": 2,
+    "thursday": 3,
+    "friday": 4,
+    "saturday": 5,
+    "sunday": 6,
+}
 
 
 def _solver_log(message: str, reset: bool = False) -> None:
@@ -331,21 +340,38 @@ def _assign_rooms_to_schedule(
     room_usage: Dict[Tuple[str, str | None], Set[str]] = defaultdict(set)
     subject_room_usage_any: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
     subject_room_usage_by_week: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+    subject_slot_room_by_week: Dict[Tuple[str, str, str], str] = {}
+
+    def _opposite_week(week_key: str) -> str | None:
+        if week_key == "A":
+            return "B"
+        if week_key == "B":
+            return "A"
+        return None
 
     def _pick_with_consistency(
         candidate_room_ids: List[str],
         subject_id: str,
         week_key: str,
+        timeslot_id: str | None = None,
     ) -> str | None:
         if not candidate_room_ids:
             return None
-        # Low-priority preference: when several rooms are equally feasible,
-        # reuse rooms already used by this subject to keep sessions consistent.
-        def _score(room_id: str) -> Tuple[int, int, int]:
-            week_count = subject_room_usage_by_week[(subject_id, week_key)].get(room_id, 0)
+        opposite_week = _opposite_week(week_key)
+        mirrored_room = (
+            subject_slot_room_by_week.get((subject_id, timeslot_id, opposite_week))
+            if timeslot_id and opposite_week
+            else None
+        )
+
+        # Prefer the same room across all sessions first, then within week,
+        # and strongly prefer matching the opposite week's room in the same slot.
+        def _score(room_id: str) -> Tuple[int, int, int, int]:
+            mirror_penalty = 0 if mirrored_room and room_id == mirrored_room else 1
             any_count = subject_room_usage_any[subject_id].get(room_id, 0)
+            week_count = subject_room_usage_by_week[(subject_id, week_key)].get(room_id, 0)
             order_idx = room_order_index.get(room_id, len(room_order_index))
-            return (-week_count, -any_count, order_idx)
+            return (mirror_penalty, -any_count, -week_count, order_idx)
 
         return min(candidate_room_ids, key=_score)
 
@@ -459,10 +485,20 @@ def _assign_rooms_to_schedule(
 
             if preferred_rooms and mode == "always":
                 if available_preferred:
-                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_preferred,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
             elif preferred_rooms and mode == "once_per_week":
                 if not once_mode_satisfied[subject_week_key] and available_preferred:
-                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_preferred,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                     once_mode_satisfied[subject_week_key] = True
                 elif base_room_id and base_room_id not in used_rooms:
                     assigned_room_id = base_room_id
@@ -471,31 +507,59 @@ def _assign_rooms_to_schedule(
                         available_non_preferred_non_prioritized,
                         item.subject_id,
                         week_key,
+                        item.timeslot_id,
                     )
                 elif available_non_preferred_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_preferred_prioritized,
                         item.subject_id,
                         week_key,
+                        item.timeslot_id,
                     )
                 elif available_preferred:
-                    assigned_room_id = _pick_with_consistency(available_preferred, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_preferred,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                 elif available_non_prioritized:
-                    assigned_room_id = _pick_with_consistency(available_non_prioritized, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                 elif available_prioritized:
-                    assigned_room_id = _pick_with_consistency(available_prioritized, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
             else:
                 if base_room_id and base_room_id not in used_rooms:
                     assigned_room_id = base_room_id
                 if not assigned_room_id and available_non_prioritized:
-                    assigned_room_id = _pick_with_consistency(available_non_prioritized, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                 if not assigned_room_id and available_prioritized:
-                    assigned_room_id = _pick_with_consistency(available_prioritized, item.subject_id, week_key)
+                    assigned_room_id = _pick_with_consistency(
+                        available_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
 
             if assigned_room_id:
                 used_rooms.add(assigned_room_id)
                 subject_room_usage_any[item.subject_id][assigned_room_id] += 1
                 subject_room_usage_by_week[(item.subject_id, week_key)][assigned_room_id] += 1
+                subject_slot_room_by_week[(item.subject_id, item.timeslot_id, week_key)] = assigned_room_id
                 if assigned_room_id in preferred_rooms and mode == "once_per_week":
                     once_preferred_grants[(assigned_room_id, week_key, item.subject_id)] += 1
                     once_mode_satisfied[subject_week_key] = True
@@ -607,6 +671,7 @@ def _assign_rooms_to_schedule(
                 chosen_room = _pick_with_consistency(free_preferred, subject_id, week_key)
                 if chosen_room:
                     _set_item_room(idx, chosen_room)
+                    subject_slot_room_by_week[(subject_id, item.timeslot_id, week_key)] = chosen_room
                     preferred_count_by_subject_week[(subject_id, week_key)] += 1
                     satisfied = True
                     break
@@ -676,6 +741,9 @@ def _assign_rooms_to_schedule(
 
                 _set_item_room(occupant_idx, swap_room)
                 _set_item_room(idx, preferred_room_id)
+                occupant_week_key = occupant_item.week_type or "base"
+                subject_slot_room_by_week[(occupant_item.subject_id, occupant_item.timeslot_id, occupant_week_key)] = swap_room
+                subject_slot_room_by_week[(subject_id, item.timeslot_id, week_key)] = preferred_room_id
 
                 if preferred_room_id in occupant_preferred_set and swap_room not in occupant_preferred_set:
                     for wk in occupant_week_keys:
@@ -751,6 +819,7 @@ def _assign_rooms_to_schedule(
                 chosen_room = _pick_with_consistency(free_preferred, subject_id, target_week_key)
                 if chosen_room:
                     _set_item_room(target_idx, chosen_room)
+                    subject_slot_room_by_week[(subject_id, target_item.timeslot_id, target_week_key)] = chosen_room
                     for wk in _enforced_week_keys(result_items[target_idx]):
                         preferred_count_by_subject_week[(subject_id, wk)] += 1
                     mirrored = True
@@ -824,6 +893,9 @@ def _assign_rooms_to_schedule(
 
                 _set_item_room(occupant_idx, swap_room)
                 _set_item_room(target_idx, preferred_room_id)
+                occupant_week_key = occupant_item.week_type or "base"
+                subject_slot_room_by_week[(occupant_item.subject_id, occupant_item.timeslot_id, occupant_week_key)] = swap_room
+                subject_slot_room_by_week[(subject_id, target_item.timeslot_id, target_week_key)] = preferred_room_id
 
                 if preferred_room_id in occupant_preferred_set and swap_room not in occupant_preferred_set:
                     for wk in occupant_week_keys:
@@ -1025,7 +1097,8 @@ def _generate_schedule_staged(
 
     def _slot_sort_key(ts_id: str) -> Tuple[str, int]:
         ts = timeslots_by_id[ts_id]
-        return (ts.day, ts.period)
+        day_index = DAY_ORDER_INDEX.get((ts.day or "").lower(), 99)
+        return (day_index, ts.period)
 
     if seed_items:
         for item in seed_items:
@@ -3222,7 +3295,13 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 odd_heavy_week_by_subject,
             )
 
-        total_two_week = 2 * int(subject.sessions_per_week or 1)
+        nominal_units = max(0, int(subject.sessions_per_week or 1))
+        # Keep even-load subjects symmetric across A/B.
+        # Dynamic two-week compensation is only needed for odd loads.
+        if nominal_units % 2 == 0:
+            return nominal_units
+
+        total_two_week = 2 * nominal_units
         return max(0, total_two_week - primary_placed_units)
 
     reduced_tail_fallback_by_subject: Dict[str, bool] = {}
@@ -3638,6 +3717,18 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 metadata["partial"] = 1.0
                 metadata["placed_count"] = float(len(combined_partial_schedule))
             metadata[f"failed_week_{secondary_week_label.lower()}"] = 1.0
+
+            if combined_partial_schedule:
+                return ScheduleResponse(
+                    status="success",
+                    message=(
+                        "Schedule generated with current constraints. "
+                        f"{secondary_week_label}-week could not place all preferred units."
+                    ),
+                    schedule=combined_partial_schedule,
+                    metadata=metadata,
+                )
+
             return ScheduleResponse(
                 status=response_secondary.status,
                 message=f"{secondary_week_label}-week: {response_secondary.message}",
@@ -3765,37 +3856,37 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     )
                     failures.append(attempt)
 
+    def _response_total_shortage_units(response: ScheduleResponse) -> int:
+        items = response.schedule or []
+        units_by_subject: Dict[str, int] = defaultdict(int)
+        for item in items:
+            week = item.week_type or "base"
+            if week not in {"A", "B"}:
+                continue
+            units_by_subject[item.subject_id] += _item_units(item, timeslot_units_map)
+
+        shortage = 0
+        for subject in data.subjects:
+            if subject.id in block_subject_ids:
+                continue
+            expected_units = max(0, 2 * int(subject.sessions_per_week or 1))
+            placed_units = units_by_subject.get(subject.id, 0)
+            if placed_units < expected_units:
+                shortage += expected_units - placed_units
+        return shortage
+
     if attempts:
-        attempts.sort(key=lambda response: _schedule_quality(response.schedule))
+        attempts.sort(key=lambda response: (_response_total_shortage_units(response), _schedule_quality(response.schedule)))
         return attempts[0]
 
     if failures:
-        def _failure_total_shortage_units(response: ScheduleResponse) -> int:
-            items = response.schedule or []
-            units_by_subject: Dict[str, int] = defaultdict(int)
-            for item in items:
-                week = item.week_type or "base"
-                if week not in {"A", "B"}:
-                    continue
-                units_by_subject[item.subject_id] += _item_units(item, timeslot_units_map)
-
-            shortage = 0
-            for subject in data.subjects:
-                if subject.id in block_subject_ids:
-                    continue
-                expected_units = max(0, 2 * int(subject.sessions_per_week or 1))
-                placed_units = units_by_subject.get(subject.id, 0)
-                if placed_units < expected_units:
-                    shortage += expected_units - placed_units
-            return shortage
-
         def _failure_rank(response: ScheduleResponse) -> Tuple[int, int, int, int]:
             items = response.schedule or []
             a_count = sum(1 for item in items if (item.week_type or "base") == "A")
             b_count = sum(1 for item in items if (item.week_type or "base") == "B")
             both_weeks_present = 1 if (a_count > 0 and b_count > 0) else 0
             week_balance = -abs(a_count - b_count)
-            shortage_units = _failure_total_shortage_units(response)
+            shortage_units = _response_total_shortage_units(response)
             quality = _schedule_quality(items) if items else 10**9
             return (
                 both_weeks_present,

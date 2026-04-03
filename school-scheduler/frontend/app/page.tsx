@@ -148,6 +148,15 @@ type GenerateResponse = {
   metadata?: Record<string, number>;
 };
 
+type PlacementWarningDetail = {
+  subject_id: string;
+  subject_name: string;
+  week: "A" | "B";
+  required_units: number;
+  placed_units: number;
+  missing_units: number;
+};
+
 type SavedJsonExport = {
   id: string;
   name: string;
@@ -264,6 +273,118 @@ function formatGeneratedScheduleStatus(data: GenerateResponse, runId: number): s
     : "";
 
   return `${data.message} ${schedule.length} raw item(s): ${countShared} shared, ${countA} A, ${countB} B; combined view shows ${mergedCount} item(s) (run ${runId}).${filterHint}`;
+}
+
+function getFailedWeeksFromMetadata(metadata?: Record<string, number>): Array<"A" | "B"> {
+  const failedWeeks: Array<"A" | "B"> = [];
+  if ((metadata?.failed_week_a ?? 0) > 0) {
+    failedWeeks.push("A");
+  }
+  if ((metadata?.failed_week_b ?? 0) > 0) {
+    failedWeeks.push("B");
+  }
+  return failedWeeks;
+}
+
+function scheduledItemUnits(item: ScheduledItem, timeslotById: Record<string, Timeslot>): number {
+  const itemStart = toMinutes(item.start_time);
+  const itemEnd = toMinutes(item.end_time);
+  if (itemStart !== Number.MAX_SAFE_INTEGER && itemEnd !== Number.MAX_SAFE_INTEGER && itemEnd > itemStart) {
+    return Math.max(1, Math.round((itemEnd - itemStart) / 45));
+  }
+
+  const slot = timeslotById[item.timeslot_id];
+  if (!slot) {
+    return 1;
+  }
+  const slotStart = toMinutes(slot.start_time);
+  const slotEnd = toMinutes(slot.end_time);
+  if (slotStart !== Number.MAX_SAFE_INTEGER && slotEnd !== Number.MAX_SAFE_INTEGER && slotEnd > slotStart) {
+    return Math.max(1, Math.round((slotEnd - slotStart) / 45));
+  }
+  return 1;
+}
+
+function collectPlacementWarningDetails(
+  response: GenerateResponse,
+  plannedSubjects: Subject[],
+  timeslots: Timeslot[],
+): PlacementWarningDetail[] {
+  const failedWeeks = getFailedWeeksFromMetadata(response.metadata);
+  if (failedWeeks.length === 0) {
+    return [];
+  }
+
+  const timeslotById: Record<string, Timeslot> = Object.fromEntries(timeslots.map((slot) => [slot.id, slot]));
+  const placedUnitsBySubjectWeek: Record<string, { A: number; B: number }> = {};
+
+  for (const subject of plannedSubjects) {
+    placedUnitsBySubjectWeek[subject.id] = { A: 0, B: 0 };
+  }
+
+  for (const item of response.schedule || []) {
+    const tracker = placedUnitsBySubjectWeek[item.subject_id];
+    if (!tracker) {
+      continue;
+    }
+
+    const units = scheduledItemUnits(item, timeslotById);
+    if (item.week_type === "A") {
+      tracker.A += units;
+      continue;
+    }
+    if (item.week_type === "B") {
+      tracker.B += units;
+      continue;
+    }
+
+    if (failedWeeks.includes("A")) {
+      tracker.A += units;
+    }
+    if (failedWeeks.includes("B")) {
+      tracker.B += units;
+    }
+  }
+
+  const details: PlacementWarningDetail[] = [];
+  for (const subject of plannedSubjects) {
+    const requiredUnits = Math.max(1, Number(subject.sessions_per_week || 1));
+    // Match solver's odd-week balancing tolerance: odd unit loads may be 1 unit
+    // lower in one week while still considered balanced across A/B.
+    const minimumExpectedUnits = requiredUnits % 2 === 1
+      ? Math.max(0, requiredUnits - 1)
+      : requiredUnits;
+    const placed = placedUnitsBySubjectWeek[subject.id] ?? { A: 0, B: 0 };
+
+    for (const week of failedWeeks) {
+      const placedUnits = week === "A" ? placed.A : placed.B;
+      if (placedUnits >= minimumExpectedUnits) {
+        continue;
+      }
+
+      details.push({
+        subject_id: subject.id,
+        subject_name: subject.name,
+        week,
+        required_units: requiredUnits,
+        placed_units: placedUnits,
+        missing_units: minimumExpectedUnits - placedUnits,
+      });
+    }
+  }
+
+  details.sort((a, b) => {
+    if (b.missing_units !== a.missing_units) {
+      return b.missing_units - a.missing_units;
+    }
+    const weekCmp = a.week.localeCompare(b.week);
+    if (weekCmp !== 0) {
+      return weekCmp;
+    }
+    return a.subject_name.localeCompare(b.subject_name);
+  });
+
+  return details;
 }
 
 type CompareEntity = {
@@ -876,6 +997,8 @@ export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [schedule, setSchedule] = useState<ScheduledItem[]>([]);
   const [statusText, setStatusText] = useState("Ready");
+  const [placementWarningDetails, setPlacementWarningDetails] = useState<PlacementWarningDetail[]>([]);
+  const [placementWarningSummary, setPlacementWarningSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("files");
   const [activeOverviewSubtab, setActiveOverviewSubtab] = useState<OverviewSubtab>("rooms");
@@ -4999,6 +5122,8 @@ export default function Home() {
     generationRunRef.current = runId;
     setLoading(true);
     setStatusText(`Generating schedule (run ${runId})...`);
+    setPlacementWarningDetails([]);
+    setPlacementWarningSummary("");
     setSchedule([]);
 
     try {
@@ -5098,10 +5223,21 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
+      const warningDetails = collectPlacementWarningDetails(data, cleanSubjects, timeslots);
+      const failedWeeks = getFailedWeeksFromMetadata(data.metadata);
+      if (warningDetails.length > 0) {
+        const weekLabel = failedWeeks.join(" + ");
+        setPlacementWarningSummary(
+          `${weekLabel}-week is below preferred units for ${warningDetails.length} subject${warningDetails.length === 1 ? "" : "s"}.`,
+        );
+      }
+      setPlacementWarningDetails(warningDetails);
       setStatusText(formatGeneratedScheduleStatus(data, runId));
       setSchedule(data.schedule || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      setPlacementWarningDetails([]);
+      setPlacementWarningSummary("");
       setStatusText(`Failed (run ${runId}): ${message}`);
     } finally {
       setLoading(false);
@@ -5110,6 +5246,8 @@ export default function Home() {
 
   function clearGeneratedSchedule() {
     setSchedule([]);
+    setPlacementWarningDetails([]);
+    setPlacementWarningSummary("");
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
@@ -8339,6 +8477,24 @@ export default function Home() {
             Clear Generated Schedule
           </button>
           <div className="status">{statusText}</div>
+          {placementWarningDetails.length > 0 && (
+            <details className="status-warning-panel">
+              <summary>
+                <span>{placementWarningSummary || "Some preferred units were not placed."}</span>
+                <span className="status-warning-summary-hint">Click to expand</span>
+              </summary>
+              <div className="status-warning-content">
+                <p>Details for subjects placed below preferred weekly units:</p>
+                <ul>
+                  {placementWarningDetails.map((detail) => (
+                    <li key={`${detail.subject_id}_${detail.week}`}>
+                      {detail.week}-week: {detail.subject_name} ({detail.subject_id}) required {detail.required_units}u, placed {detail.placed_units}u, missing {detail.missing_units}u.
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          )}
         </section>
 
         <section className="card">
@@ -8646,7 +8802,7 @@ export default function Home() {
                               }
 
                               const blockSummaryKey = isClassView && blockInfo
-                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}`
+                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}|${item.week_type ?? "both"}`
                                 : undefined;
 
                               let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;
