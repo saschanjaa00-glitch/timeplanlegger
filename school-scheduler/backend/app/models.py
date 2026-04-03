@@ -94,6 +94,12 @@ class Room(BaseModel):
     prioritize_for_preferred_subjects: bool = False
 
 
+class SportsHall(BaseModel):
+    id: str
+    name: str
+    allowed_subject_ids: List[str] = Field(default_factory=list)
+
+
 class ScheduleRequest(BaseModel):
     subjects: List[Subject]
     teachers: List[Teacher]
@@ -102,6 +108,7 @@ class ScheduleRequest(BaseModel):
     blocks: List[Block] = Field(default_factory=list)
     meetings: List[Meeting] = Field(default_factory=list)
     rooms: List[Room] = Field(default_factory=list)
+    sports_halls: List[SportsHall] = Field(default_factory=list)
     alternating_weeks_enabled: bool = False
     alternate_non_block_subjects: bool = False
 

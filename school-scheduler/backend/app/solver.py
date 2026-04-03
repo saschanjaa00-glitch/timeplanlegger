@@ -288,16 +288,31 @@ def _assign_rooms_to_schedule(
     1. Fellesfag subjects with a base room for their class
     2. Other subjects using available rooms
     3. Handle conflicts by ensuring no room double-booking
+    Sports-only subjects (listed in any sports_hall.allowed_subject_ids) are
+    restricted to sports hall rooms exclusively.
     """
-    if not data.rooms:
+    sports_halls = getattr(data, "sports_halls", []) or []
+    # Build a mapping of room-like objects from sports halls so the solver can
+    # assign them just like regular rooms.
+    sports_hall_ids: Set[str] = {sh.id for sh in sports_halls}
+    sports_only_subject_ids: Set[str] = {
+        sid for sh in sports_halls for sid in sh.allowed_subject_ids
+    }
+    # Combine regular rooms and sports halls into a single pool for the solver.
+    all_rooms = list(data.rooms) + [
+        type("_SHRoom", (), {"id": sh.id, "name": sh.name, "prioritize_for_preferred_subjects": False})()
+        for sh in sports_halls
+    ]
+
+    if not all_rooms:
         return schedule_items
 
-    rooms_by_id = {r.id: r for r in data.rooms}
+    rooms_by_id = {r.id: r for r in all_rooms}
     room_ids_ordered = list(rooms_by_id.keys())
     room_order_index = {room_id: idx for idx, room_id in enumerate(room_ids_ordered)}
     prioritized_rooms = {
         room.id
-        for room in data.rooms
+        for room in all_rooms
         if getattr(room, "prioritize_for_preferred_subjects", False)
     }
     teachers_by_id = {teacher.id: teacher for teacher in data.teachers}
@@ -414,6 +429,12 @@ def _assign_rooms_to_schedule(
             assigned_room_id: str | None = None
             available_preferred = [room_id for room_id in preferred_rooms if room_id not in used_rooms]
             available_any = [room_id for room_id in room_ids_ordered if room_id not in used_rooms]
+            # Sports-only subjects must use sports hall rooms exclusively; all other
+            # subjects must NOT use sports hall rooms.
+            if item.subject_id in sports_only_subject_ids:
+                available_any = [room_id for room_id in available_any if room_id in sports_hall_ids]
+            else:
+                available_any = [room_id for room_id in available_any if room_id not in sports_hall_ids]
             available_non_prioritized = [room_id for room_id in available_any if room_id not in prioritized_rooms]
             available_prioritized = [room_id for room_id in available_any if room_id in prioritized_rooms]
             available_non_preferred_non_prioritized = [

@@ -95,6 +95,12 @@ type Room = {
   prioritize_for_preferred_subjects?: boolean;
 };
 
+type SportsHall = {
+  id: string;
+  name: string;
+  allowed_subject_ids: string[];
+};
+
 type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate" | "overview";
 
 type WeekView = "both" | "A" | "B";
@@ -166,6 +172,7 @@ type PersistedState = {
   teachers: Teacher[];
   meetings: Meeting[];
   rooms: Room[];
+  sports_halls?: SportsHall[];
   classes: SchoolClass[];
   timeslots: Timeslot[];
   weekCalendarSetups: WeekCalendarSetup[];
@@ -431,6 +438,14 @@ function normalizeRoom(room: Partial<Room>): Room {
     id: room.id ?? "",
     name: room.name ?? "",
     prioritize_for_preferred_subjects: Boolean(room.prioritize_for_preferred_subjects),
+  };
+}
+
+function normalizeSportsHall(sh: Partial<SportsHall>): SportsHall {
+  return {
+    id: sh.id ?? "",
+    name: sh.name ?? "",
+    allowed_subject_ids: Array.isArray(sh.allowed_subject_ids) ? sh.allowed_subject_ids.filter(Boolean) : [],
   };
 }
 
@@ -840,11 +855,14 @@ function indexToLetters(index: number): string {
   return result;
 }
 
+const SPORTS_SUBJECT_KEYWORDS = ["kroppsøving", "aktivitetslære", "treningsledelse", "breddeidrett"];
+
 export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [sportsHalls, setSportsHalls] = useState<SportsHall[]>([]);
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [timeslots, setTimeslots] = useState<Timeslot[]>([]);
   const [weekCalendarSetups, setWeekCalendarSetups] = useState<WeekCalendarSetup[]>([]);
@@ -883,6 +901,10 @@ export default function Home() {
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [preferencesRoomId, setPreferencesRoomId] = useState<string | null>(null);
   const [preferencesRoomPriorityOnly, setPreferencesRoomPriorityOnly] = useState(false);
+  const [sportsHallForm, setSportsHallForm] = useState({ name: "" });
+  const [editingSportsHallId, setEditingSportsHallId] = useState<string | null>(null);
+  const [sportsHallPreferencesId, setSportsHallPreferencesId] = useState<string | null>(null);
+  const [sportsHallSubjectSearch, setSportsHallSubjectSearch] = useState("");
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
   const [teacherRoomSearchByTeacherId, setTeacherRoomSearchByTeacherId] = useState<Record<string, string>>({});
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
@@ -978,6 +1000,7 @@ export default function Home() {
       teachers,
       meetings,
       rooms,
+      sports_halls: sportsHalls,
       classes,
       timeslots,
       weekCalendarSetups,
@@ -1003,6 +1026,9 @@ export default function Home() {
     }
     if (Array.isArray(parsed.rooms)) {
       setRooms(parsed.rooms.map((room) => normalizeRoom(room)));
+    }
+    if (Array.isArray(parsed.sports_halls)) {
+      setSportsHalls(parsed.sports_halls.map((sh) => normalizeSportsHall(sh)));
     }
     if (Array.isArray(parsed.classes)) {
       setClasses(parsed.classes);
@@ -1833,6 +1859,77 @@ export default function Home() {
         : `Saved preferences for ${roomName}: available for all subjects.`
     );
     setPreferencesRoomId(null);
+  }
+
+  function upsertSportsHall() {
+    const input = sportsHallForm.name.trim();
+    if (!input) {
+      setStatusText("Sports hall name is required.");
+      return;
+    }
+    if (editingSportsHallId) {
+      setSportsHalls((prev) => prev.map((sh) => (
+        sh.id === editingSportsHallId ? { ...sh, name: input } : sh
+      )));
+      setStatusText(`Updated sports hall ${input}.`);
+      setSportsHallForm({ name: "" });
+      setEditingSportsHallId(null);
+      return;
+    }
+    const names = input.split(",").map((n) => n.trim()).filter((n) => n.length > 0);
+    const existingIds = sportsHalls.map((sh) => sh.id);
+    const newHalls: SportsHall[] = [];
+    for (const name of names) {
+      const id = makeUniqueId(`sh_${toSlug(name) || "item"}`, [...existingIds, ...newHalls.map((h) => h.id)]);
+      newHalls.push({ id, name, allowed_subject_ids: [] });
+    }
+    setSportsHalls((prev) => [...prev, ...newHalls]);
+    setStatusText(names.length === 1 ? `Added sports hall ${names[0]}.` : `Added ${names.length} sports halls.`);
+    setSportsHallForm({ name: "" });
+  }
+
+  function deleteSportsHall(hallId: string) {
+    const hallName = sportsHalls.find((sh) => sh.id === hallId)?.name ?? hallId;
+    setSportsHalls((prev) => prev.filter((sh) => sh.id !== hallId));
+    if (editingSportsHallId === hallId) {
+      setSportsHallForm({ name: "" });
+      setEditingSportsHallId(null);
+    }
+    setStatusText(`Deleted sports hall ${hallName}.`);
+  }
+
+  function loadSportsHallIntoForm(hall: SportsHall) {
+    setSportsHallForm({ name: hall.name });
+    setEditingSportsHallId(hall.id);
+  }
+
+  function toggleSportsHallSubjectGroup(hallId: string, groupIds: string[], allChecked: boolean) {
+    setSportsHalls((prev) => prev.map((sh) => {
+      if (sh.id !== hallId) return sh;
+      if (allChecked) {
+        return { ...sh, allowed_subject_ids: sh.allowed_subject_ids.filter((id) => !groupIds.includes(id)) };
+      }
+      const current = new Set(sh.allowed_subject_ids);
+      groupIds.forEach((id) => current.add(id));
+      return { ...sh, allowed_subject_ids: Array.from(current) };
+    }));
+  }
+
+  function openSportsHallPreferences(hallId: string) {
+    const hall = sportsHalls.find((sh) => sh.id === hallId);
+    if (!hall) return;
+    if (hall.allowed_subject_ids.length === 0) {
+      const autoIds = subjects
+        .filter((s) => SPORTS_SUBJECT_KEYWORDS.some((kw) => s.name.toLowerCase().includes(kw)))
+        .map((s) => s.id);
+      if (autoIds.length > 0) {
+        setSportsHalls((prev) => prev.map((sh) =>
+          sh.id === hallId ? { ...sh, allowed_subject_ids: autoIds } : sh
+        ));
+      }
+    }
+    setSportsHallPreferencesId(hallId);
+    setSportsHallSubjectSearch("");
   }
 
   function resolveTeacherIdFromInput(inputValue: string): string | null {
@@ -4549,6 +4646,7 @@ export default function Home() {
         teachers: teachers ?? [],
         meetings: meetings ?? [],
         rooms: rooms ?? [],
+        sports_halls: sportsHalls ?? [],
         classes: classes ?? [],
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
@@ -7241,6 +7339,184 @@ export default function Home() {
               </section>
             ))}
           </div>
+
+          <h3 style={{ marginTop: "24px" }}>Idrettshaller</h3>
+          <p style={{ margin: "0 0 10px", fontSize: "0.82rem", color: "#555" }}>
+            Add sports halls here. In Preferences you can specify which subjects are allowed to use each hall — those subjects will <strong>only</strong> be scheduled in sports halls.
+          </p>
+
+          <section className="room-add-panel">
+            <div className="room-add-controls">
+              <input
+                type="text"
+                className="room-add-input"
+                placeholder="Sports hall name(s) — separate multiple with commas"
+                value={sportsHallForm.name}
+                onChange={(e) => setSportsHallForm({ name: e.target.value })}
+                onKeyDown={(e) => { if (e.key === "Enter") upsertSportsHall(); }}
+              />
+              <button
+                type="button"
+                className="room-add-button"
+                onClick={() => upsertSportsHall()}
+              >
+                {editingSportsHallId ? "Update Hall" : "Add Hall"}
+              </button>
+              {editingSportsHallId && (
+                <button
+                  type="button"
+                  onClick={() => { setSportsHallForm({ name: "" }); setEditingSportsHallId(null); }}
+                  className="secondary room-add-cancel"
+                >
+                  Cancel
+                </button>
+              )}
+            </div>
+            <div className="list room-list" style={{ maxHeight: "288px" }}>
+              {sportsHalls.length === 0 ? (
+                <p className="meeting-empty">No sports halls added yet.</p>
+              ) : (
+                sportsHalls.map((hall) => {
+                  const allowedCount = hall.allowed_subject_ids.length;
+                  return (
+                    <div key={hall.id} className="room-list-item">
+                      <span>
+                        {hall.name}
+                        {allowedCount > 0 && (
+                          <span className="sh-subject-badge">{allowedCount} subject{allowedCount !== 1 ? "s" : ""}</span>
+                        )}
+                      </span>
+                      <div style={{ display: "flex", gap: "6px" }}>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => openSportsHallPreferences(hall.id)}
+                          style={{
+                            padding: "4px 8px",
+                            fontSize: "0.72em",
+                            background: allowedCount > 0 ? "#2f7f4f" : undefined,
+                            borderColor: allowedCount > 0 ? "#2f7f4f" : undefined,
+                            color: allowedCount > 0 ? "#fff" : undefined,
+                          }}
+                        >
+                          Preferences
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => loadSportsHallIntoForm(hall)}
+                          style={{ padding: "4px 8px", fontSize: "0.72em" }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => deleteSportsHall(hall.id)}
+                          style={{ padding: "4px 8px", fontSize: "0.72em", color: "#c53" }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+
+          {sportsHallPreferencesId && (() => {
+            const hall = sportsHalls.find((sh) => sh.id === sportsHallPreferencesId);
+            if (!hall) return null;
+            const query = sportsHallSubjectSearch.toLowerCase();
+            const filteredSubjects = subjects.filter((s) =>
+              !query || s.name.toLowerCase().includes(query)
+            );
+            // Group filtered subjects by name
+            const nameGroupsMap: Record<string, string[]> = {};
+            for (const s of filteredSubjects) {
+              if (!nameGroupsMap[s.name]) nameGroupsMap[s.name] = [];
+              nameGroupsMap[s.name].push(s.id);
+            }
+            const sortedGroupNames = Object.keys(nameGroupsMap).sort((a, b) => a.localeCompare(b, "nb"));
+            return (
+              <div
+                style={{
+                  position: "fixed",
+                  inset: 0,
+                  background: "rgba(10, 12, 18, 0.35)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 1200,
+                  padding: "16px",
+                }}
+                onClick={() => setSportsHallPreferencesId(null)}
+              >
+                <div
+                  style={{
+                    width: "min(520px, 94vw)",
+                    maxHeight: "80vh",
+                    background: "#fff",
+                    border: "1px solid #cfcfcf",
+                    borderRadius: "6px",
+                    padding: "12px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Idrettshall Preferences — {hall.name}</h3>
+                  <p style={{ margin: 0, fontSize: "0.82rem", color: "#555" }}>
+                    Select which subjects are allowed to use this sports hall. Selected subjects will <strong>only</strong> be scheduled in sports halls.
+                  </p>
+                  <input
+                    type="text"
+                    placeholder="Search subjects…"
+                    value={sportsHallSubjectSearch}
+                    onChange={(e) => setSportsHallSubjectSearch(e.target.value)}
+                    style={{ padding: "6px 8px", fontSize: "0.85rem", border: "1px solid #ccc", borderRadius: "4px" }}
+                  />
+                  <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "1px" }}>
+                    {sortedGroupNames.length === 0 ? (
+                      <p style={{ fontSize: "0.82rem", color: "#888", margin: 0 }}>No subjects found.</p>
+                    ) : (
+                      sortedGroupNames.map((groupName) => {
+                        const groupIds = nameGroupsMap[groupName];
+                        const allChecked = groupIds.every((id) => hall.allowed_subject_ids.includes(id));
+                        const someChecked = groupIds.some((id) => hall.allowed_subject_ids.includes(id));
+                        const firstSubj = subjects.find((s) => s.name === groupName);
+                        return (
+                          <label key={groupName} className="sh-subject-row">
+                            <input
+                              type="checkbox"
+                              checked={allChecked}
+                              ref={(el) => { if (el) el.indeterminate = someChecked && !allChecked; }}
+                              onChange={() => toggleSportsHallSubjectGroup(hall.id, groupIds, allChecked)}
+                            />
+                            <span className="sh-subject-name">{groupName}</span>
+                            {groupIds.length > 1 && (
+                              <span className="sh-group-count">{groupIds.length} klasser</span>
+                            )}
+                            {firstSubj?.subject_type === "programfag" && (
+                              <span className="sh-subject-type-tag">programfag</span>
+                            )}
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
+                    <button type="button" onClick={() => setSportsHallPreferencesId(null)}>
+                      Done
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
         </article>
       </section>
       )}
