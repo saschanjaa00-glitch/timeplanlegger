@@ -2351,6 +2351,140 @@ button.secondary {
   font-size: 0.68rem;
 }
 
+.overview-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.overview-filter-input-wrap {
+  border: 1px solid #aab3c2;
+  background: #fff;
+  min-width: min(420px, 100%);
+  width: min(640px, 100%);
+  border-radius: 4px;
+  padding: 0.2rem 0.24rem;
+}
+
+.overview-filter-columns-wrap {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 0.3rem;
+}
+
+.overview-filter-field {
+  display: grid;
+  gap: 0.12rem;
+  font-size: 0.68rem;
+  color: #45546b;
+}
+
+.overview-filter-field span {
+  font-weight: 600;
+}
+
+.overview-filter-token-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+
+.overview-filter-token-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.16rem;
+  border: 1px solid #b7c2d6;
+  background: #e8eef8;
+  padding: 0.05rem 0.18rem;
+  font-size: 0.68rem;
+  border-radius: 3px;
+}
+
+.overview-filter-token-chip button {
+  width: auto;
+  min-width: 16px;
+  min-height: 16px;
+  padding: 0;
+  border: 1px solid #93a1b8;
+  background: #f4f7fc;
+  color: #304463;
+  line-height: 1;
+}
+
+.overview-filter-input {
+  min-width: 180px;
+  width: auto;
+  flex: 1 1 220px;
+  border: 1px solid #b9c2d2;
+  border-radius: 3px;
+  outline: none;
+  padding: 0.24rem 0.28rem;
+  font-size: 0.72rem;
+}
+
+@media (max-width: 980px) {
+  .overview-filter-columns-wrap {
+    grid-template-columns: 1fr;
+  }
+}
+
+.overview-row-picker {
+  position: relative;
+}
+
+.overview-row-picker > summary {
+  list-style: none;
+  cursor: pointer;
+  border: 1px solid #9da6b5;
+  background: #f3f5f9;
+  padding: 0.26rem 0.45rem;
+  font-size: 0.74rem;
+  border-radius: 4px;
+}
+
+.overview-row-picker[open] > summary {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.overview-row-picker-actions {
+  display: flex;
+  gap: 0.35rem;
+  padding: 0.34rem;
+  border-bottom: 1px solid #d5dae3;
+}
+
+.overview-row-picker-list {
+  max-height: 220px;
+  overflow: auto;
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.34rem;
+}
+
+.overview-row-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  font-size: 0.74rem;
+  line-height: 1.2;
+}
+
+.overview-row-picker[open] .overview-row-picker-actions,
+.overview-row-picker[open] .overview-row-picker-list {
+  border-left: 1px solid #9da6b5;
+  border-right: 1px solid #9da6b5;
+  background: #f8f9fc;
+}
+
+.overview-row-picker[open] .overview-row-picker-list {
+  border-bottom: 1px solid #9da6b5;
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
 .overview-table-wrap {
   border: 1px solid #a9afb8;
   background: #f4f6f8;
@@ -2403,6 +2537,7 @@ button.secondary {
   width: 52px;
   min-width: 52px;
   max-width: 52px;
+  position: relative;
 }
 
 .overview-day-even {
@@ -2424,6 +2559,43 @@ button.secondary {
 .overview-slot-head small {
   color: #5b6473;
   font-size: 0.58rem;
+}
+
+.overview-slot-head-hover-match {
+  background: #e1ebff !important;
+  box-shadow: inset 0 -2px 0 #0f172a;
+}
+
+.overview-hover-status-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.36rem;
+  border: 1px solid #a8b5cb;
+  background: #f1f5fb;
+  padding: 0.26rem 0.42rem;
+  min-height: 28px;
+  font-size: 0.7rem;
+  line-height: 1.25;
+}
+
+.overview-hover-status-line strong {
+  color: #1f2d45;
+  font-size: 0.72rem;
+}
+
+.overview-hover-status-line span {
+  color: #33445e;
+}
+
+.overview-hover-status-line.is-empty {
+  border-color: #c4ccd8;
+  background: #f6f8fb;
+}
+
+.overview-hover-status-line.is-empty strong,
+.overview-hover-status-line.is-empty span {
+  color: #6a7588;
 }
 
 .overview-row-label {
@@ -2454,6 +2626,18 @@ button.secondary {
   display: grid;
   gap: 0.03rem;
   overflow: hidden;
+}
+
+.overview-entry-match {
+  border: 1px solid #bfcce0;
+  filter: saturate(1.6);
+  box-shadow: inset 0 0 0 1px #000;
+}
+
+.overview-entry-hover-related {
+  border: 1px solid #bfcce0;
+  filter: saturate(1.7) brightness(0.98);
+  box-shadow: inset 0 0 0 1px #111;
 }
 
 .overview-entry.week-shared {

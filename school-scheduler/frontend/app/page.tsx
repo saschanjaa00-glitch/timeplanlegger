@@ -505,6 +505,13 @@ function normalizeSearchText(value: string): string {
     .trim();
 }
 
+function parseCommaSeparatedFilterValues(value: string): string[] {
+  return value
+    .split(",")
+    .map((part) => normalizeSearchText(part))
+    .filter(Boolean);
+}
+
 function isFuzzyTokenMatch(queryToken: string, candidateToken: string): boolean {
   if (!queryToken || !candidateToken) {
     return false;
@@ -928,6 +935,11 @@ export default function Home() {
     title: string;
     lines: string[];
   } | null>(null);
+  const [overviewHoverSubjectKey, setOverviewHoverSubjectKey] = useState<string | null>(null);
+  const [overviewClassFilterQuery, setOverviewClassFilterQuery] = useState("");
+  const [overviewTeacherFilterQuery, setOverviewTeacherFilterQuery] = useState("");
+  const [overviewRoomFilterQuery, setOverviewRoomFilterQuery] = useState("");
+  const [overviewSelectedRowIds, setOverviewSelectedRowIds] = useState<string[]>([]);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -2470,18 +2482,127 @@ export default function Home() {
     ));
   }, [overviewColumnsByDay]);
 
+  type OverviewDataKind = "rooms" | "teachers" | "classes";
+  type OverviewRow = { id: string; label: string };
+
+  const overviewRowsByKind = useMemo<Record<OverviewDataKind, OverviewRow[]>>(() => ({
+    rooms: sortedRooms.map((room) => ({ id: room.id, label: room.name || room.id })),
+    teachers: sortedTeachersByFirstName.map((teacher) => ({ id: teacher.id, label: teacher.name || teacher.id })),
+    classes: sortedClasses.map((schoolClass) => ({ id: schoolClass.id, label: schoolClass.name || schoolClass.id })),
+  }), [sortedClasses, sortedRooms, sortedTeachersByFirstName]);
+
+  const activeOverviewDataKind: OverviewDataKind = activeOverviewSubtab === "rooms"
+    ? "rooms"
+    : activeOverviewSubtab === "teachers"
+      ? "teachers"
+      : "classes";
+
   const overviewRows = useMemo(() => {
-    if (activeOverviewSubtab === "rooms") {
-      return sortedRooms.map((room) => ({ id: room.id, label: room.name || room.id }));
-    }
-    if (activeOverviewSubtab === "teachers") {
-      return sortedTeachersByFirstName.map((teacher) => ({ id: teacher.id, label: teacher.name || teacher.id }));
-    }
     if (activeOverviewSubtab === "constraints") {
       return [];
     }
-    return sortedClasses.map((schoolClass) => ({ id: schoolClass.id, label: schoolClass.name || schoolClass.id }));
-  }, [activeOverviewSubtab, sortedRooms, sortedTeachersByFirstName, sortedClasses]);
+    return overviewRowsByKind[activeOverviewDataKind];
+  }, [activeOverviewDataKind, activeOverviewSubtab, overviewRowsByKind]);
+
+  useEffect(() => {
+    const rowIdSet = new Set(overviewRows.map((row) => row.id));
+    setOverviewSelectedRowIds((prev) => prev.filter((rowId) => rowIdSet.has(rowId)));
+  }, [overviewRows]);
+
+  const overviewFilterValuesByKind = useMemo<Record<OverviewDataKind, string[]>>(() => ({
+    classes: parseCommaSeparatedFilterValues(overviewClassFilterQuery),
+    teachers: parseCommaSeparatedFilterValues(overviewTeacherFilterQuery),
+    rooms: parseCommaSeparatedFilterValues(overviewRoomFilterQuery),
+  }), [overviewClassFilterQuery, overviewRoomFilterQuery, overviewTeacherFilterQuery]);
+
+  const overviewAutocompleteOptionsByKind = useMemo<Record<OverviewDataKind, string[]>>(() => ({
+    classes: sortedClasses.map((schoolClass) => schoolClass.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
+    teachers: sortedTeachersByFirstName.map((teacher) => teacher.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
+    rooms: sortedRooms.map((room) => room.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
+  }), [sortedClasses, sortedRooms, sortedTeachersByFirstName]);
+
+  const overviewRowSearchTextByIdByKind = useMemo<Record<OverviewDataKind, Map<string, string>>>(() => {
+    const maps: Record<OverviewDataKind, Map<string, string>> = {
+      rooms: new Map<string, string>(),
+      teachers: new Map<string, string>(),
+      classes: new Map<string, string>(),
+    };
+
+    for (const kind of ["rooms", "teachers", "classes"] as const) {
+      for (const row of overviewRowsByKind[kind]) {
+        maps[kind].set(row.id, normalizeSearchText(`${row.label} ${row.id}`));
+      }
+    }
+
+    return maps;
+  }, [overviewRowsByKind]);
+
+  const overviewRowsMatchingQuery = useMemo(() => {
+    const activeMap = overviewRowSearchTextByIdByKind[activeOverviewDataKind];
+    const activeValues = overviewFilterValuesByKind[activeOverviewDataKind];
+    return overviewRows.filter((row) => {
+      if (activeValues.length === 0) {
+        return true;
+      }
+      const haystack = activeMap.get(row.id) ?? normalizeSearchText(`${row.label} ${row.id}`);
+      return activeValues.some((value) => haystack.includes(value));
+    });
+  }, [activeOverviewDataKind, overviewFilterValuesByKind, overviewRowSearchTextByIdByKind, overviewRows]);
+
+  const filteredOverviewRows = useMemo(() => {
+    if (overviewSelectedRowIds.length === 0) {
+      return overviewRowsMatchingQuery;
+    }
+    const selectedSet = new Set(overviewSelectedRowIds);
+    return overviewRowsMatchingQuery.filter((row) => selectedSet.has(row.id));
+  }, [overviewRowsMatchingQuery, overviewSelectedRowIds]);
+
+  const supplementalOverviewRows = useMemo(() => {
+    const result: Array<{ id: string; label: string; kind: OverviewDataKind }> = [];
+    for (const kind of ["rooms", "teachers", "classes"] as const) {
+      if (kind === activeOverviewDataKind) {
+        continue;
+      }
+      const values = overviewFilterValuesByKind[kind];
+      if (values.length === 0) {
+        continue;
+      }
+      const kindMap = overviewRowSearchTextByIdByKind[kind];
+      const matches = overviewRowsByKind[kind].filter((row) => {
+        const haystack = kindMap.get(row.id) ?? normalizeSearchText(`${row.label} ${row.id}`);
+        return values.some((value) => haystack.includes(value));
+      });
+      for (const row of matches) {
+        result.push({ ...row, kind });
+      }
+    }
+    return result;
+  }, [activeOverviewDataKind, overviewFilterValuesByKind, overviewRowSearchTextByIdByKind, overviewRowsByKind]);
+
+  const displayedOverviewRows = useMemo(() => {
+    const activeFilterHasValues = overviewFilterValuesByKind[activeOverviewDataKind].length > 0;
+    const hasAnyNonActiveFilter = (["rooms", "teachers", "classes"] as const)
+      .some((kind) => kind !== activeOverviewDataKind && overviewFilterValuesByKind[kind].length > 0);
+
+    // If user filters by another entity while staying on this tab (e.g. class filter while on Rom),
+    // show only those filtered external rows and hide the active-tab base rows.
+    const hideActiveRows = !activeFilterHasValues && hasAnyNonActiveFilter;
+
+    const mainRows = hideActiveRows
+      ? []
+      : filteredOverviewRows.map((row) => ({ ...row, kind: activeOverviewDataKind, supplemental: false }));
+    const existingIds = new Set(mainRows.map((row) => `${row.kind}|${row.id}`));
+    const extraRows = supplementalOverviewRows
+      .filter((row) => !existingIds.has(`${row.kind}|${row.id}`))
+      .map((row) => ({ ...row, supplemental: true }));
+    return [...mainRows, ...extraRows];
+  }, [activeOverviewDataKind, filteredOverviewRows, overviewFilterValuesByKind, supplementalOverviewRows]);
+
+  const overviewHasActiveFiltering = useMemo(() => {
+    const hasQueryFilters = (Object.keys(overviewFilterValuesByKind) as OverviewDataKind[])
+      .some((kind) => overviewFilterValuesByKind[kind].length > 0);
+    return hasQueryFilters || overviewSelectedRowIds.length > 0;
+  }, [overviewFilterValuesByKind, overviewSelectedRowIds.length]);
 
   const overviewEntityLabel = activeOverviewSubtab === "rooms"
     ? "Rom"
@@ -2513,26 +2634,33 @@ export default function Home() {
     ));
   }, [rooms, sortedSubjectsByName]);
 
-  const overviewCellMap = useMemo(() => {
+  const overviewCellMapsByKind = useMemo(() => {
     type OverviewCellEntry = {
       key: string;
       title: string;
       subtitle: string;
+      teacher_label?: string;
+      match_signature?: string;
+      hover_subject_key?: string;
       week_type?: "A" | "B";
       isMeeting?: boolean;
     };
 
-    const map = new Map<string, OverviewCellEntry[]>();
+    const maps: Record<OverviewDataKind, Map<string, OverviewCellEntry[]>> = {
+      rooms: new Map<string, OverviewCellEntry[]>(),
+      teachers: new Map<string, OverviewCellEntry[]>(),
+      classes: new Map<string, OverviewCellEntry[]>(),
+    };
 
-    const addEntry = (entityId: string, timeslotId: string, entry: OverviewCellEntry) => {
+    const addEntry = (kind: OverviewDataKind, entityId: string, timeslotId: string, entry: OverviewCellEntry) => {
       const cellKey = `${entityId}|${timeslotId}`;
-      const current = map.get(cellKey) ?? [];
+      const current = maps[kind].get(cellKey) ?? [];
       if (current.some((existing) => existing.key === entry.key)) {
         return;
       }
       current.push(entry);
       current.sort((a, b) => a.title.localeCompare(b.title));
-      map.set(cellKey, current);
+      maps[kind].set(cellKey, current);
     };
 
     const formatTeacherNames = (teacherIds: string[]) => {
@@ -2558,57 +2686,72 @@ export default function Home() {
       const effectiveWeekType = blockId
         ? overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`)
         : item.week_type;
+      const canonicalSessionSignature = [
+        item.subject_id,
+        [...itemTeacherIds].sort().join(","),
+        [...(item.class_ids ?? [])].sort().join(","),
+        item.room_id ?? "",
+        effectiveWeekType ?? "both",
+        item.start_time ?? "",
+        item.end_time ?? "",
+      ].join("|");
+      const hoverSubjectKey = `${item.subject_id}|${[...(item.class_ids ?? [])].sort().join(",")}`;
 
-      if (activeOverviewSubtab === "rooms") {
-        if (!item.room_id) {
-          continue;
-        }
-        addEntry(item.room_id, item.timeslot_id, {
+      if (item.room_id) {
+        addEntry("rooms", item.room_id, item.timeslot_id, {
           key: `${item.subject_id}|${item.teacher_id}|${item.class_ids.join(",")}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
           title: item.subject_name,
           subtitle: classNames || teacherNames,
+          teacher_label: teacherNames,
+          match_signature: canonicalSessionSignature,
+          hover_subject_key: hoverSubjectKey,
           week_type: effectiveWeekType,
         });
-      } else if (activeOverviewSubtab === "teachers") {
-        for (const teacherId of itemTeacherIds) {
-          addEntry(teacherId, item.timeslot_id, {
-            key: `${item.subject_id}|${teacherId}|${item.class_ids.join(",")}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
-            title: item.subject_name,
-            subtitle: [classNames, roomName].filter(Boolean).join(" | "),
-            week_type: effectiveWeekType,
-          });
-        }
-      } else {
-        for (const classId of item.class_ids ?? []) {
-          addEntry(classId, item.timeslot_id, {
-            key: `${item.subject_id}|${classId}|${item.teacher_id}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
-            title: item.subject_name,
-            subtitle: [teacherNames, roomName].filter(Boolean).join(" | "),
-            week_type: effectiveWeekType,
-          });
-        }
+      }
+
+      for (const teacherId of itemTeacherIds) {
+        const teacherLabel = teacherNameById[teacherId] ?? teacherId;
+        addEntry("teachers", teacherId, item.timeslot_id, {
+          key: `${item.subject_id}|${teacherId}|${item.class_ids.join(",")}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+          title: item.subject_name,
+          subtitle: [classNames, roomName].filter(Boolean).join(" | "),
+          teacher_label: teacherLabel,
+          match_signature: canonicalSessionSignature,
+          hover_subject_key: hoverSubjectKey,
+          week_type: effectiveWeekType,
+        });
+      }
+
+      for (const classId of item.class_ids ?? []) {
+        addEntry("classes", classId, item.timeslot_id, {
+          key: `${item.subject_id}|${classId}|${item.teacher_id}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+          title: item.subject_name,
+          subtitle: [teacherNames, roomName].filter(Boolean).join(" | "),
+          teacher_label: teacherNames,
+          match_signature: canonicalSessionSignature,
+          hover_subject_key: hoverSubjectKey,
+          week_type: effectiveWeekType,
+        });
       }
     }
 
-    if (activeOverviewSubtab === "teachers") {
-      for (const meeting of meetings) {
-        if (!overviewFlatColumns.some((column) => column.slot.id === meeting.timeslot_id)) {
-          continue;
-        }
-        for (const assignment of meeting.teacher_assignments) {
-          addEntry(assignment.teacher_id, meeting.timeslot_id, {
-            key: `meeting|${meeting.id}|${assignment.teacher_id}`,
-            title: `Møte: ${meeting.name}`,
-            subtitle: assignment.mode === "unavailable" ? "Opptatt" : "Prioritert",
-            isMeeting: true,
-          });
-        }
+    for (const meeting of meetings) {
+      if (!overviewFlatColumns.some((column) => column.slot.id === meeting.timeslot_id)) {
+        continue;
+      }
+      for (const assignment of meeting.teacher_assignments) {
+        addEntry("teachers", assignment.teacher_id, meeting.timeslot_id, {
+          key: `meeting|${meeting.id}|${assignment.teacher_id}`,
+          title: `Møte: ${meeting.name}`,
+          subtitle: assignment.mode === "unavailable" ? "Opptatt" : "Prioritert",
+          teacher_label: teacherNameById[assignment.teacher_id] ?? assignment.teacher_id,
+          isMeeting: true,
+        });
       }
     }
 
-    return map;
+    return maps;
   }, [
-    activeOverviewSubtab,
     classNameById,
     meetings,
     overviewBlockWeekTypeBySlot,
@@ -2618,6 +2761,102 @@ export default function Home() {
     roomNameById,
     teacherNameById,
   ]);
+
+  const overviewMatchedSubjectBySlot = useMemo(() => {
+    const rowsBySlotAndSignature = new Map<string, Set<string>>();
+
+    const addOccurrence = (timeslotId: string, signature: string, rowKey: string) => {
+      const key = `${timeslotId}|${signature}`;
+      const set = rowsBySlotAndSignature.get(key) ?? new Set<string>();
+      set.add(rowKey);
+      rowsBySlotAndSignature.set(key, set);
+    };
+
+    for (const row of displayedOverviewRows) {
+      const map = overviewCellMapsByKind[row.kind];
+      const rowKey = `${row.kind}|${row.id}`;
+      for (const column of overviewFlatColumns) {
+        const rawEntries = map.get(`${row.id}|${column.slot.id}`) ?? [];
+        for (const entry of rawEntries) {
+          if (entry.isMeeting) {
+            continue;
+          }
+          if (!entry.match_signature) {
+            continue;
+          }
+          addOccurrence(column.slot.id, entry.match_signature, rowKey);
+        }
+      }
+    }
+
+    const matched = new Set<string>();
+    for (const [key, rowKeys] of rowsBySlotAndSignature.entries()) {
+      if (rowKeys.size >= 2) {
+        matched.add(key);
+      }
+    }
+
+    return matched;
+  }, [displayedOverviewRows, overviewCellMapsByKind, overviewFlatColumns]);
+
+  const overviewHoverSubjectSlotIds = useMemo(() => {
+    if (!overviewHoverSubjectKey) {
+      return new Set<string>();
+    }
+    const slotIds = new Set<string>();
+
+    for (const row of displayedOverviewRows) {
+      const map = overviewCellMapsByKind[row.kind];
+      for (const column of overviewFlatColumns) {
+        const rawEntries = map.get(`${row.id}|${column.slot.id}`) ?? [];
+        if (rawEntries.some((entry) => !entry.isMeeting && entry.hover_subject_key === overviewHoverSubjectKey)) {
+          slotIds.add(column.slot.id);
+        }
+      }
+    }
+
+    return slotIds;
+  }, [displayedOverviewRows, overviewCellMapsByKind, overviewFlatColumns, overviewHoverSubjectKey]);
+
+  const overviewHoverSubjectStatus = useMemo(() => {
+    if (!overviewHoverSubjectKey) {
+      return null;
+    }
+
+    const occurrences = new Set<string>();
+    let subjectTitle = "";
+
+    for (const row of displayedOverviewRows) {
+      const map = overviewCellMapsByKind[row.kind];
+      for (const column of overviewFlatColumns) {
+        const rawEntries = map.get(`${row.id}|${column.slot.id}`) ?? [];
+        for (const entry of rawEntries) {
+          if (entry.isMeeting || entry.hover_subject_key !== overviewHoverSubjectKey) {
+            continue;
+          }
+          if (!subjectTitle) {
+            subjectTitle = entry.title;
+          }
+          const timeRange = `${column.slot.start_time ?? `P${column.slot.period}`}${column.slot.end_time ? `-${column.slot.end_time}` : ""}`;
+          const rowTypeLabel = row.kind === "teachers" ? "Lærer" : row.kind === "classes" ? "Klasse" : "Rom";
+          occurrences.add(`${column.day} ${timeRange} (${rowTypeLabel}: ${row.label})`);
+        }
+      }
+    }
+
+    const list = Array.from(occurrences);
+    if (list.length === 0) {
+      return null;
+    }
+    const maxItems = 6;
+    const shown = list.slice(0, maxItems);
+    const suffix = list.length > maxItems ? ` +${list.length - maxItems} til` : "";
+
+    return {
+      subjectTitle,
+      text: `${shown.join(" | ")}${suffix}`,
+    };
+  }, [displayedOverviewRows, overviewCellMapsByKind, overviewFlatColumns, overviewHoverSubjectKey]);
 
   // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
   // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
@@ -8615,7 +8854,13 @@ export default function Home() {
       )}
 
       {activeTab === "overview" && (
-      <section className="card overview-board" onMouseLeave={() => setOverviewHoverCard(null)}>
+      <section
+        className="card overview-board"
+        onMouseLeave={() => {
+          setOverviewHoverCard(null);
+          setOverviewHoverSubjectKey(null);
+        }}
+      >
         <div className="overview-header-row">
           <h2>Oversikt</h2>
           <div className="overview-controls-row">
@@ -9052,11 +9297,123 @@ export default function Home() {
               {overviewEntityLabel} on rows, week sessions on columns. Each cell shows the scheduled subject in that slot.
             </p>
 
+            <div className="overview-filter-bar">
+              <div className="overview-filter-input-wrap overview-filter-columns-wrap">
+                <label className="overview-filter-field">
+                  <span>Klasse</span>
+                  <input
+                    list="overview-class-filter-options"
+                    type="text"
+                    value={overviewClassFilterQuery}
+                    onChange={(e) => setOverviewClassFilterQuery(e.target.value)}
+                    placeholder="f.eks. 1STA, 2STB"
+                    className="overview-filter-input"
+                  />
+                </label>
+                <label className="overview-filter-field">
+                  <span>Lærer</span>
+                  <input
+                    list="overview-teacher-filter-options"
+                    type="text"
+                    value={overviewTeacherFilterQuery}
+                    onChange={(e) => setOverviewTeacherFilterQuery(e.target.value)}
+                    placeholder="f.eks. Ola Nordmann"
+                    className="overview-filter-input"
+                  />
+                </label>
+                <label className="overview-filter-field">
+                  <span>Rom</span>
+                  <input
+                    list="overview-room-filter-options"
+                    type="text"
+                    value={overviewRoomFilterQuery}
+                    onChange={(e) => setOverviewRoomFilterQuery(e.target.value)}
+                    placeholder="f.eks. R202, Idrettshall"
+                    className="overview-filter-input"
+                  />
+                </label>
+              </div>
+              <datalist id="overview-class-filter-options">
+                {overviewAutocompleteOptionsByKind.classes.map((option) => (
+                  <option key={`overview_filter_class_option_${option}`} value={option} />
+                ))}
+              </datalist>
+              <datalist id="overview-teacher-filter-options">
+                {overviewAutocompleteOptionsByKind.teachers.map((option) => (
+                  <option key={`overview_filter_teacher_option_${option}`} value={option} />
+                ))}
+              </datalist>
+              <datalist id="overview-room-filter-options">
+                {overviewAutocompleteOptionsByKind.rooms.map((option) => (
+                  <option key={`overview_filter_room_option_${option}`} value={option} />
+                ))}
+              </datalist>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => {
+                  setOverviewClassFilterQuery("");
+                  setOverviewTeacherFilterQuery("");
+                  setOverviewRoomFilterQuery("");
+                  setOverviewSelectedRowIds([]);
+                }}
+              >
+                Clear
+              </button>
+              <details className="overview-row-picker">
+                <summary>
+                  Rows: {overviewSelectedRowIds.length === 0 ? "All" : `${overviewSelectedRowIds.length} selected`}
+                </summary>
+                <div className="overview-row-picker-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setOverviewSelectedRowIds(overviewRowsMatchingQuery.map((row) => row.id))}
+                  >
+                    Select visible
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => setOverviewSelectedRowIds([])}
+                  >
+                    Show all
+                  </button>
+                </div>
+                <div className="overview-row-picker-list">
+                  {overviewRowsMatchingQuery.map((row) => {
+                    const checked = overviewSelectedRowIds.includes(row.id);
+                    return (
+                      <label key={`overview_picker_${row.id}`} className="overview-row-picker-item">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => {
+                            setOverviewSelectedRowIds((prev) => (
+                              prev.includes(row.id)
+                                ? prev.filter((id) => id !== row.id)
+                                : [...prev, row.id]
+                            ));
+                          }}
+                        />
+                        <span>{row.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </details>
+            </div>
+
+            <div className={`overview-hover-status-line ${overviewHoverSubjectStatus ? "" : "is-empty"}`}>
+              <strong>{overviewHoverSubjectStatus?.subjectTitle ?? "Hover a session"}</strong>
+              <span>{overviewHoverSubjectStatus?.text ?? "Matched positions will be shown here without shifting the table."}</span>
+            </div>
+
             {schedule.length === 0 ? (
               <p style={{ color: "#999", marginTop: "10px" }}>Generate a schedule to populate this overview.</p>
             ) : overviewFlatColumns.length === 0 ? (
               <p style={{ color: "#999", marginTop: "10px" }}>No timeslots found in the active week calendar.</p>
-            ) : overviewRows.length === 0 ? (
+            ) : displayedOverviewRows.length === 0 ? (
               <p style={{ color: "#999", marginTop: "10px" }}>No {overviewEntityLabel.toLowerCase()} available.</p>
             ) : (
               <div className="overview-table-wrap">
@@ -9080,7 +9437,7 @@ export default function Home() {
                       {overviewFlatColumns.map((column) => (
                         <th
                           key={`slot_${column.day}_${column.slot.id}`}
-                          className={`overview-slot-head ${column.dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd"}`}
+                          className={`overview-slot-head ${column.dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd"} ${overviewHoverSubjectKey && overviewHoverSubjectSlotIds.has(column.slot.id) ? "overview-slot-head-hover-match" : ""}`}
                         >
                           <div>{column.slot.start_time ?? `P${column.slot.period}`}</div>
                           <small>{column.slot.end_time ?? ""}</small>
@@ -9089,26 +9446,36 @@ export default function Home() {
                     </tr>
                   </thead>
                   <tbody>
-                    {overviewRows.map((row) => (
-                      <tr key={row.id}>
-                        <th className="overview-row-label">{row.label}</th>
+                    {displayedOverviewRows.map((row) => (
+                      <tr key={`${row.kind}_${row.id}`}>
+                        <th className="overview-row-label">
+                          {row.supplemental
+                            ? `${row.kind === "teachers" ? "Lærer" : row.kind === "classes" ? "Klasse" : "Rom"}: ${row.label}`
+                            : row.label}
+                        </th>
                         {overviewFlatColumns.map((column) => {
-                          const rawEntries = overviewCellMap.get(`${row.id}|${column.slot.id}`) ?? [];
+                          const rawEntries = overviewCellMapsByKind[row.kind].get(`${row.id}|${column.slot.id}`) ?? [];
                           const entriesBySignature = new Map<string, {
                             key: string;
                             title: string;
                             subtitle: string;
+                            teacher_label?: string;
+                            match_signature?: string;
+                            hover_subject_key?: string;
                             isMeeting?: boolean;
                             weeks: Set<"A" | "B">;
                             hasSharedWeek: boolean;
                           }>();
 
                           for (const entry of rawEntries) {
-                            const signature = `${entry.title}|${entry.subtitle}|${entry.isMeeting ? "1" : "0"}`;
+                            const signature = `${entry.title}|${entry.subtitle}|${entry.teacher_label ?? ""}|${entry.match_signature ?? ""}|${entry.hover_subject_key ?? ""}|${entry.isMeeting ? "1" : "0"}`;
                             const current = entriesBySignature.get(signature) ?? {
                               key: entry.key,
                               title: entry.title,
                               subtitle: entry.subtitle,
+                              teacher_label: entry.teacher_label,
+                              match_signature: entry.match_signature,
+                              hover_subject_key: entry.hover_subject_key,
                               isMeeting: entry.isMeeting,
                               weeks: new Set<"A" | "B">(),
                               hasSharedWeek: false,
@@ -9136,6 +9503,9 @@ export default function Home() {
                               key: entry.key,
                               title: entry.title,
                               subtitle: entry.subtitle,
+                              teacher_label: entry.teacher_label,
+                              match_signature: entry.match_signature,
+                              hover_subject_key: entry.hover_subject_key,
                               isMeeting: entry.isMeeting,
                               week_type: weekType,
                             };
@@ -9143,7 +9513,7 @@ export default function Home() {
 
                           return (
                             <td
-                              key={`${row.id}_${column.slot.id}`}
+                              key={`${row.kind}_${row.id}_${column.slot.id}`}
                               className={`overview-cell ${column.dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd"}`}
                             >
                               {entries.length === 0 ? (
@@ -9153,8 +9523,7 @@ export default function Home() {
                                   {entries.map((entry) => (
                                     <div
                                       key={entry.key}
-                                      className={`overview-entry ${entry.isMeeting ? "meeting" : entry.week_type === "A" ? "week-a" : entry.week_type === "B" ? "week-b" : "week-shared"}`}
-                                      title={`${entry.title}${entry.week_type ? ` (${entry.week_type})` : ""}${entry.subtitle ? `\n${entry.subtitle}` : ""}`}
+                                      className={`overview-entry ${entry.isMeeting ? "meeting" : entry.week_type === "A" ? "week-a" : entry.week_type === "B" ? "week-b" : "week-shared"} ${overviewHasActiveFiltering && !entry.isMeeting && entry.match_signature && overviewMatchedSubjectBySlot.has(`${column.slot.id}|${entry.match_signature}`) ? "overview-entry-match" : ""} ${overviewHoverSubjectKey && entry.hover_subject_key === overviewHoverSubjectKey ? "overview-entry-hover-related" : ""}`}
                                       onMouseEnter={(e) => {
                                         const rect = e.currentTarget.getBoundingClientRect();
                                         const cardWidth = 280;
@@ -9176,14 +9545,19 @@ export default function Home() {
                                           y,
                                           title: entry.title,
                                           lines: [
-                                            `${overviewEntityLabel}: ${row.label}`,
+                                            `${row.kind === "teachers" ? "Lærer" : row.kind === "classes" ? "Klasse" : "Rom"}: ${row.label}`,
                                             `Tid: ${column.day} ${timeRange}`,
                                             ...(entry.week_type ? [`Uke: ${entry.week_type}`] : []),
+                                            ...(entry.teacher_label ? [`Lærer: ${entry.teacher_label}`] : []),
                                             ...(entry.subtitle ? [entry.subtitle] : []),
                                           ],
                                         });
+                                        setOverviewHoverSubjectKey(entry.hover_subject_key ?? null);
                                       }}
-                                      onMouseLeave={() => setOverviewHoverCard(null)}
+                                      onMouseLeave={() => {
+                                        setOverviewHoverCard(null);
+                                        setOverviewHoverSubjectKey(null);
+                                      }}
                                     >
                                       <div className="overview-entry-title-row">
                                         <strong>{entry.title}</strong>
