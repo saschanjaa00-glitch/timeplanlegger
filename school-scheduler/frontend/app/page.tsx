@@ -9332,6 +9332,20 @@ export default function Home() {
                     className="overview-filter-input"
                   />
                 </label>
+                <div className="overview-filter-actions-inline">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      setOverviewClassFilterQuery("");
+                      setOverviewTeacherFilterQuery("");
+                      setOverviewRoomFilterQuery("");
+                      setOverviewSelectedRowIds([]);
+                    }}
+                  >
+                    Clear
+                  </button>
+                </div>
               </div>
               <datalist id="overview-class-filter-options">
                 {overviewAutocompleteOptionsByKind.classes.map((option) => (
@@ -9348,60 +9362,6 @@ export default function Home() {
                   <option key={`overview_filter_room_option_${option}`} value={option} />
                 ))}
               </datalist>
-              <button
-                type="button"
-                className="secondary"
-                onClick={() => {
-                  setOverviewClassFilterQuery("");
-                  setOverviewTeacherFilterQuery("");
-                  setOverviewRoomFilterQuery("");
-                  setOverviewSelectedRowIds([]);
-                }}
-              >
-                Clear
-              </button>
-              <details className="overview-row-picker">
-                <summary>
-                  Rows: {overviewSelectedRowIds.length === 0 ? "All" : `${overviewSelectedRowIds.length} selected`}
-                </summary>
-                <div className="overview-row-picker-actions">
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setOverviewSelectedRowIds(overviewRowsMatchingQuery.map((row) => row.id))}
-                  >
-                    Select visible
-                  </button>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => setOverviewSelectedRowIds([])}
-                  >
-                    Show all
-                  </button>
-                </div>
-                <div className="overview-row-picker-list">
-                  {overviewRowsMatchingQuery.map((row) => {
-                    const checked = overviewSelectedRowIds.includes(row.id);
-                    return (
-                      <label key={`overview_picker_${row.id}`} className="overview-row-picker-item">
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => {
-                            setOverviewSelectedRowIds((prev) => (
-                              prev.includes(row.id)
-                                ? prev.filter((id) => id !== row.id)
-                                : [...prev, row.id]
-                            ));
-                          }}
-                        />
-                        <span>{row.label}</span>
-                      </label>
-                    );
-                  })}
-                </div>
-              </details>
             </div>
 
             <div className={`overview-hover-status-line ${overviewHoverSubjectStatus ? "" : "is-empty"}`}>
@@ -9523,26 +9483,83 @@ export default function Home() {
                                   {entries.map((entry) => (
                                     <div
                                       key={entry.key}
+                                      data-hover-subject-key={entry.hover_subject_key ?? ""}
                                       className={`overview-entry ${entry.isMeeting ? "meeting" : entry.week_type === "A" ? "week-a" : entry.week_type === "B" ? "week-b" : "week-shared"} ${overviewHasActiveFiltering && !entry.isMeeting && entry.match_signature && overviewMatchedSubjectBySlot.has(`${column.slot.id}|${entry.match_signature}`) ? "overview-entry-match" : ""} ${overviewHoverSubjectKey && entry.hover_subject_key === overviewHoverSubjectKey ? "overview-entry-hover-related" : ""}`}
                                       onMouseEnter={(e) => {
                                         const rect = e.currentTarget.getBoundingClientRect();
                                         const cardWidth = 280;
-                                        const rightCandidate = rect.right + 10;
-                                        const leftCandidate = rect.left - cardWidth - 10;
+                                        const cardHeight = 170;
+                                        const gap = 10;
                                         const viewportWidth = window.innerWidth;
                                         const viewportHeight = window.innerHeight;
-                                        const x = rightCandidate + cardWidth <= viewportWidth - 10
-                                          ? rightCandidate
-                                          : Math.max(10, leftCandidate);
-                                        const y = Math.min(
-                                          Math.max(10, rect.top),
-                                          Math.max(10, viewportHeight - 170)
+
+                                        const clampX = (xPos: number) => Math.min(
+                                          Math.max(gap, xPos),
+                                          Math.max(gap, viewportWidth - cardWidth - gap)
                                         );
+                                        const clampY = (yPos: number) => Math.min(
+                                          Math.max(gap, yPos),
+                                          Math.max(gap, viewportHeight - cardHeight - gap)
+                                        );
+
+                                        const candidatePositions = [
+                                          { x: clampX(rect.right + gap), y: clampY(rect.top) },
+                                          { x: clampX(rect.left - cardWidth - gap), y: clampY(rect.top) },
+                                          { x: clampX(rect.left), y: clampY(rect.bottom + gap) },
+                                          { x: clampX(rect.left), y: clampY(rect.top - cardHeight - gap) },
+                                        ];
+
+                                        const targetHoverKey = entry.hover_subject_key ?? "";
+                                        const relatedRects: DOMRect[] = [];
+                                        if (targetHoverKey) {
+                                          const relatedElements = Array.from(
+                                            document.querySelectorAll<HTMLElement>(".overview-entry[data-hover-subject-key]")
+                                          );
+                                          for (const el of relatedElements) {
+                                            if (el === e.currentTarget) {
+                                              continue;
+                                            }
+                                            if ((el.dataset.hoverSubjectKey ?? "") !== targetHoverKey) {
+                                              continue;
+                                            }
+                                            relatedRects.push(el.getBoundingClientRect());
+                                          }
+                                        }
+
+                                        const overlapArea = (
+                                          a: { left: number; right: number; top: number; bottom: number },
+                                          b: DOMRect,
+                                        ) => {
+                                          const overlapWidth = Math.max(0, Math.min(a.right, b.right) - Math.max(a.left, b.left));
+                                          const overlapHeight = Math.max(0, Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top));
+                                          return overlapWidth * overlapHeight;
+                                        };
+
+                                        let bestPos = candidatePositions[0];
+                                        let bestOverlap = Number.POSITIVE_INFINITY;
+
+                                        for (const pos of candidatePositions) {
+                                          const cardRect = {
+                                            left: pos.x,
+                                            right: pos.x + cardWidth,
+                                            top: pos.y,
+                                            bottom: pos.y + cardHeight,
+                                          };
+                                          let totalOverlap = 0;
+                                          for (const relRect of relatedRects) {
+                                            totalOverlap += overlapArea(cardRect, relRect);
+                                          }
+                                          if (totalOverlap < bestOverlap) {
+                                            bestOverlap = totalOverlap;
+                                            bestPos = pos;
+                                          }
+                                        }
+
                                         const timeRange = `${column.slot.start_time ?? `P${column.slot.period}`}${column.slot.end_time ? `-${column.slot.end_time}` : ""}`;
 
                                         setOverviewHoverCard({
-                                          x,
-                                          y,
+                                          x: bestPos.x,
+                                          y: bestPos.y,
                                           title: entry.title,
                                           lines: [
                                             `${row.kind === "teachers" ? "Lærer" : row.kind === "classes" ? "Klasse" : "Rom"}: ${row.label}`,

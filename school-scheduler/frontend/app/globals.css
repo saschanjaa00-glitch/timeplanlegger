@@ -2369,8 +2369,17 @@ button.secondary {
 
 .overview-filter-columns-wrap {
   display: grid;
-  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  grid-template-columns: repeat(3, minmax(180px, 1fr)) auto;
   gap: 0.3rem;
+}
+
+.overview-filter-actions-inline {
+  display: flex;
+  align-items: end;
+}
+
+.overview-filter-actions-inline button {
+  min-height: 30px;
 }
 
 .overview-filter-field {
