@@ -1275,6 +1275,7 @@ def _generate_schedule_staged(
     for subject in remaining_subjects:
         teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+        is_norsk_vg3 = _is_norsk_vg3_subject(subject)
         required_units = _required_units_for_subject(subject)
         subject_requires_odd_units = (required_units % 2) == 1
         allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
@@ -1297,7 +1298,20 @@ def _generate_schedule_staged(
             max_units_by_day[ts_day] = max(max_units_by_day.get(ts_day, 0), timeslot_units_by_id.get(ts_id, 1))
         strict_day_capacity = sum(max_units_by_day.values())
         allow_same_day_if_needed = strict_day_capacity < required_units
-        enforce_unique_day = True
+        enforce_unique_day = not is_norsk_vg3
+
+        subject_periods_by_day: Dict[str, Set[int]] = defaultdict(set)
+        for existing_item in schedule_items:
+            if existing_item.subject_id == subject.id:
+                subject_periods_by_day[existing_item.day].add(existing_item.period)
+
+        def _has_norsk_target_pair() -> bool:
+            for periods in subject_periods_by_day.values():
+                if 1 in periods and 2 in periods:
+                    return True
+                if 3 in periods and 4 in periods:
+                    return True
+            return False
 
         while units_placed < required_units:
             remaining_units = required_units - units_placed
@@ -1334,7 +1348,12 @@ def _generate_schedule_staged(
                     ts = timeslots_by_id[ts_id]
                     if enforce_unique_day and ts.day in subject_days_used:
                         continue
-                    same_day_repeat_penalty = 1 if ts.day in subject_days_used else 0
+                    if is_norsk_vg3:
+                        same_day_repeat_penalty = 1 if ts.day in subject_days_used else 0
+                        if not _has_norsk_target_pair():
+                            same_day_repeat_penalty = 0 if ts.day in subject_days_used else 1
+                    else:
+                        same_day_repeat_penalty = 1 if ts.day in subject_days_used else 0
 
                     reduced_spans = {
                         reduced_tail_span_by_class_slot[(class_id, ts_id)]
@@ -1431,8 +1450,23 @@ def _generate_schedule_staged(
                             # Prefer placements that move this class closer to its A/B target.
                             class_week_balance_penalty += max(0, after - before)
 
+                    norsk_pair_penalty = 0
+                    norsk_pair_setup_penalty = 0
+                    if is_norsk_vg3 and not _has_norsk_target_pair():
+                        day_periods = subject_periods_by_day.get(ts.day, set())
+                        completes_target_pair = (
+                            (ts.period == 1 and 2 in day_periods)
+                            or (ts.period == 2 and 1 in day_periods)
+                            or (ts.period == 3 and 4 in day_periods)
+                            or (ts.period == 4 and 3 in day_periods)
+                        )
+                        norsk_pair_penalty = 0 if completes_target_pair else 1
+                        norsk_pair_setup_penalty = 0 if ts.period in {1, 2, 3, 4} else 1
+
                     score = (
                         would_overshoot,
+                        norsk_pair_penalty,
+                        norsk_pair_setup_penalty,
                         same_day_repeat_penalty,
                         single_unit_penalty,
                         odd_tail_priority_penalty,
@@ -1487,6 +1521,7 @@ def _generate_schedule_staged(
                 teacher_occupied.add((teacher_id, chosen_ts_id))
 
             subject_days_used.add(chosen_ts.day)
+            subject_periods_by_day[chosen_ts.day].add(chosen_ts.period)
             units_placed += chosen_units
 
         if (
@@ -1580,7 +1615,8 @@ def _scheduled_item_teacher_ids(item: ScheduledItem) -> List[str]:
 def _is_norsk_vg3_subject(subject: Subject | None) -> bool:
     if not subject:
         return False
-    return "norsk vg3" in (subject.name or "").lower()
+    normalized_name = " ".join((subject.name or "").lower().split())
+    return "norsk vg3" in normalized_name or ("norsk" in normalized_name and "vg3" in normalized_name)
 
 
 def _subject_day_repeat_penalty(
@@ -4507,15 +4543,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     if teacher_workload_excess_terms:
         objective_parts.append(TEACHER_WORKLOAD_EXCESS_WEIGHT * sum(teacher_workload_excess_terms))
 
-    # Soft preference:
-    # - For fellesfag (except Norsk vg3), prefer distributing lessons across different days.
-    # - For Norsk vg3, prefer at least one 2x90 consecutive pair per week.
-    fellesfag_same_day_excess_terms: List[cp_model.IntVar] = []
+    # Subject day-distribution rules:
+    # - For fellesfag (except Norsk vg3), allow at most one lesson per day.
+    # - For Norsk vg3, prefer at least one double lesson in periods 1+2 or 3+4 each week.
     norsk_vg3_no_double90_terms: List[cp_model.IntVar] = []
 
     for subject in data.subjects:
         is_fellesfag = subject.subject_type == "fellesfag"
-        is_norsk_vg3 = is_fellesfag and ("norsk vg3" in (subject.name or "").lower())
+        is_norsk_vg3 = is_fellesfag and _is_norsk_vg3_subject(subject)
         if not is_fellesfag:
             continue
 
@@ -4533,7 +4568,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         ts_b = timeslots_by_id[ordered[i + 1]]
                         if ts_a.period + 1 != ts_b.period:
                             continue
-                        if timeslot_units_by_id.get(ts_a.id, 1) < 2 or timeslot_units_by_id.get(ts_b.id, 1) < 2:
+                        if (ts_a.period, ts_b.period) not in {(1, 2), (3, 4)}:
                             continue
                         key_a = (subject.id, ts_a.id, week_label)
                         key_b = (subject.id, ts_b.id, week_label)
@@ -4555,7 +4590,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     norsk_vg3_no_double90_terms.append(no_pair)
                 continue
 
-            # Non-Norsk vg3 fellesfag: penalize additional lessons on same day.
+            # Non-Norsk vg3 fellesfag: enforce at most one lesson on the same day.
             for day, slot_ids in day_slot_ids.items():
                 day_literals = [
                     x[(subject.id, ts_id, week_label)]
@@ -4565,15 +4600,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 ]
                 if len(day_literals) <= 1:
                     continue
-
-                day_count = model.NewIntVar(0, len(day_literals), f"fellesfag_day_count_{subject.id}_{week_label}_{day}")
-                model.Add(day_count == sum(day_literals))
-                day_excess = model.NewIntVar(0, len(day_literals), f"fellesfag_day_excess_{subject.id}_{week_label}_{day}")
-                model.Add(day_excess >= day_count - 1)
-                fellesfag_same_day_excess_terms.append(day_excess)
-
-    if fellesfag_same_day_excess_terms:
-        objective_parts.append(FELLESFAG_SAME_DAY_PENALTY_WEIGHT * sum(fellesfag_same_day_excess_terms))
+                model.Add(sum(day_literals) <= 1)
     if norsk_vg3_no_double90_terms:
         objective_parts.append(NORSK_VG3_NO_DOUBLE90_PENALTY_WEIGHT * sum(norsk_vg3_no_double90_terms))
 

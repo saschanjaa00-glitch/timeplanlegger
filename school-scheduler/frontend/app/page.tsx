@@ -874,7 +874,6 @@ export default function Home() {
   const [teacherSearchQuery, setTeacherSearchQuery] = useState("");
   const [teacherRoomSearchByTeacherId, setTeacherRoomSearchByTeacherId] = useState<Record<string, string>>({});
   const [teacherSearchBySubjectEntity, setTeacherSearchBySubjectEntity] = useState<Record<string, string>>({});
-  const [activeSubjectClassPickerId, setActiveSubjectClassPickerId] = useState<string | null>(null);
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
   const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
   const [selectedRoomCompareIds, setSelectedRoomCompareIds] = useState<string[]>([]);
@@ -1265,6 +1264,13 @@ export default function Home() {
     return [...classes].sort((a, b) => a.name.localeCompare(b.name));
   }, [classes]);
 
+  const classRowsByYear = useMemo(() => {
+    return (["1", "2", "3"] as const).map((yearPrefix) => ({
+      yearPrefix,
+      classes: sortedClasses.filter((schoolClass) => schoolClass.name.trim().startsWith(yearPrefix)),
+    }));
+  }, [sortedClasses]);
+
   const sortedRooms = useMemo(() => {
     return [...rooms].sort((a, b) => a.name.localeCompare(b.name));
   }, [rooms]);
@@ -1369,7 +1375,7 @@ export default function Home() {
       }
     }
 
-    // Count preferred meetings as fixed teacher presence to mirror solver workload span logic.
+    // Count all meeting assignments as fixed teacher presence.
     for (const meeting of meetings) {
       const ts = timeslotById[meeting.timeslot_id];
       if (!ts) {
@@ -1382,7 +1388,7 @@ export default function Home() {
       }
 
       for (const assignment of meeting.teacher_assignments) {
-        if (assignment.mode !== "preferred") {
+        if (assignment.mode !== "preferred" && assignment.mode !== "unavailable") {
           continue;
         }
         for (const weekLabel of weekLabels) {
@@ -2352,29 +2358,6 @@ export default function Home() {
     }
     return marks;
   }, []);
-
-  useEffect(() => {
-    if (!activeSubjectClassPickerId) {
-      return;
-    }
-
-    const handleMouseDown = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target) {
-        return;
-      }
-
-      const pickerRoot = target.closest(`[data-subject-class-picker-root="${activeSubjectClassPickerId}"]`);
-      if (!pickerRoot) {
-        setActiveSubjectClassPickerId(null);
-      }
-    };
-
-    document.addEventListener("mousedown", handleMouseDown);
-    return () => {
-      document.removeEventListener("mousedown", handleMouseDown);
-    };
-  }, [activeSubjectClassPickerId]);
 
   useEffect(() => {
     if (!expandedSubjectId || activeTab !== "subjects") {
@@ -4438,59 +4421,60 @@ export default function Home() {
               <div className="subject-class-manager">
                 <span className="subject-teacher-section-title">Classes With Subject</span>
 
-                <div className="subject-class-manager-chips">
-                  {derivedClassIds.length === 0 ? (
-                    <span className="subject-class-empty">No classes assigned</span>
+                <div className="class-toggle-grid-rows">
+                  {classRowsByYear.every((row) => row.classes.length === 0) ? (
+                    <span className="subject-class-empty">No classes available</span>
                   ) : (
-                    derivedClassIds
-                      .slice()
-                      .sort((a, b) => (classNameById[a] ?? a).localeCompare(classNameById[b] ?? b))
-                      .map((cid) => (
-                        <span key={cid} className="subject-class-chip subject-class-chip-editable">
-                          {classNameById[cid] ?? cid}
+                    classRowsByYear.map((row) => (
+                      <div key={`${subject.id}_${row.yearPrefix}`} className="class-toggle-row">
                           <button
                             type="button"
-                            className="subject-class-chip-remove"
-                            onClick={() => removeSubjectFromClass(subject, cid)}
-                            aria-label={`Remove ${classNameById[cid] ?? cid}`}
+                            className="class-toggle-row-label class-toggle-row-action"
+                            onClick={() => {
+                              const rowClassIds = row.classes.map((schoolClass) => schoolClass.id);
+                              const selectedRowClassIds = rowClassIds.filter((classId) => derivedClassIds.includes(classId));
+                              const allSelected = rowClassIds.length > 0 && selectedRowClassIds.length === rowClassIds.length;
+
+                              if (allSelected) {
+                                selectedRowClassIds.forEach((classId) => removeSubjectFromClass(subject, classId));
+                                return;
+                              }
+
+                              rowClassIds
+                                .filter((classId) => !derivedClassIds.includes(classId))
+                                .forEach((classId) => addSubjectToClass(subject, classId, derivedClassIds));
+                            }}
                           >
-                            x
+                            {row.yearPrefix}. trinn
                           </button>
-                        </span>
-                      ))
-                  )}
-                </div>
-
-                <div className="subject-class-manager-add">
-                  <div className="subject-class-picker" data-subject-class-picker-root={subject.id}>
-                    <button
-                      type="button"
-                      className="secondary subject-class-picker-trigger"
-                      onClick={() =>
-                        setActiveSubjectClassPickerId((prev) => (prev === subject.id ? null : subject.id))
-                      }
-                      disabled={sortedClasses.every((schoolClass) => derivedClassIds.includes(schoolClass.id))}
-                    >
-                      Select class to add
-                    </button>
-
-                    {activeSubjectClassPickerId === subject.id && (
-                      <div className="subject-class-picker-menu">
-                        {sortedClasses
-                          .filter((schoolClass) => !derivedClassIds.includes(schoolClass.id))
-                          .map((schoolClass) => (
-                            <button
-                              key={schoolClass.id}
-                              type="button"
-                              className="subject-class-picker-option"
-                              onClick={() => addSubjectToClass(subject, schoolClass.id, derivedClassIds)}
-                            >
-                              {schoolClass.name}
-                            </button>
-                          ))}
+                        <div className="class-toggle-row-buttons">
+                          {row.classes.length === 0 ? (
+                            <span className="subject-class-empty">No classes</span>
+                          ) : (
+                            row.classes.map((schoolClass) => {
+                              const isSelected = derivedClassIds.includes(schoolClass.id);
+                              return (
+                                <button
+                                  key={`${subject.id}_${schoolClass.id}`}
+                                  type="button"
+                                  className={`class-toggle-chip ${isSelected ? "on" : "off"}`}
+                                  onClick={() => {
+                                    if (isSelected) {
+                                      removeSubjectFromClass(subject, schoolClass.id);
+                                      return;
+                                    }
+                                    addSubjectToClass(subject, schoolClass.id, derivedClassIds);
+                                  }}
+                                >
+                                  {schoolClass.name}
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                    )}
-                  </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -4900,29 +4884,62 @@ export default function Home() {
           {timeslotForm.excluded_from_generation ? (
             <div className="calendar-field" style={{ gridColumn: "1 / -1" }}>
               <label>Not Excluded For Classes</label>
-              <div className="meeting-chip-row">
-                {sortedClasses.length === 0 ? (
+              <div className="class-toggle-grid-rows">
+                {classRowsByYear.every((row) => row.classes.length === 0) ? (
                   <span className="meeting-empty">No classes available</span>
                 ) : (
-                  sortedClasses.map((schoolClass) => {
-                    const isSelected = timeslotForm.generation_allowed_class_ids.includes(schoolClass.id);
-                    return (
+                  classRowsByYear.map((row) => (
+                    <div key={row.yearPrefix} className="class-toggle-row">
                       <button
-                        key={schoolClass.id}
                         type="button"
-                        className={`meeting-chip ${isSelected ? "preferred" : "neutral"}`}
-                        style={{ width: "auto" }}
-                        onClick={() => setTimeslotForm((s) => ({
-                          ...s,
-                          generation_allowed_class_ids: isSelected
-                            ? s.generation_allowed_class_ids.filter((id) => id !== schoolClass.id)
-                            : [...s.generation_allowed_class_ids, schoolClass.id],
-                        }))}
+                        className="class-toggle-row-label class-toggle-row-action"
+                        onClick={() => {
+                          const rowClassIds = row.classes.map((schoolClass) => schoolClass.id);
+                          const allSelected = rowClassIds.length > 0
+                            && rowClassIds.every((classId) => timeslotForm.generation_allowed_class_ids.includes(classId));
+
+                          setTimeslotForm((s) => {
+                            const current = new Set(s.generation_allowed_class_ids);
+                            if (allSelected) {
+                              rowClassIds.forEach((classId) => current.delete(classId));
+                            } else {
+                              rowClassIds.forEach((classId) => current.add(classId));
+                            }
+                            return {
+                              ...s,
+                              generation_allowed_class_ids: Array.from(current),
+                            };
+                          });
+                        }}
                       >
-                        {schoolClass.name}
+                        {row.yearPrefix}. trinn
                       </button>
-                    );
-                  })
+                      <div className="class-toggle-row-buttons">
+                        {row.classes.length === 0 ? (
+                          <span className="meeting-empty">No classes</span>
+                        ) : (
+                          row.classes.map((schoolClass) => {
+                            const isSelected = timeslotForm.generation_allowed_class_ids.includes(schoolClass.id);
+                            return (
+                              <button
+                                key={schoolClass.id}
+                                type="button"
+                                className={`class-toggle-chip ${isSelected ? "on" : "off"}`}
+                                onClick={() => setTimeslotForm((s) => ({
+                                  ...s,
+                                  generation_allowed_class_ids: isSelected
+                                    ? s.generation_allowed_class_ids.filter((id) => id !== schoolClass.id)
+                                    : [...s.generation_allowed_class_ids, schoolClass.id],
+                                }))}
+                              >
+                                {schoolClass.name}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ))
                 )}
               </div>
               <p style={{ marginTop: "4px", fontSize: "0.78rem" }}>
