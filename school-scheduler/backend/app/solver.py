@@ -482,6 +482,8 @@ def _assign_rooms_to_schedule(
                     timeslot_id=item.timeslot_id,
                     day=item.day,
                     period=item.period,
+                    start_time=item.start_time,
+                    end_time=item.end_time,
                     week_type=item.week_type,
                     room_id=assigned_room_id,
                 )
@@ -539,6 +541,8 @@ def _assign_rooms_to_schedule(
             timeslot_id=item.timeslot_id,
             day=item.day,
             period=item.period,
+            start_time=item.start_time,
+            end_time=item.end_time,
             week_type=item.week_type,
             room_id=room_id,
         )
