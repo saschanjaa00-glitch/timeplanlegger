@@ -431,15 +431,19 @@ def _assign_rooms_to_schedule(
                 for room_id in prioritized_preferred_rooms
             )
 
+            has_base_room = False
+            if subject and subject.subject_type == "fellesfag" and item.class_ids:
+                has_base_room = item.class_ids[0] in class_to_base_room
+
+            # Boost base-room subjects so class base-room stability wins more often.
+            if has_base_room:
+                return (0, once_grant_count, item.subject_id)
+
             if preferred_rooms and mode == "once_per_week" and once_pending:
                 # Strongly prioritize guaranteeing at least one preferred-room placement.
-                return (0, once_grant_count, item.subject_id)
-            if preferred_rooms and mode == "always":
                 return (1, once_grant_count, item.subject_id)
-            if subject and subject.subject_type == "fellesfag" and item.class_ids:
-                first_class_id = item.class_ids[0]
-                if first_class_id in class_to_base_room:
-                    return (2, once_grant_count, item.subject_id)
+            if preferred_rooms and mode == "always":
+                return (2, once_grant_count, item.subject_id)
             if preferred_rooms and mode == "once_per_week":
                 # After the once-per-week requirement is satisfied, deprioritize
                 # further preferred-room claims so base rooms can be used.
@@ -492,7 +496,9 @@ def _assign_rooms_to_schedule(
                         item.timeslot_id,
                     )
             elif preferred_rooms and mode == "once_per_week":
-                if not once_mode_satisfied[subject_week_key] and available_preferred:
+                if base_room_id and base_room_id not in used_rooms:
+                    assigned_room_id = base_room_id
+                elif not once_mode_satisfied[subject_week_key] and available_preferred:
                     assigned_room_id = _pick_with_consistency(
                         available_preferred,
                         item.subject_id,
@@ -500,8 +506,6 @@ def _assign_rooms_to_schedule(
                         item.timeslot_id,
                     )
                     once_mode_satisfied[subject_week_key] = True
-                elif base_room_id and base_room_id not in used_rooms:
-                    assigned_room_id = base_room_id
                 elif available_non_preferred_non_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_preferred_non_prioritized,
@@ -909,6 +913,87 @@ def _assign_rooms_to_schedule(
                 mirrored = True
                 break
 
+        # Final consistency pass: align rooms across A/B for the same
+        # subject+timeslot whenever the mirrored room is available.
+        for (subject_id, timeslot_id), week_map in subject_slot_week_index.items():
+            if "A" not in week_map or "B" not in week_map:
+                continue
+
+            idx_a = week_map["A"]
+            idx_b = week_map["B"]
+            room_a = result_items[idx_a].room_id
+            room_b = result_items[idx_b].room_id
+            if not room_a or not room_b or room_a == room_b:
+                continue
+
+            # Prefer aligning B to A first.
+            slot_key_b = (timeslot_id, result_items[idx_b].week_type)
+            slot_indexes_b = items_by_slot_index.get(slot_key_b, [])
+            used_rooms_b = {
+                result_items[slot_idx].room_id
+                for slot_idx in slot_indexes_b
+                if slot_idx != idx_b and result_items[slot_idx].room_id
+            }
+            if room_a not in used_rooms_b:
+                _set_item_room(idx_b, room_a)
+                subject_slot_room_by_week[(subject_id, timeslot_id, "B")] = room_a
+                continue
+
+            # If that fails, try aligning A to B.
+            slot_key_a = (timeslot_id, result_items[idx_a].week_type)
+            slot_indexes_a = items_by_slot_index.get(slot_key_a, [])
+            used_rooms_a = {
+                result_items[slot_idx].room_id
+                for slot_idx in slot_indexes_a
+                if slot_idx != idx_a and result_items[slot_idx].room_id
+            }
+            if room_b not in used_rooms_a:
+                _set_item_room(idx_a, room_b)
+                subject_slot_room_by_week[(subject_id, timeslot_id, "A")] = room_b
+
+    # Strict final normalization pass: for the same subject+timeslot in A/B,
+    # use the same room whenever one side can adopt the other's room without
+    # creating a room collision in that week/slot.
+    items_by_slot_index_final: Dict[Tuple[str, str | None], List[int]] = defaultdict(list)
+    for idx, item in enumerate(result_items):
+        items_by_slot_index_final[(item.timeslot_id, item.week_type)].append(idx)
+
+    subject_slot_week_index_final: Dict[Tuple[str, str], Dict[str, int]] = defaultdict(dict)
+    for idx, item in enumerate(result_items):
+        week_label = item.week_type or "base"
+        if week_label in {"A", "B"}:
+            subject_slot_week_index_final[(item.subject_id, item.timeslot_id)][week_label] = idx
+
+    for (_subject_id, timeslot_id), week_map in subject_slot_week_index_final.items():
+        if "A" not in week_map or "B" not in week_map:
+            continue
+
+        idx_a = week_map["A"]
+        idx_b = week_map["B"]
+        room_a = result_items[idx_a].room_id
+        room_b = result_items[idx_b].room_id
+        if not room_a or not room_b or room_a == room_b:
+            continue
+
+        slot_key_b = (timeslot_id, result_items[idx_b].week_type)
+        used_rooms_b = {
+            result_items[slot_idx].room_id
+            for slot_idx in items_by_slot_index_final.get(slot_key_b, [])
+            if slot_idx != idx_b and result_items[slot_idx].room_id
+        }
+        if room_a not in used_rooms_b:
+            _set_item_room(idx_b, room_a)
+            continue
+
+        slot_key_a = (timeslot_id, result_items[idx_a].week_type)
+        used_rooms_a = {
+            result_items[slot_idx].room_id
+            for slot_idx in items_by_slot_index_final.get(slot_key_a, [])
+            if slot_idx != idx_a and result_items[slot_idx].room_id
+        }
+        if room_b not in used_rooms_a:
+            _set_item_room(idx_a, room_b)
+
     return result_items
 
 
@@ -1005,6 +1090,16 @@ def _generate_schedule_staged(
             sports_slot_usage_by_week[(week_key, ts_id)] += 1
         else:
             regular_room_slot_usage_by_week[(week_key, ts_id)] += 1
+
+    def _decrement_room_slot_usage(subject_id: str, ts_id: str, week_key: str) -> None:
+        if subject_id in sports_only_subject_ids:
+            key = (week_key, ts_id)
+            if sports_slot_usage_by_week[key] > 0:
+                sports_slot_usage_by_week[key] -= 1
+        else:
+            key = (week_key, ts_id)
+            if regular_room_slot_usage_by_week[key] > 0:
+                regular_room_slot_usage_by_week[key] -= 1
 
     block_to_timeslots: Dict[str, Set[str]] = {}
     for block in data.blocks:
@@ -1264,7 +1359,17 @@ def _generate_schedule_staged(
             if not subject.class_ids or not block_classes or any(cid in block_classes for cid in subject.class_ids):
                 relevant_subject_ids.append(subject_id)
 
-        for subject_id in sorted(relevant_subject_ids):
+        ordered_relevant_subject_ids = sorted(relevant_subject_ids)
+        if week_label and cross_week_preferred_slots_by_subject:
+            ordered_relevant_subject_ids = sorted(
+                relevant_subject_ids,
+                key=lambda sid: (
+                    -len(set(block_slots) & set(cross_week_preferred_slots_by_subject.get(sid, set()))),
+                    sid,
+                ),
+            )
+
+        for subject_id in ordered_relevant_subject_ids:
             subject = subjects_by_id[subject_id]
             # Classless subjects inside a block should occupy that block's class set.
             placement_class_ids = list(subject.class_ids or block.class_ids or [])
@@ -1283,6 +1388,15 @@ def _generate_schedule_staged(
 
             subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
             candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
+            if week_label and cross_week_preferred_slots_by_subject:
+                preferred_cross_week_slots = set(cross_week_preferred_slots_by_subject.get(subject.id, set()))
+                if preferred_cross_week_slots:
+                    candidate_slots.sort(
+                        key=lambda ts_id: (
+                            0 if ts_id in preferred_cross_week_slots else 1,
+                            _slot_sort_key(ts_id),
+                        )
+                    )
             candidate_capacity_units = sum(timeslot_units_by_id.get(ts_id, 1) for ts_id in candidate_slots)
             # Block-linked subjects should follow their configured block windows.
             # If requested weekly units exceed block-window capacity, cap to what
@@ -1462,6 +1576,14 @@ def _generate_schedule_staged(
             if partial_subject_priority == "first"
             else (1 if s.id in partial_subject_ids else 0),
             subject_flex_by_id.get(s.id, (10_000, 10_000, 10_000, 10_000))[3],
+            (
+                0
+                if (
+                    s.id in sports_only_subject_ids
+                    and subject_flex_by_id.get(s.id, (10_000, 10_000, 10_000, 10_000))[3] <= 2
+                )
+                else 1
+            ),
             subject_flex_by_id.get(s.id, (10_000, 10_000, 10_000, 10_000))[0],
             subject_flex_by_id.get(s.id, (10_000, 10_000, 10_000, 10_000))[1],
             subject_rank.get(s.id, 10_000),
@@ -1660,6 +1782,115 @@ def _generate_schedule_staged(
         for existing_item in schedule_items:
             if existing_item.subject_id == subject.id:
                 subject_periods_by_day[existing_item.day].add(existing_item.period)
+        relocation_attempts_used = 0
+
+        def _try_relocate_conflict_for_sports(target_slots: List[str], enforce_unique_day_now: bool) -> bool:
+            # Sports subjects are capacity-constrained and should get first claim on compatible windows.
+            if subject.id not in sports_only_subject_ids:
+                return False
+            if relocation_attempts_used >= 2:
+                return False
+
+            for ts_id in target_slots:
+                ts = timeslots_by_id[ts_id]
+                if enforce_unique_day_now and ts.day in subject_days_used:
+                    continue
+                if not _room_capacity_available(subject, ts_id, planning_week_key):
+                    continue
+
+                blocking_indexes: List[int] = []
+                for idx, existing_item in enumerate(schedule_items):
+                    if (existing_item.week_type or "base") != planning_week_key:
+                        continue
+                    if existing_item.timeslot_id != ts_id:
+                        continue
+
+                    class_conflict = bool(set(existing_item.class_ids or []) & set(subject.class_ids or []))
+                    teacher_conflict = bool(set(_scheduled_item_teacher_ids(existing_item)) & set(teacher_ids or []))
+                    if class_conflict or teacher_conflict:
+                        blocking_indexes.append(idx)
+
+                if len(blocking_indexes) != 1:
+                    continue
+
+                blocker_idx = blocking_indexes[0]
+                blocker_item = schedule_items[blocker_idx]
+                blocker_subject = subjects_by_id.get(blocker_item.subject_id)
+                if not blocker_subject:
+                    continue
+                if blocker_subject.id in sports_only_subject_ids:
+                    continue
+                if blocker_subject.id in block_subject_ids:
+                    continue
+                if blocker_subject.id in link_group_by_subject_id:
+                    continue
+                if blocker_item.start_time and blocker_item.end_time:
+                    continue
+
+                blocker_teacher_ids = subject_effective_teacher_ids.get(
+                    blocker_subject.id,
+                    _subject_teacher_ids(blocker_subject),
+                )
+                blocker_allowed = sorted(
+                    list(subject_allowed_slots_without_occupancy.get(blocker_subject.id, set())),
+                    key=_slot_sort_key,
+                )
+                blocker_units = _item_units(blocker_item, timeslot_units_by_id)
+
+                for alt_ts_id in blocker_allowed:
+                    if alt_ts_id == ts_id:
+                        continue
+                    if not _room_capacity_available(blocker_subject, alt_ts_id, planning_week_key):
+                        continue
+
+                    blocker_old_slot_id = blocker_item.timeslot_id
+                    old_day = blocker_item.day
+                    old_period = blocker_item.period
+
+                    for class_id in blocker_subject.class_ids:
+                        class_occupied.discard((class_id, blocker_old_slot_id))
+                    for teacher_id in blocker_teacher_ids:
+                        teacher_occupied.discard((teacher_id, blocker_old_slot_id))
+
+                    alt_conflict = False
+                    if any((teacher_id, alt_ts_id) in teacher_occupied for teacher_id in blocker_teacher_ids):
+                        alt_conflict = True
+                    if any((class_id, alt_ts_id) in class_occupied for class_id in blocker_subject.class_ids):
+                        alt_conflict = True
+
+                    if alt_conflict:
+                        for class_id in blocker_subject.class_ids:
+                            class_occupied.add((class_id, blocker_old_slot_id))
+                        for teacher_id in blocker_teacher_ids:
+                            teacher_occupied.add((teacher_id, blocker_old_slot_id))
+                        continue
+
+                    alt_slot = timeslots_by_id[alt_ts_id]
+
+                    blocker_item.timeslot_id = alt_ts_id
+                    blocker_item.day = alt_slot.day
+                    blocker_item.period = alt_slot.period
+                    blocker_item.start_time = None
+                    blocker_item.end_time = None
+
+                    for class_id in blocker_subject.class_ids:
+                        class_occupied.add((class_id, alt_ts_id))
+                    for teacher_id in blocker_teacher_ids:
+                        teacher_occupied.add((teacher_id, alt_ts_id))
+
+                    for class_id in blocker_subject.class_ids:
+                        class_day_load_units[(class_id, old_day)] -= blocker_units
+                        class_day_load_units[(class_id, alt_slot.day)] += blocker_units
+                    _decrement_room_slot_usage(blocker_subject.id, blocker_old_slot_id, planning_week_key)
+                    _increment_room_slot_usage(blocker_subject.id, alt_ts_id, planning_week_key)
+
+                    _solver_log(
+                        f"[SPORTS-RELOCATE] moved {blocker_subject.id} {blocker_old_slot_id}->{alt_ts_id} "
+                        f"to open {subject.id} in week {planning_week_key}"
+                    )
+                    return True
+
+            return False
 
         def _has_norsk_target_pair() -> bool:
             for periods in subject_periods_by_day.values():
@@ -1880,6 +2111,9 @@ def _generate_schedule_staged(
                     break
 
             if not feasible_candidates:
+                if _try_relocate_conflict_for_sports(candidate_slots, enforce_unique_day):
+                    relocation_attempts_used += 1
+                    continue
                 if enforce_unique_day:
                     # If strict one-per-day placement gets stuck, relax for this subject.
                     # same_day_repeat_penalty keeps this as a fallback preference.
@@ -3491,10 +3725,20 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
             metadata = dict(response_primary.metadata or {})
             metadata[f"failed_week_{primary_week_label.lower()}"] = 1.0
+            partial_primary_schedule = list(response_primary.schedule or [])
+            if partial_primary_schedule:
+                metadata["partial"] = 1.0
+                metadata["placed_count"] = float(len(partial_primary_schedule))
             return ScheduleResponse(
                 status=response_primary.status,
-                message=f"{primary_week_label}-week: {response_primary.message}",
-                schedule=[],
+                message=(
+                    f"{primary_week_label}-week: {response_primary.message}"
+                    if not partial_primary_schedule
+                    else (
+                        f"{primary_week_label}-week: {response_primary.message}"
+                    )
+                ),
+                schedule=partial_primary_schedule,
                 metadata=metadata,
             )
 
@@ -3880,6 +4124,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         return attempts[0]
 
     if failures:
+        def _week_item_counts(response: ScheduleResponse) -> Tuple[int, int]:
+            items = response.schedule or []
+            a_count = sum(1 for item in items if (item.week_type or "base") == "A")
+            b_count = sum(1 for item in items if (item.week_type or "base") == "B")
+            return a_count, b_count
+
         def _failure_rank(response: ScheduleResponse) -> Tuple[int, int, int, int]:
             items = response.schedule or []
             a_count = sum(1 for item in items if (item.week_type or "base") == "A")
@@ -3910,20 +4160,80 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             merged_metadata["partial"] = 1.0
             merged_metadata["placed_count"] = float(len(best_failure.schedule))
             return ScheduleResponse(
-                status=best_failure.status,
+                status="success",
                 message=best_failure.message,
                 schedule=best_failure.schedule,
                 metadata=merged_metadata,
             )
 
+        failures_with_a_only = [
+            response
+            for response in failures
+            if _week_item_counts(response)[0] > 0 and _week_item_counts(response)[1] == 0
+        ]
+        failures_with_b_only = [
+            response
+            for response in failures
+            if _week_item_counts(response)[1] > 0 and _week_item_counts(response)[0] == 0
+        ]
+
+        if failures_with_a_only and failures_with_b_only:
+            best_a_partial = max(
+                failures_with_a_only,
+                key=lambda response: (_week_item_counts(response)[0], -_response_total_shortage_units(response), -_schedule_quality(response.schedule or [])),
+            )
+            best_b_partial = max(
+                failures_with_b_only,
+                key=lambda response: (_week_item_counts(response)[1], -_response_total_shortage_units(response), -_schedule_quality(response.schedule or [])),
+            )
+
+            combined_partial_schedule = list(best_a_partial.schedule or []) + list(best_b_partial.schedule or [])
+            combined_partial_schedule = _assign_rooms_to_schedule(
+                combined_partial_schedule,
+                data,
+                {s.id: s for s in data.subjects},
+                {cls.id: cls.base_room_id for cls in data.classes if cls.base_room_id},
+            )
+
+            combined_metadata = dict(best_a_partial.metadata or {})
+            combined_metadata.update(best_b_partial.metadata or {})
+            combined_metadata["partial"] = 1.0
+            combined_metadata["placed_count"] = float(len(combined_partial_schedule))
+            combined_metadata["failed_week_a"] = 1.0
+            combined_metadata["failed_week_b"] = 1.0
+
+            return ScheduleResponse(
+                status="success",
+                message="Schedule generated with current constraints. Alternating-week mode could not fully place both weeks.",
+                schedule=combined_partial_schedule,
+                metadata=combined_metadata,
+            )
+
+        failures_with_any_schedule = [response for response in failures if response.schedule]
+        if failures_with_any_schedule:
+            best_partial = max(failures_with_any_schedule, key=_failure_rank)
+            merged_metadata = dict(best_partial.metadata or {})
+            merged_metadata["partial"] = 1.0
+            merged_metadata["placed_count"] = float(len(best_partial.schedule))
+            return ScheduleResponse(
+                status="success",
+                message=(
+                    "Schedule generated with current constraints. "
+                    "Alternating-week mode could not fully place both weeks."
+                ),
+                schedule=best_partial.schedule,
+                metadata=merged_metadata,
+            )
+
         best_failure = max(failures, key=_failure_rank)
+        has_partial_items = bool(best_failure.schedule)
         return ScheduleResponse(
-            status=best_failure.status,
+            status=("success" if has_partial_items else best_failure.status),
             message=(
                 best_failure.message
                 + " Alternating-week mode could not place both A and B weeks with current constraints."
             ),
-            schedule=[],
+            schedule=(best_failure.schedule if has_partial_items else []),
             metadata=dict(best_failure.metadata or {}),
         )
 

@@ -214,7 +214,10 @@ function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
 
   const merged: ScheduledItem[] = [];
   buckets.forEach((bucket) => {
-    if (bucket.shared.length > 0) {
+    const hasWeekSpecific = bucket.a.length > 0 || bucket.b.length > 0;
+    // If explicit week-specific rows exist for this exact signature,
+    // prefer those and avoid also rendering legacy shared rows.
+    if (bucket.shared.length > 0 && !hasWeekSpecific) {
       merged.push(...bucket.shared);
     }
 
@@ -309,6 +312,8 @@ function collectPlacementWarningDetails(
   response: GenerateResponse,
   plannedSubjects: Subject[],
   timeslots: Timeslot[],
+  blockLinkedSubjectIds: Set<string>,
+  alternatingWeeksEnabled: boolean,
 ): PlacementWarningDetail[] {
   const failedWeeks = getFailedWeeksFromMetadata(response.metadata);
   if (failedWeeks.length === 0) {
@@ -348,11 +353,22 @@ function collectPlacementWarningDetails(
 
   const details: PlacementWarningDetail[] = [];
   for (const subject of plannedSubjects) {
+    const isBlockLinked = blockLinkedSubjectIds.has(subject.id) || Boolean(subject.allowed_block_ids?.length);
+    if (isBlockLinked) {
+      continue;
+    }
+
     const requiredUnits = Math.max(1, Number(subject.sessions_per_week || 1));
-    // Match solver's odd-week balancing tolerance: odd unit loads may be 1 unit
-    // lower in one week while still considered balanced across A/B.
-    const minimumExpectedUnits = requiredUnits % 2 === 1
-      ? Math.max(0, requiredUnits - 1)
+    // In alternating-week mode, subject.sessions_per_week is a two-week total.
+    // Compare each week against a per-week baseline (floor split), otherwise
+    // warnings will incorrectly claim "no space" for valid 2/3 or 3/4 splits.
+    const minimumExpectedUnits = alternatingWeeksEnabled
+      ? Math.floor(requiredUnits / 2)
+      : (requiredUnits % 2 === 1
+        ? Math.max(0, requiredUnits - 1)
+        : requiredUnits);
+    const warningRequiredUnits = alternatingWeeksEnabled
+      ? Math.max(1, Math.ceil(requiredUnits / 2))
       : requiredUnits;
     const placed = placedUnitsBySubjectWeek[subject.id] ?? { A: 0, B: 0 };
 
@@ -366,7 +382,7 @@ function collectPlacementWarningDetails(
         subject_id: subject.id,
         subject_name: subject.name,
         week,
-        required_units: requiredUnits,
+        required_units: warningRequiredUnits,
         placed_units: placedUnits,
         missing_units: minimumExpectedUnits - placedUnits,
       });
@@ -5223,15 +5239,31 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
-      const warningDetails = collectPlacementWarningDetails(data, cleanSubjects, timeslots);
-      const failedWeeks = getFailedWeeksFromMetadata(data.metadata);
-      if (warningDetails.length > 0) {
-        const weekLabel = failedWeeks.join(" + ");
-        setPlacementWarningSummary(
-          `${weekLabel}-week is below preferred units for ${warningDetails.length} subject${warningDetails.length === 1 ? "" : "s"}.`,
+      const canShowPlacementWarnings = data.status === "success" && (data.schedule?.length ?? 0) > 0;
+      if (canShowPlacementWarnings) {
+        const blockLinkedSubjectIds = new Set<string>([
+          ...payload.blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
+          ...payload.blocks.flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id).filter(Boolean)),
+        ]);
+        const warningDetails = collectPlacementWarningDetails(
+          data,
+          cleanSubjects,
+          timeslots,
+          blockLinkedSubjectIds,
+          enableAlternatingWeeks,
         );
+        const failedWeeks = getFailedWeeksFromMetadata(data.metadata);
+        if (warningDetails.length > 0) {
+          const weekLabel = failedWeeks.join(" + ");
+          setPlacementWarningSummary(
+            `${weekLabel}-week is below preferred units for ${warningDetails.length} subject${warningDetails.length === 1 ? "" : "s"}.`,
+          );
+        }
+        setPlacementWarningDetails(warningDetails);
+      } else {
+        setPlacementWarningSummary("");
+        setPlacementWarningDetails([]);
       }
-      setPlacementWarningDetails(warningDetails);
       setStatusText(formatGeneratedScheduleStatus(data, runId));
       setSchedule(data.schedule || []);
     } catch (error) {
@@ -8688,6 +8720,7 @@ export default function Home() {
                         isBlockSubject?: boolean;
                         isBlockSummary?: boolean;
                         blockSummaryKey?: string;
+                        blockSummaryGroupKey?: string;
                         ts: Timeslot | undefined;
                         classLabel: string;
                         teacherLabel: string;
@@ -8801,8 +8834,8 @@ export default function Home() {
                                 displayTitle = `${item.subject_name} (${blockInfo.block_name})`;
                               }
 
-                              const blockSummaryKey = isClassView && blockInfo
-                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}|${item.week_type ?? "both"}`
+                              const blockSummaryGroupKey = isClassView && blockInfo
+                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}`
                                 : undefined;
 
                               let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;
@@ -8822,6 +8855,11 @@ export default function Home() {
                                   : item.week_type;
                               }
 
+                              const blockSummaryWeekKey = blockWeekTypeFromDefinition ?? "both";
+                              const blockSummaryKey = blockSummaryGroupKey
+                                ? `${blockSummaryGroupKey}|${blockSummaryWeekKey}`
+                                : undefined;
+
                               const classLabelForRender = classLabel || blockClassIds
                                 .map((id) => classNameById[id] ?? id)
                                 .join(", ");
@@ -8835,6 +8873,7 @@ export default function Home() {
                                 isBlockSubject: Boolean(blockInfo),
                                 isBlockSummary: Boolean(blockSummaryKey),
                                 blockSummaryKey,
+                                blockSummaryGroupKey,
                                 ts,
                                 classLabel: classLabelForRender,
                                 teacherLabel,
@@ -8860,10 +8899,30 @@ export default function Home() {
                       const subjectEvents: RenderEvent[] = (() => {
                         const merged: RenderEvent[] = [];
                         const blockSummaryIndex = new Map<string, number>();
+                        const groupsWithSpecificWeeks = new Set<string>();
+
+                        for (const event of subjectEventsRaw) {
+                          if (!event.blockSummaryGroupKey) {
+                            continue;
+                          }
+                          if (event.weekType === "A" || event.weekType === "B") {
+                            groupsWithSpecificWeeks.add(event.blockSummaryGroupKey);
+                          }
+                        }
 
                         for (const event of subjectEventsRaw) {
                           if (!event.blockSummaryKey) {
                             merged.push(event);
+                            continue;
+                          }
+
+                          // If a block slot has explicit A/B entries, suppress the
+                          // legacy shared variant for the same class/block/timeslot.
+                          if (
+                            event.blockSummaryGroupKey
+                            && !event.weekType
+                            && groupsWithSpecificWeeks.has(event.blockSummaryGroupKey)
+                          ) {
                             continue;
                           }
 
