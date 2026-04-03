@@ -3760,6 +3760,269 @@ def _fill_reduced_tail_shortage_for_partial_weeks(
     return schedule_items + additions
 
 
+def _rebalance_1tmt_naturfag_samf_partial(
+    data: ScheduleRequest,
+    schedule_items: List[ScheduledItem],
+) -> List[ScheduledItem]:
+    """
+    Targeted partial-week rebalance for 1TMT:
+    - Move Naturfag from Thu-2 (B) to Fri-4 (B) when possible.
+    - Place Samfunnskunnskap at Thu-2 (B).
+    - If Samf teacher is blocked at Thu-2 by Norsk vg3 (3STE), try moving
+      that blocker to a feasible Monday/Friday slot first.
+    """
+    if not data.alternating_weeks_enabled or not schedule_items:
+        return schedule_items
+
+    week = "B"
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in data.timeslots}
+    if "Thu-2" not in timeslots_by_id or "Fri-4" not in timeslots_by_id:
+        return schedule_items
+
+    subjects_by_id: Dict[str, Subject] = {s.id: s for s in data.subjects}
+    all_timeslot_ids: Set[str] = set(timeslots_by_id.keys())
+    blocks_by_id: Dict[str, Block] = {b.id: b for b in data.blocks}
+
+    block_to_timeslots: Dict[str, Set[str]] = {}
+    for block in data.blocks:
+        slot_set: Set[str] = set()
+        has_occurrences = bool(block.occurrences)
+        for occ in block.occurrences:
+            slot_set |= (_timeslots_overlapping_occurrence(occ, data.timeslots) & all_timeslot_ids)
+        if not has_occurrences:
+            slot_set |= (set(block.timeslot_ids) & all_timeslot_ids)
+        block_to_timeslots[block.id] = slot_set
+
+    linked_block_ids: Dict[str, Set[str]] = defaultdict(set)
+    for block in data.blocks:
+        for se in block.subject_entries:
+            linked_block_ids[se.subject_id].add(block.id)
+        for subject_id in block.subject_ids:
+            linked_block_ids[subject_id].add(block.id)
+
+    naturfag_subject = next(
+        (
+            s
+            for s in data.subjects
+            if "class_1tmt" in (s.class_ids or []) and "naturfag" in (s.name or "").lower()
+        ),
+        None,
+    )
+    samf_subject = next(
+        (
+            s
+            for s in data.subjects
+            if "class_1tmt" in (s.class_ids or []) and "samfunnskunnskap" in (s.name or "").lower()
+        ),
+        None,
+    )
+    if not naturfag_subject or not samf_subject:
+        return schedule_items
+
+    naturfag_teacher_ids = _subject_teacher_ids(naturfag_subject)
+    samf_teacher_ids = _subject_teacher_ids(samf_subject)
+    if not samf_teacher_ids:
+        return schedule_items
+
+    allowed_slots_naturfag = _compute_allowed_timeslots(
+        naturfag_subject,
+        all_timeslot_ids,
+        block_to_timeslots,
+        timeslots_by_id,
+    )
+    allowed_slots_samf = _compute_allowed_timeslots(
+        samf_subject,
+        all_timeslot_ids,
+        block_to_timeslots,
+        timeslots_by_id,
+    )
+    allowed_weeks_naturfag = _compute_allowed_weeks(
+        naturfag_subject,
+        True,
+        blocks_by_id,
+        linked_block_ids,
+    )
+    allowed_weeks_samf = _compute_allowed_weeks(
+        samf_subject,
+        True,
+        blocks_by_id,
+        linked_block_ids,
+    )
+    if week not in allowed_weeks_naturfag or week not in allowed_weeks_samf:
+        return schedule_items
+    if "Fri-4" not in allowed_slots_naturfag or "Thu-2" not in allowed_slots_samf:
+        return schedule_items
+
+    teacher_unavailable: Dict[str, Set[str]] = defaultdict(set)
+    teachers_by_id = {t.id: t for t in data.teachers}
+    for teacher in data.teachers:
+        teacher_unavailable[teacher.id] |= set(teacher.unavailable_timeslots)
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in all_timeslot_ids:
+            continue
+        for assignment in meeting.teacher_assignments:
+            if assignment.mode == "unavailable" and assignment.teacher_id in teachers_by_id:
+                teacher_unavailable[assignment.teacher_id].add(meeting.timeslot_id)
+
+    working_items = list(schedule_items)
+
+    def _slot_conflict_for_subject(
+        items: List[ScheduledItem],
+        subject: Subject,
+        slot_id: str,
+        planning_week: str,
+        subject_teacher_ids: List[str],
+        ignore_idx: int | None = None,
+    ) -> bool:
+        if any(slot_id in teacher_unavailable.get(tid, set()) for tid in subject_teacher_ids):
+            return True
+
+        subject_classes = set(subject.class_ids or [])
+        for idx, existing in enumerate(items):
+            if ignore_idx is not None and idx == ignore_idx:
+                continue
+            if (existing.week_type or "base") != planning_week:
+                continue
+            if existing.timeslot_id != slot_id:
+                continue
+
+            existing_classes = set(existing.class_ids or [])
+            if subject_classes & existing_classes:
+                return True
+
+            existing_teachers = set(_scheduled_item_teacher_ids(existing))
+            if any(tid in existing_teachers for tid in subject_teacher_ids):
+                return True
+        return False
+
+    naturfag_idx = next(
+        (
+            idx
+            for idx, item in enumerate(working_items)
+            if item.subject_id == naturfag_subject.id
+            and (item.week_type or "base") == week
+            and item.timeslot_id == "Thu-2"
+            and not (item.start_time or item.end_time)
+        ),
+        None,
+    )
+    if naturfag_idx is None:
+        return schedule_items
+
+    # If Samf teacher is blocked at Thu-2, try to relocate one blocker first.
+    blockers = [
+        idx
+        for idx, item in enumerate(working_items)
+        if (item.week_type or "base") == week
+        and item.timeslot_id == "Thu-2"
+        and any(tid in set(_scheduled_item_teacher_ids(item)) for tid in samf_teacher_ids)
+        and item.subject_id != samf_subject.id
+    ]
+
+    if blockers:
+        blocker_idx = blockers[0]
+        blocker_item = working_items[blocker_idx]
+        blocker_subject = subjects_by_id.get(blocker_item.subject_id)
+        if not blocker_subject or (blocker_item.start_time or blocker_item.end_time):
+            return schedule_items
+
+        blocker_teacher_ids = _subject_teacher_ids(blocker_subject)
+        blocker_allowed_slots = _compute_allowed_timeslots(
+            blocker_subject,
+            all_timeslot_ids,
+            block_to_timeslots,
+            timeslots_by_id,
+        )
+
+        preferred_order = ["Mon-1", "Mon-4", "Fri-1", "Fri-4", "Tue-1", "Wed-1"]
+        remaining_slots = sorted(
+            [slot_id for slot_id in blocker_allowed_slots if slot_id not in set(preferred_order)],
+            key=lambda slot_id: (
+                DAY_ORDER_INDEX.get((timeslots_by_id[slot_id].day or "").lower(), 99),
+                timeslots_by_id[slot_id].period,
+            ),
+        )
+        candidate_slots = [slot_id for slot_id in preferred_order if slot_id in blocker_allowed_slots] + remaining_slots
+
+        moved_blocker = False
+        for candidate_slot in candidate_slots:
+            if candidate_slot == blocker_item.timeslot_id:
+                continue
+            if _slot_conflict_for_subject(
+                working_items,
+                blocker_subject,
+                candidate_slot,
+                week,
+                blocker_teacher_ids,
+                ignore_idx=blocker_idx,
+            ):
+                continue
+
+            ts = timeslots_by_id[candidate_slot]
+            blocker_item.timeslot_id = candidate_slot
+            blocker_item.day = ts.day
+            blocker_item.period = ts.period
+            blocker_item.start_time = None
+            blocker_item.end_time = None
+            moved_blocker = True
+            break
+
+        if not moved_blocker:
+            return schedule_items
+
+    # Move Naturfag Thu-2(B) -> Fri-4(B).
+    if _slot_conflict_for_subject(
+        working_items,
+        naturfag_subject,
+        "Fri-4",
+        week,
+        naturfag_teacher_ids,
+        ignore_idx=naturfag_idx,
+    ):
+        return schedule_items
+
+    naturfag_item = working_items[naturfag_idx]
+    naturfag_item.timeslot_id = "Fri-4"
+    naturfag_item.day = timeslots_by_id["Fri-4"].day
+    naturfag_item.period = timeslots_by_id["Fri-4"].period
+    naturfag_item.start_time = None
+    naturfag_item.end_time = None
+
+    # Place Samfunnskunnskap at Thu-2(B) as a full 90-minute slot.
+    if any(
+        (item.week_type or "base") == week
+        and item.subject_id == samf_subject.id
+        and item.timeslot_id == "Thu-2"
+        for item in working_items
+    ):
+        return working_items
+
+    if _slot_conflict_for_subject(
+        working_items,
+        samf_subject,
+        "Thu-2",
+        week,
+        samf_teacher_ids,
+    ):
+        return schedule_items
+
+    working_items.append(
+        ScheduledItem(
+            subject_id=samf_subject.id,
+            subject_name=samf_subject.name,
+            teacher_id=samf_teacher_ids[0],
+            teacher_ids=samf_teacher_ids,
+            class_ids=list(samf_subject.class_ids or []),
+            timeslot_id="Thu-2",
+            day=timeslots_by_id["Thu-2"].day,
+            period=timeslots_by_id["Thu-2"].period,
+            week_type=week,
+        )
+    )
+
+    return working_items
+
+
 def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     _solver_log(f"[RUN] generate_schedule called with alternating_weeks_enabled={data.alternating_weeks_enabled}", reset=True)
     if not data.alternating_weeks_enabled:
@@ -4540,6 +4803,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 combined_partial_schedule,
                 timeslot_units_map,
             )
+            combined_partial_schedule = _rebalance_1tmt_naturfag_samf_partial(
+                data,
+                combined_partial_schedule,
+            )
             combined_partial_schedule = _assign_rooms_to_schedule(
                 combined_partial_schedule,
                 data,
@@ -4759,6 +5026,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 best_failure_schedule,
                 timeslot_units_map,
             )
+            best_failure_schedule = _rebalance_1tmt_naturfag_samf_partial(
+                data,
+                best_failure_schedule,
+            )
             merged_metadata = dict(best_failure.metadata or {})
             merged_metadata["partial"] = 1.0
             merged_metadata["placed_count"] = float(len(best_failure_schedule))
@@ -4781,6 +5052,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 data,
                 best_partial_schedule,
                 timeslot_units_map,
+            )
+            best_partial_schedule = _rebalance_1tmt_naturfag_samf_partial(
+                data,
+                best_partial_schedule,
             )
             merged_metadata = dict(best_partial.metadata or {})
             merged_metadata["partial"] = 1.0
