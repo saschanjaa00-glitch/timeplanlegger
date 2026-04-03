@@ -1314,13 +1314,20 @@ p {
 }
 
 .faggrupper-subject-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.68fr) minmax(80px, 0.25fr) minmax(150px, 0.5fr) minmax(220px, 0.98fr) minmax(220px, 0.98fr);
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
   gap: 0.35rem;
   border: 1px solid #deddd8;
   background: #fbfbf9;
-  padding: 0.22rem 0.3rem;
+  padding: 0.28rem 0.34rem;
+}
+
+.faggrupper-subject-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
 }
 
 .faggrupper-units-field {
@@ -1597,6 +1604,60 @@ p {
   min-width: 0;
 }
 
+.faggrupper-teacher-picker-inline {
+  gap: 0.15rem;
+}
+
+.faggrupper-teacher-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 0.32rem;
+  min-width: 0;
+}
+
+.faggrupper-teacher-picker-inline .faggrupper-teacher-selected {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+}
+
+.faggrupper-teacher-picker-inline .faggrupper-teacher-add-row {
+  flex: 0 0 320px;
+  min-width: 220px;
+}
+
+.faggrupper-teacher-picker-inline .faggrupper-teacher-add-row input {
+  width: 100%;
+}
+
+.faggrupper-advanced-settings {
+  border: 1px solid #dfddd6;
+  border-radius: 4px;
+  background: #f6f6f3;
+  padding: 0.16rem 0.24rem;
+}
+
+.faggrupper-advanced-settings > summary {
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: #5b5954;
+  text-transform: uppercase;
+  list-style: none;
+}
+
+.faggrupper-advanced-settings > summary::-webkit-details-marker {
+  display: none;
+}
+
+.faggrupper-advanced-grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 0.8fr) minmax(320px, 1.2fr);
+  gap: 0.35rem;
+  margin-top: 0.26rem;
+}
+
 .faggrupper-subject-row .faggrupper-teacher-picker {
   align-items: stretch;
 }
@@ -1668,30 +1729,24 @@ p {
 }
 
 @media (max-width: 1700px) {
-  .faggrupper-subject-row {
-    grid-template-columns: minmax(140px, 1fr) minmax(84px, 0.45fr) minmax(220px, 1fr);
+  .faggrupper-teacher-inline-row {
+    flex-direction: column;
+    align-items: stretch;
   }
 
-  .excluded-session-field {
-    grid-column: 1 / -1;
+  .faggrupper-teacher-picker-inline .faggrupper-teacher-add-row {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
-  .faggrupper-teacher-picker {
-    grid-column: 1 / -1;
+  .faggrupper-advanced-grid {
+    grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 1450px) {
-  .faggrupper-subject-row {
-    grid-template-columns: minmax(140px, 1fr) minmax(84px, 0.45fr) minmax(220px, 1fr);
-  }
-
-  .excluded-session-field {
-    grid-column: 1 / -1;
-  }
-
-  .faggrupper-teacher-picker {
-    grid-column: 1 / -1;
+  .faggrupper-subject-main {
+    gap: 0.35rem;
   }
 
   .room-base-by-trinn-grid {

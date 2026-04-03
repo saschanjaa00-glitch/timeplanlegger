@@ -494,9 +494,9 @@ function extractAvdeling(value: unknown): string {
 
 function normalizeSearchText(value: string): string {
   return value
-    .replace(/[æÆ]/g, "ae")
-    .replace(/[øØ]/g, "o")
-    .replace(/[åÅ]/g, "a")
+    .replace(/[æå]/g, "ae")
+    .replace(/[øœ]/g, "o")
+    .replace(/[áà]/g, "a")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
@@ -6735,247 +6735,259 @@ export default function Home() {
                           subject.class_ids[0] === activeFaggruppeClassId;
                         return (
                           <div key={`${activeFaggruppeClassId}_${subject.id}`} className="subject-teacher-row faggrupper-subject-row">
-                            <span className="subject-teacher-classname">{subject.name}</span>
-                            <div className="faggrupper-units-field" title={isClassCopy ? "Edit weekly units for this class copy." : "Only class-specific copies can be edited here."}>
-                              <label>45m</label>
-                              <input
-                                type="number"
-                                min={1}
-                                value={subject.sessions_per_week}
-                                disabled={!isClassCopy}
-                                onChange={(e) => {
-                                  const value = Math.max(1, Math.floor(Number(e.target.value) || 1));
-                                  updateSubjectCard(subject.id, {
-                                    sessions_per_week: value,
-                                  });
-                                }}
-                              />
-                            </div>
-                            <div
-                              className="faggrupper-units-field faggrupper-force-field"
-                              title={
-                                isClassCopy && subject.subject_type === "fellesfag"
-                                  ? "Linked copies with the same name are scheduled in the same sessions."
-                                  : "Only class-specific fellesfag copies can be linked here."
-                              }
-                            >
-                              <label className="faggrupper-force-label">
+                            <div className="faggrupper-subject-main">
+                              <span className="subject-teacher-classname">{subject.name}</span>
+                              <div className="faggrupper-units-field" title={isClassCopy ? "Edit weekly units for this class copy." : "Only class-specific copies can be edited here."}>
+                                <label>45m</label>
                                 <input
-                                  type="checkbox"
-                                  checked={Boolean(subject.link_group_id)}
-                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                  type="number"
+                                  min={1}
+                                  value={subject.sessions_per_week}
+                                  disabled={!isClassCopy}
                                   onChange={(e) => {
-                                    setFellesfagLinkEnabled(subject.id, e.target.checked);
-                                  }}
-                                />
-                                Link
-                              </label>
-                            </div>
-                            <div
-                              className="faggrupper-units-field faggrupper-force-field"
-                              title={
-                                isClassCopy && subject.subject_type === "fellesfag"
-                                  ? "Force one weekly placement into a specific slot (can overlap with blocks)."
-                                  : "Only class-specific fellesfag can be force-placed here."
-                              }
-                            >
-                              <label className="faggrupper-force-label">
-                                <input
-                                  type="checkbox"
-                                  checked={Boolean(subject.force_place)}
-                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
-                                  onChange={(e) => {
-                                    const checked = e.target.checked;
+                                    const value = Math.max(1, Math.floor(Number(e.target.value) || 1));
                                     updateSubjectCard(subject.id, {
-                                      force_place: checked,
-                                      force_timeslot_id: checked ? subject.force_timeslot_id : undefined,
+                                      sessions_per_week: value,
                                     });
                                   }}
                                 />
-                                Force
-                              </label>
-                              <select
-                                value={subject.force_timeslot_id ?? ""}
-                                disabled={!isClassCopy || subject.subject_type !== "fellesfag" || !subject.force_place}
-                                onChange={(e) => {
-                                  const value = e.target.value;
-                                  updateSubjectCard(subject.id, {
-                                    force_place: Boolean(subject.force_place),
-                                    force_timeslot_id: value || undefined,
-                                  });
-                                }}
-                              >
-                                <option value="">Select slot</option>
-                                {sortedTimeslots.map((ts) => (
-                                  <option key={ts.id} value={ts.id}>
-                                    {ts.day} P{ts.period}
-                                    {ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}
-                                  </option>
-                                ))}
-                              </select>
-                            </div>
-                            <div
-                              className="faggrupper-units-field excluded-session-field"
-                              title={
-                                isClassCopy && subject.subject_type === "fellesfag"
-                                  ? "Exclude slots from feasible placement for this class copy."
-                                  : "Only class-specific fellesfag copies can be edited here."
-                              }
-                            >
-                              <label>Excluded</label>
-                              <div className="faggrupper-teacher-add-row">
-                                <input
-                                  list={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}
-                                  value={excludedDraft}
-                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
-                                  onChange={(e) => {
-                                    const nextValue = e.target.value;
-                                    const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
-                                    if (resolvedTimeslotId) {
-                                      if (!excludedTimeslots.includes(resolvedTimeslotId)) {
-                                        updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId], false);
-                                      }
-                                      setExcludedSessionSearchBySubjectEntity((prev) => ({
-                                        ...prev,
-                                        [excludedSearchKey]: "",
-                                      }));
-                                      return;
-                                    }
-
-                                    setExcludedSessionSearchBySubjectEntity((prev) => ({
-                                      ...prev,
-                                      [excludedSearchKey]: nextValue,
-                                    }));
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== "Enter") {
-                                      return;
-                                    }
-                                    e.preventDefault();
-                                    const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
-                                    if (resolvedTimeslotIds === null) {
-                                      setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
-                                      return;
-                                    }
-                                    if (resolvedTimeslotIds.length === 0) {
-                                      return;
-                                    }
-                                    const nextSet = new Set(excludedTimeslots);
-                                    for (const tsId of resolvedTimeslotIds) {
-                                      nextSet.add(tsId);
-                                    }
-                                    updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet), false);
-                                    setExcludedSessionSearchBySubjectEntity((prev) => ({
-                                      ...prev,
-                                      [excludedSearchKey]: "",
-                                    }));
-                                  }}
-                                  placeholder="Search session(s), comma-separated"
-                                />
                               </div>
-                              <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.18rem" }}>
-                                {excludedTimeslots.length === 0 ? (
-                                  <span className="faggrupper-teacher-empty">No excluded sessions</span>
-                                ) : (
-                                  excludedTimeslots.map((slotId) => {
-                                    const slot = timeslotById[slotId];
-                                    const label = slot ? formatTimeslotLabel(slot) : slotId;
-                                    return (
-                                      <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
-                                        <span className="excluded-session-chip-label">{label}</span>
+                              <div
+                                className="faggrupper-units-field"
+                                title={
+                                  isClassCopy && subject.subject_type === "fellesfag"
+                                    ? "Linked copies with the same name are scheduled in the same sessions."
+                                    : "Only class-specific fellesfag copies can be linked here."
+                                }
+                              >
+                                <label className="faggrupper-force-label">
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(subject.link_group_id)}
+                                    disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                    onChange={(e) => {
+                                      setFellesfagLinkEnabled(subject.id, e.target.checked);
+                                    }}
+                                  />
+                                  Link
+                                </label>
+                              </div>
+                            </div>
+
+                            <div className="faggrupper-teacher-picker faggrupper-teacher-picker-inline">
+                              <div className="faggrupper-teacher-inline-row">
+                                <div className="faggrupper-teacher-selected">
+                                  {assignedTeacherIds.length === 0 ? (
+                                    <span className="faggrupper-teacher-empty">No teachers</span>
+                                  ) : (
+                                    assignedTeacherIds.map((teacherId) => (
+                                      <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
+                                        {teacherNameById[teacherId] ?? teacherId}
                                         <button
                                           type="button"
                                           className="subject-class-chip-remove"
-                                          disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
-                                          onClick={() => {
-                                            const next = excludedTimeslots.filter((id) => id !== slotId);
-                                            updateFellesfagExcludedTimeslots(subject.id, next, false);
-                                          }}
-                                          aria-label={`Remove excluded slot ${label}`}
+                                          onClick={() => removeTeacherFromSubject(subject, teacherId)}
+                                          aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
                                         >
                                           x
                                         </button>
                                       </span>
-                                    );
-                                  })
-                                )}
-                              </div>
-                              <datalist id={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}>
-                                {filterTimeslotsForQuery(excludedDraft).map((ts) => (
-                                  <option key={ts.id} value={formatTimeslotLabel(ts)} />
-                                ))}
-                              </datalist>
-                            </div>
-                            <div className="faggrupper-teacher-picker">
-                              <label>Teachers</label>
-                              <div className="faggrupper-teacher-add-row">
-                                <input
-                                  list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
-                                  value={teacherDraft}
-                                  onChange={(e) => {
-                                    const nextValue = e.target.value;
-                                    const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
-                                    if (resolvedTeacherId) {
-                                      addTeachersToSubject(subject, [resolvedTeacherId]);
+                                    ))
+                                  )}
+                                </div>
+                                <div className="faggrupper-teacher-add-row">
+                                  <input
+                                    list={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}
+                                    value={teacherDraft}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value;
+                                      const resolvedTeacherId = resolveTeacherIdFromInput(nextValue);
+                                      if (resolvedTeacherId) {
+                                        addTeachersToSubject(subject, [resolvedTeacherId]);
+                                        setTeacherSearchBySubjectEntity((prev) => ({
+                                          ...prev,
+                                          [searchKey]: "",
+                                        }));
+                                        return;
+                                      }
+
+                                      setTeacherSearchBySubjectEntity((prev) => ({
+                                        ...prev,
+                                        [searchKey]: nextValue,
+                                      }));
+                                    }}
+                                    onKeyDown={(e) => {
+                                      if (e.key !== "Enter") {
+                                        return;
+                                      }
+                                      e.preventDefault();
+                                      const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
+                                      if (resolvedTeacherIds === null) {
+                                        setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                                        return;
+                                      }
+                                      if (resolvedTeacherIds.length === 0) {
+                                        return;
+                                      }
+                                      addTeachersToSubject(subject, resolvedTeacherIds);
                                       setTeacherSearchBySubjectEntity((prev) => ({
                                         ...prev,
                                         [searchKey]: "",
                                       }));
-                                      return;
-                                    }
-
-                                    setTeacherSearchBySubjectEntity((prev) => ({
-                                      ...prev,
-                                      [searchKey]: nextValue,
-                                    }));
-                                  }}
-                                  onKeyDown={(e) => {
-                                    if (e.key !== "Enter") {
-                                      return;
-                                    }
-                                    e.preventDefault();
-                                    const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
-                                    if (resolvedTeacherIds === null) {
-                                      setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
-                                      return;
-                                    }
-                                    if (resolvedTeacherIds.length === 0) {
-                                      return;
-                                    }
-                                    addTeachersToSubject(subject, resolvedTeacherIds);
-                                    setTeacherSearchBySubjectEntity((prev) => ({
-                                      ...prev,
-                                      [searchKey]: "",
-                                    }));
-                                  }}
-                                  placeholder="Search teacher(s), comma-separated"
-                                />
+                                    }}
+                                    placeholder="Search teacher(s), comma-separated"
+                                  />
+                                </div>
                               </div>
-                              <div className="faggrupper-teacher-selected" style={{ marginTop: "0.18rem" }}>
-                                {assignedTeacherIds.length === 0 ? (
-                                  <span className="faggrupper-teacher-empty">No teachers</span>
-                                ) : (
-                                  assignedTeacherIds.map((teacherId) => (
-                                    <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
-                                      {teacherNameById[teacherId] ?? teacherId}
-                                      <button
-                                        type="button"
-                                        className="subject-class-chip-remove"
-                                        onClick={() => removeTeacherFromSubject(subject, teacherId)}
-                                        aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
-                                      >
-                                        x
-                                      </button>
-                                    </span>
-                                  ))
-                                )}
-                              </div>
-                              <datalist id={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}>
-                                {filterTeachersForQuery(teacherDraft).map((teacher) => (
-                                  <option key={teacher.id} value={teacher.name} />
-                                ))}
-                              </datalist>
                             </div>
+
+                            <details className="faggrupper-advanced-settings">
+                              <summary>Force and Excluded</summary>
+                              <div className="faggrupper-advanced-grid">
+                                <div
+                                  className="faggrupper-units-field faggrupper-force-field"
+                                  title={
+                                    isClassCopy && subject.subject_type === "fellesfag"
+                                      ? "Force one weekly placement into a specific slot (can overlap with blocks)."
+                                      : "Only class-specific fellesfag can be force-placed here."
+                                  }
+                                >
+                                  <label className="faggrupper-force-label">
+                                    <input
+                                      type="checkbox"
+                                      checked={Boolean(subject.force_place)}
+                                      disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                      onChange={(e) => {
+                                        const checked = e.target.checked;
+                                        updateSubjectCard(subject.id, {
+                                          force_place: checked,
+                                          force_timeslot_id: checked ? subject.force_timeslot_id : undefined,
+                                        });
+                                      }}
+                                    />
+                                    Force
+                                  </label>
+                                  <select
+                                    value={subject.force_timeslot_id ?? ""}
+                                    disabled={!isClassCopy || subject.subject_type !== "fellesfag" || !subject.force_place}
+                                    onChange={(e) => {
+                                      const value = e.target.value;
+                                      updateSubjectCard(subject.id, {
+                                        force_place: Boolean(subject.force_place),
+                                        force_timeslot_id: value || undefined,
+                                      });
+                                    }}
+                                  >
+                                    <option value="">Select slot</option>
+                                    {sortedTimeslots.map((ts) => (
+                                      <option key={ts.id} value={ts.id}>
+                                        {ts.day} P{ts.period}
+                                        {ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}
+                                      </option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div
+                                  className="faggrupper-units-field excluded-session-field"
+                                  title={
+                                    isClassCopy && subject.subject_type === "fellesfag"
+                                      ? "Exclude slots from feasible placement for this class copy."
+                                      : "Only class-specific fellesfag copies can be edited here."
+                                  }
+                                >
+                                  <label>Excluded</label>
+                                  <div className="faggrupper-teacher-add-row">
+                                    <input
+                                      list={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}
+                                      value={excludedDraft}
+                                      disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                      onChange={(e) => {
+                                        const nextValue = e.target.value;
+                                        const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
+                                        if (resolvedTimeslotId) {
+                                          if (!excludedTimeslots.includes(resolvedTimeslotId)) {
+                                            updateFellesfagExcludedTimeslots(subject.id, [...excludedTimeslots, resolvedTimeslotId], false);
+                                          }
+                                          setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                            ...prev,
+                                            [excludedSearchKey]: "",
+                                          }));
+                                          return;
+                                        }
+
+                                        setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                          ...prev,
+                                          [excludedSearchKey]: nextValue,
+                                        }));
+                                      }}
+                                      onKeyDown={(e) => {
+                                        if (e.key !== "Enter") {
+                                          return;
+                                        }
+                                        e.preventDefault();
+                                        const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
+                                        if (resolvedTimeslotIds === null) {
+                                          setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                                          return;
+                                        }
+                                        if (resolvedTimeslotIds.length === 0) {
+                                          return;
+                                        }
+                                        const nextSet = new Set(excludedTimeslots);
+                                        for (const tsId of resolvedTimeslotIds) {
+                                          nextSet.add(tsId);
+                                        }
+                                        updateFellesfagExcludedTimeslots(subject.id, Array.from(nextSet), false);
+                                        setExcludedSessionSearchBySubjectEntity((prev) => ({
+                                          ...prev,
+                                          [excludedSearchKey]: "",
+                                        }));
+                                      }}
+                                      placeholder="Search session(s), comma-separated"
+                                    />
+                                  </div>
+                                  <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.18rem" }}>
+                                    {excludedTimeslots.length === 0 ? (
+                                      <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                                    ) : (
+                                      excludedTimeslots.map((slotId) => {
+                                        const slot = timeslotById[slotId];
+                                        const label = slot ? formatTimeslotLabel(slot) : slotId;
+                                        return (
+                                          <span key={`${subject.id}_${slotId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip excluded-session-chip">
+                                            <span className="excluded-session-chip-label">{label}</span>
+                                            <button
+                                              type="button"
+                                              className="subject-class-chip-remove"
+                                              disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                              onClick={() => {
+                                                const next = excludedTimeslots.filter((id) => id !== slotId);
+                                                updateFellesfagExcludedTimeslots(subject.id, next, false);
+                                              }}
+                                              aria-label={`Remove excluded slot ${label}`}
+                                            >
+                                              x
+                                            </button>
+                                          </span>
+                                        );
+                                      })
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </details>
+
+                            <datalist id={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}>
+                              {filterTimeslotsForQuery(excludedDraft).map((ts) => (
+                                <option key={ts.id} value={formatTimeslotLabel(ts)} />
+                              ))}
+                            </datalist>
+                            <datalist id={`faggrupper-teacher-options-${activeFaggruppeClassId}-${subject.id}`}>
+                              {filterTeachersForQuery(teacherDraft).map((teacher) => (
+                                <option key={teacher.id} value={teacher.name} />
+                              ))}
+                            </datalist>
                           </div>
                         );
                       })
