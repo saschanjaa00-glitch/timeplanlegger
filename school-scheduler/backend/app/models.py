@@ -18,6 +18,7 @@ class Subject(BaseModel):
     allowed_timeslots: Optional[List[str]] = None
     # Optional extension to support blocks as grouped timeslot candidates.
     allowed_block_ids: Optional[List[str]] = None
+    link_group_id: Optional[str] = None
     preferred_room_ids: List[str] = Field(default_factory=list)
     room_requirement_mode: Literal["always", "once_per_week"] = "always"
 

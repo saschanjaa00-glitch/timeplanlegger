@@ -11,6 +11,7 @@ type Subject = {
   class_ids: string[];
   subject_type: "fellesfag" | "programfag";
   sessions_per_week: number;
+  link_group_id?: string;
   // alternating_week_split is DISABLED - auto-balancing is used instead
   force_place?: boolean;
   force_timeslot_id?: string;
@@ -383,6 +384,10 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
       typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
         ? Math.floor(subject.sessions_per_week)
         : 1,
+    link_group_id:
+      typeof subject.link_group_id === "string" && subject.link_group_id.trim()
+        ? subject.link_group_id.trim()
+        : undefined,
     force_place: Boolean(subject.force_place),
     force_timeslot_id:
       typeof subject.force_timeslot_id === "string" && subject.force_timeslot_id.trim()
@@ -4007,9 +4012,53 @@ export default function Home() {
           teacher_ids: mergedTeacherIds,
           class_ids: cleanedClassIds,
           sessions_per_week: Math.max(1, Math.floor(merged.sessions_per_week || 1)),
+          link_group_id:
+            typeof merged.link_group_id === "string" && merged.link_group_id.trim()
+              ? merged.link_group_id.trim()
+              : undefined,
         };
       });
     });
+  }
+
+  function setFellesfagLinkEnabled(subjectId: string, enabled: boolean) {
+    setSubjects((prev) => {
+      const target = prev.find((subject) => subject.id === subjectId);
+      if (!target || target.subject_type !== "fellesfag" || target.class_ids.length !== 1) {
+        return prev;
+      }
+
+      const normalizedName = target.name.trim().toLocaleLowerCase();
+      const family = prev.filter((subject) => (
+        subject.subject_type === "fellesfag" &&
+        subject.name.trim().toLocaleLowerCase() === normalizedName
+      ));
+      if (!family.length) {
+        return prev;
+      }
+
+      const existingGroupId = family
+        .map((subject) => (typeof subject.link_group_id === "string" ? subject.link_group_id.trim() : ""))
+        .find(Boolean);
+      const nextGroupId = enabled
+        ? (existingGroupId || `link_${toSlug(target.name) || "fellesfag"}_${Date.now().toString(36)}`)
+        : undefined;
+
+      return prev.map((subject) => {
+        const isSameFamily =
+          subject.subject_type === "fellesfag" &&
+          subject.name.trim().toLocaleLowerCase() === normalizedName;
+        if (!isSameFamily) {
+          return subject;
+        }
+        return {
+          ...subject,
+          link_group_id: nextGroupId,
+        };
+      });
+    });
+
+    setStatusText(enabled ? "Linked matching fellesfag copies to the same timeslots." : "Removed fellesfag link for matching copies.");
   }
 
   function getExcludedTimeslotsForSubject(subject: Subject): string[] {
@@ -4136,6 +4185,10 @@ export default function Home() {
           // alternating_week_split is DISABLED - auto-balancing is used instead
           allowed_block_ids: s.allowed_block_ids ?? undefined,
           allowed_timeslots: s.allowed_timeslots ?? undefined,
+          link_group_id:
+            typeof s.link_group_id === "string" && s.link_group_id.trim()
+              ? s.link_group_id.trim()
+              : undefined,
           preferred_room_ids: Array.isArray(s.preferred_room_ids) ? s.preferred_room_ids.filter(Boolean) : [],
           room_requirement_mode: s.room_requirement_mode === "once_per_week" ? "once_per_week" : "always",
         }));
@@ -5774,6 +5827,26 @@ export default function Home() {
                               className="faggrupper-units-field faggrupper-force-field"
                               title={
                                 isClassCopy && subject.subject_type === "fellesfag"
+                                  ? "Linked copies with the same name are scheduled in the same sessions."
+                                  : "Only class-specific fellesfag copies can be linked here."
+                              }
+                            >
+                              <label className="faggrupper-force-label">
+                                <input
+                                  type="checkbox"
+                                  checked={Boolean(subject.link_group_id)}
+                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                  onChange={(e) => {
+                                    setFellesfagLinkEnabled(subject.id, e.target.checked);
+                                  }}
+                                />
+                                Link
+                              </label>
+                            </div>
+                            <div
+                              className="faggrupper-units-field faggrupper-force-field"
+                              title={
+                                isClassCopy && subject.subject_type === "fellesfag"
                                   ? "Force one weekly placement into a specific slot (can overlap with blocks)."
                                   : "Only class-specific fellesfag can be force-placed here."
                               }
@@ -6169,7 +6242,7 @@ export default function Home() {
             <p style={{ color: "#999" }}>No blocks added yet.</p>
           ) : (
             <div className="list" style={{ maxHeight: "600px" }}>
-              {blocks.map((block) => {
+              {sortedBlocksByName.map((block) => {
                 const classNames = (block.class_ids ?? []).map((id) => classes.find((c) => c.id === id)?.name ?? id).join(", ");
                 const isExpanded = expandedBlockId === block.id;
                 const isDimmed = expandedBlockId !== null && expandedBlockId !== block.id;

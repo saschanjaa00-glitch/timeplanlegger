@@ -155,6 +155,13 @@ def _subject_teacher_ids(subject: Subject) -> List[str]:
     return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
 
 
+def _subject_link_group_id(subject: Subject) -> str:
+    raw_value = getattr(subject, "link_group_id", "")
+    if not isinstance(raw_value, str):
+        return ""
+    return raw_value.strip()
+
+
 def _block_entry_teacher_ids(entry: BlockSubjectEntry) -> List[str]:
     candidates: List[str] = []
     if getattr(entry, "teacher_id", ""):
@@ -1215,6 +1222,39 @@ def _generate_schedule_staged(
 
     # Step 3: place all remaining subjects in currently available slots.
     remaining_subjects = [s for s in data.subjects if s.id not in block_subject_ids]
+    remaining_subject_ids: Set[str] = {s.id for s in remaining_subjects}
+
+    link_members_by_group_id: Dict[str, List[str]] = defaultdict(list)
+    for subject in remaining_subjects:
+        group_id = _subject_link_group_id(subject)
+        if not group_id:
+            continue
+        if subject.subject_type != "fellesfag" or len(subject.class_ids or []) != 1:
+            continue
+        link_members_by_group_id[group_id].append(subject.id)
+
+    for group_id, member_ids in list(link_members_by_group_id.items()):
+        unique_ids = [sid for sid in dict.fromkeys(member_ids) if sid in remaining_subject_ids]
+        if len(unique_ids) < 2:
+            del link_members_by_group_id[group_id]
+            continue
+        link_members_by_group_id[group_id] = sorted(unique_ids)
+
+    link_leader_by_group_id: Dict[str, str] = {
+        group_id: member_ids[0]
+        for group_id, member_ids in link_members_by_group_id.items()
+        if member_ids
+    }
+    link_group_by_subject_id: Dict[str, str] = {}
+    link_leader_by_subject_id: Dict[str, str] = {}
+    link_followers_by_leader_id: Dict[str, List[str]] = defaultdict(list)
+    for group_id, member_ids in link_members_by_group_id.items():
+        leader_id = link_leader_by_group_id[group_id]
+        for subject_id in member_ids:
+            link_group_by_subject_id[subject_id] = group_id
+            link_leader_by_subject_id[subject_id] = leader_id
+            if subject_id != leader_id:
+                link_followers_by_leader_id[leader_id].append(subject_id)
 
     def _required_units_for_subject(subject: Subject) -> int:
         has_week_override = bool(week_unit_overrides is not None and subject.id in week_unit_overrides)
@@ -1277,6 +1317,50 @@ def _generate_schedule_staged(
         )
     )
 
+    initial_order_rank: Dict[str, int] = {subject.id: idx for idx, subject in enumerate(remaining_subjects)}
+    remaining_subject_by_id: Dict[str, Subject] = {subject.id: subject for subject in remaining_subjects}
+    ordered_remaining_subjects: List[Subject] = []
+    added_subject_ids: Set[str] = set()
+    for subject in remaining_subjects:
+        if subject.id in added_subject_ids:
+            continue
+        group_id = link_group_by_subject_id.get(subject.id, "")
+        if not group_id:
+            ordered_remaining_subjects.append(subject)
+            added_subject_ids.add(subject.id)
+            continue
+
+        leader_id = link_leader_by_group_id.get(group_id, "")
+        if not leader_id:
+            ordered_remaining_subjects.append(subject)
+            added_subject_ids.add(subject.id)
+            continue
+
+        member_ids = sorted(
+            link_members_by_group_id.get(group_id, []),
+            key=lambda sid: (0 if sid == leader_id else 1, initial_order_rank.get(sid, 10_000)),
+        )
+        for member_id in member_ids:
+            if member_id in added_subject_ids:
+                continue
+            linked_subject = remaining_subject_by_id.get(member_id)
+            if not linked_subject:
+                continue
+            ordered_remaining_subjects.append(linked_subject)
+            added_subject_ids.add(member_id)
+
+    remaining_subjects = ordered_remaining_subjects
+
+    subject_allowed_slots_without_occupancy: Dict[str, Set[str]] = {}
+    for subject in remaining_subjects:
+        subject_allowed = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
+        teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
+        for teacher_id in teacher_ids:
+            if teacher_id in teachers_by_id:
+                subject_allowed -= set(teachers_by_id[teacher_id].unavailable_timeslots)
+                subject_allowed -= teacher_meeting_unavailable.get(teacher_id, set())
+        subject_allowed_slots_without_occupancy[subject.id] = subject_allowed
+
     seeded_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
     seeded_first_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
     seeded_last_boundary_count_by_subject: Dict[str, int] = defaultdict(int)
@@ -1295,18 +1379,111 @@ def _generate_schedule_staged(
         is_norsk_vg3 = _is_norsk_vg3_subject(subject)
         required_units = _required_units_for_subject(subject)
         subject_requires_odd_units = (required_units % 2) == 1
-        allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
+        allowed_slots = set(subject_allowed_slots_without_occupancy.get(subject.id, set()))
 
         if required_units == 0:
             continue
 
-        for teacher_id in teacher_ids:
-            if teacher_id in teachers_by_id:
-                allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
-                allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
-
         candidate_slots = sorted(allowed_slots, key=_slot_sort_key)
         units_placed = seeded_units_by_subject.get(subject.id, 0)
+
+        linked_group_id = link_group_by_subject_id.get(subject.id, "")
+        linked_leader_id = link_leader_by_subject_id.get(subject.id, "")
+        is_linked_follower = bool(linked_group_id and linked_leader_id and linked_leader_id != subject.id)
+        planning_week_key = week_label or "base"
+
+        if is_linked_follower:
+            linked_leader_items = sorted(
+                [
+                    item
+                    for item in schedule_items
+                    if item.subject_id == linked_leader_id and (item.week_type or "base") == planning_week_key
+                ],
+                key=lambda item: (item.day, item.period, item.timeslot_id),
+            )
+
+            leader_required_units = sum(_item_units(item, timeslot_units_by_id) for item in linked_leader_items)
+            if leader_required_units != required_units:
+                return _partial_infeasible_response(
+                    f"Linked subject '{subject.name}' ({subject.id}) requires {required_units}u, "
+                    f"but linked leader ({linked_leader_id}) is scheduled for {leader_required_units}u in week {planning_week_key}."
+                )
+
+            existing_linked_items = sorted(
+                [
+                    item
+                    for item in schedule_items
+                    if item.subject_id == subject.id and (item.week_type or "base") == planning_week_key
+                ],
+                key=lambda item: (item.day, item.period, item.timeslot_id),
+            )
+            existing_counts: Counter[Tuple[str, int, str]] = Counter(
+                (item.timeslot_id, _item_units(item, timeslot_units_by_id), item.day)
+                for item in existing_linked_items
+            )
+            leader_counts: Counter[Tuple[str, int, str]] = Counter(
+                (item.timeslot_id, _item_units(item, timeslot_units_by_id), item.day)
+                for item in linked_leader_items
+            )
+            for signature, count in existing_counts.items():
+                if count > leader_counts.get(signature, 0):
+                    return _partial_infeasible_response(
+                        f"Linked subject '{subject.name}' ({subject.id}) has seeded placements that cannot match "
+                        f"linked leader ({linked_leader_id}) in week {planning_week_key}."
+                    )
+
+            for leader_item in linked_leader_items:
+                signature = (leader_item.timeslot_id, _item_units(leader_item, timeslot_units_by_id), leader_item.day)
+                if existing_counts.get(signature, 0) > 0:
+                    existing_counts[signature] -= 1
+                    continue
+
+                linked_slot_id = leader_item.timeslot_id
+                if linked_slot_id not in allowed_slots:
+                    return _partial_infeasible_response(
+                        f"Linked subject '{subject.name}' ({subject.id}) cannot use slot {linked_slot_id} "
+                        f"required by its link group ({linked_group_id})."
+                    )
+                if any((teacher_id, linked_slot_id) in teacher_occupied for teacher_id in teacher_ids):
+                    return _partial_infeasible_response(
+                        f"Linked subject '{subject.name}' ({subject.id}) conflicts with teacher occupancy "
+                        f"at slot {linked_slot_id}."
+                    )
+                if any((class_id, linked_slot_id) in class_occupied for class_id in subject.class_ids):
+                    return _partial_infeasible_response(
+                        f"Linked subject '{subject.name}' ({subject.id}) conflicts with class occupancy "
+                        f"at slot {linked_slot_id}."
+                    )
+
+                linked_slot = timeslots_by_id[linked_slot_id]
+                placed_units = _item_units(leader_item, timeslot_units_by_id)
+                schedule_items.append(
+                    ScheduledItem(
+                        subject_id=subject.id,
+                        subject_name=subject.name,
+                        teacher_id=primary_teacher_id,
+                        teacher_ids=teacher_ids,
+                        class_ids=subject.class_ids,
+                        timeslot_id=linked_slot_id,
+                        day=linked_slot.day,
+                        period=linked_slot.period,
+                        start_time=leader_item.start_time,
+                        end_time=leader_item.end_time,
+                        week_type=week_label,
+                        room_id=subject_to_room.get(subject.id),
+                    )
+                )
+
+                for class_id in subject.class_ids:
+                    class_occupied.add((class_id, linked_slot_id))
+                    class_day_load_units[(class_id, linked_slot.day)] += placed_units
+                    class_week_units[class_id] += placed_units
+                for teacher_id in teacher_ids:
+                    teacher_occupied.add((teacher_id, linked_slot_id))
+
+                units_placed += placed_units
+
+            continue
 
         subject_days_used: Set[str] = set(seeded_days_by_subject.get(subject.id, set()))
         max_units_by_day: Dict[str, int] = {}
@@ -1364,6 +1541,32 @@ def _generate_schedule_staged(
                         continue
                     if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
                         continue
+
+                    if subject.id in link_followers_by_leader_id:
+                        linked_follower_ids = link_followers_by_leader_id.get(subject.id, [])
+                        linked_slot_valid = True
+                        for follower_id in linked_follower_ids:
+                            follower_subject = subjects_by_id.get(follower_id)
+                            if not follower_subject:
+                                continue
+                            follower_allowed_slots = subject_allowed_slots_without_occupancy.get(follower_id, set())
+                            if ts_id not in follower_allowed_slots:
+                                linked_slot_valid = False
+                                break
+
+                            follower_teacher_ids = subject_effective_teacher_ids.get(
+                                follower_id,
+                                _subject_teacher_ids(follower_subject),
+                            )
+                            if any((teacher_id, ts_id) in teacher_occupied for teacher_id in follower_teacher_ids):
+                                linked_slot_valid = False
+                                break
+                            if any((class_id, ts_id) in class_occupied for class_id in follower_subject.class_ids):
+                                linked_slot_valid = False
+                                break
+
+                        if not linked_slot_valid:
+                            continue
 
                     ts = timeslots_by_id[ts_id]
                     if enforce_unique_day and ts.day in subject_days_used:
