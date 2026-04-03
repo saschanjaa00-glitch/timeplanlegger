@@ -2346,19 +2346,19 @@ button.secondary {
 }
 
 .overview-day-even {
-  background: #eef2f8;
+  background: #ffffff;
 }
 
 .overview-day-odd {
-  background: #e7edf6;
+  background: #f5f5f5;
 }
 
 .overview-cell.overview-day-even {
-  background: #f5f7fb;
+  background: #ffffff;
 }
 
 .overview-cell.overview-day-odd {
-  background: #edf2f9;
+  background: #f7f7f7;
 }
 
 .overview-slot-head small {
@@ -2394,6 +2394,21 @@ button.secondary {
   display: grid;
   gap: 0.03rem;
   overflow: hidden;
+}
+
+.overview-entry.week-shared {
+  border-color: #e2d8b0;
+  background: #fff9df;
+}
+
+.overview-entry.week-a {
+  border-color: #e2ba8a;
+  background: #ffe9d0;
+}
+
+.overview-entry.week-b {
+  border-color: #b8d8af;
+  background: #edf9e8;
 }
 
 .overview-entry.meeting {

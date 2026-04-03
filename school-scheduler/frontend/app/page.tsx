@@ -2233,12 +2233,120 @@ export default function Home() {
 
   const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
 
+  const overviewSubjectToBlockId = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const block of blocks) {
+      for (const entry of block.subject_entries ?? []) {
+        map.set(entry.subject_id, block.id);
+      }
+      for (const subjectId of block.subject_ids ?? []) {
+        map.set(subjectId, block.id);
+      }
+    }
+    return map;
+  }, [blocks]);
+
+  const overviewBlockWeekTypeBySlot = useMemo(() => {
+    const map = new Map<string, "A" | "B" | undefined>();
+
+    const normalizeOccWeek = (value: string | undefined): "A" | "B" | "both" => {
+      if (value === "A" || value === "B") {
+        return value;
+      }
+      return "both";
+    };
+
+    const weekPatternToOccWeek = (value: string | undefined): "A" | "B" | "both" => {
+      if (value === "A" || value === "B") {
+        return value;
+      }
+      return "both";
+    };
+
+    const addWeekToSet = (set: Set<"A" | "B">, occWeek: "A" | "B" | "both") => {
+      if (occWeek === "A") {
+        set.add("A");
+      } else if (occWeek === "B") {
+        set.add("B");
+      } else {
+        set.add("A");
+        set.add("B");
+      }
+    };
+
+    for (const block of blocks) {
+      const weekBySlot = new Map<string, Set<"A" | "B">>();
+      const hasOccurrences = (block.occurrences ?? []).length > 0;
+
+      for (const occ of block.occurrences ?? []) {
+        const occWeek = normalizeOccWeek(occ.week_type);
+        const occStart = toMinutes(occ.start_time);
+        const occEnd = toMinutes(occ.end_time);
+
+        for (const ts of timeslots) {
+          if (ts.day.toLowerCase() !== occ.day.toLowerCase()) {
+            continue;
+          }
+
+          let overlaps = true;
+          const tsStart = toMinutes(ts.start_time);
+          const tsEnd = toMinutes(ts.end_time);
+          if (
+            tsStart !== Number.MAX_SAFE_INTEGER &&
+            tsEnd !== Number.MAX_SAFE_INTEGER &&
+            occStart !== Number.MAX_SAFE_INTEGER &&
+            occEnd !== Number.MAX_SAFE_INTEGER
+          ) {
+            overlaps = tsStart < occEnd && tsEnd > occStart;
+          }
+
+          if (!overlaps) {
+            continue;
+          }
+
+          const set = weekBySlot.get(ts.id) ?? new Set<"A" | "B">();
+          addWeekToSet(set, occWeek);
+          weekBySlot.set(ts.id, set);
+        }
+      }
+
+      if (!hasOccurrences) {
+        for (const tsId of block.timeslot_ids ?? []) {
+          const set = weekBySlot.get(tsId) ?? new Set<"A" | "B">();
+          addWeekToSet(set, weekPatternToOccWeek(block.week_pattern));
+          weekBySlot.set(tsId, set);
+        }
+      }
+
+      for (const [tsId, weeks] of weekBySlot.entries()) {
+        const hasA = weeks.has("A");
+        const hasB = weeks.has("B");
+        const displayWeek: "A" | "B" | undefined = hasA && hasB
+          ? undefined
+          : hasA
+            ? "A"
+            : hasB
+              ? "B"
+              : undefined;
+        map.set(`${block.id}|${tsId}`, displayWeek);
+      }
+    }
+
+    return map;
+  }, [blocks, timeslots]);
+
   const overviewScheduleItems = useMemo(() => {
     if (!enableAlternatingWeeks || weekView === "both") {
       return displaySchedule;
     }
-    return displaySchedule.filter((item) => !item.week_type || item.week_type === weekView);
-  }, [displaySchedule, enableAlternatingWeeks, weekView]);
+    return displaySchedule.filter((item) => {
+      const blockId = overviewSubjectToBlockId.get(item.subject_id);
+      const effectiveWeekType = blockId
+        ? overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`)
+        : item.week_type;
+      return !effectiveWeekType || effectiveWeekType === weekView;
+    });
+  }, [displaySchedule, enableAlternatingWeeks, overviewBlockWeekTypeBySlot, overviewSubjectToBlockId, weekView]);
 
   const overviewColumnsByDay = useMemo(() => {
     return calendarDays.map((day) => ({
@@ -2349,33 +2457,37 @@ export default function Home() {
       const teacherNames = formatTeacherNames(itemTeacherIds);
       const classNames = (item.class_ids ?? []).map((classId) => classNameById[classId] ?? classId).join(", ");
       const roomName = item.room_id ? (roomNameById[item.room_id] ?? item.room_id) : "";
+      const blockId = overviewSubjectToBlockId.get(item.subject_id);
+      const effectiveWeekType = blockId
+        ? overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`)
+        : item.week_type;
 
       if (activeOverviewSubtab === "rooms") {
         if (!item.room_id) {
           continue;
         }
         addEntry(item.room_id, item.timeslot_id, {
-          key: `${item.subject_id}|${item.teacher_id}|${item.class_ids.join(",")}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+          key: `${item.subject_id}|${item.teacher_id}|${item.class_ids.join(",")}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
           title: item.subject_name,
           subtitle: classNames || teacherNames,
-          week_type: item.week_type,
+          week_type: effectiveWeekType,
         });
       } else if (activeOverviewSubtab === "teachers") {
         for (const teacherId of itemTeacherIds) {
           addEntry(teacherId, item.timeslot_id, {
-            key: `${item.subject_id}|${teacherId}|${item.class_ids.join(",")}|${item.room_id ?? ""}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+            key: `${item.subject_id}|${teacherId}|${item.class_ids.join(",")}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
             title: item.subject_name,
             subtitle: [classNames, roomName].filter(Boolean).join(" | "),
-            week_type: item.week_type,
+            week_type: effectiveWeekType,
           });
         }
       } else {
         for (const classId of item.class_ids ?? []) {
           addEntry(classId, item.timeslot_id, {
-            key: `${item.subject_id}|${classId}|${item.teacher_id}|${item.room_id ?? ""}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+            key: `${item.subject_id}|${classId}|${item.teacher_id}|${item.room_id ?? ""}|${effectiveWeekType ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
             title: item.subject_name,
             subtitle: [teacherNames, roomName].filter(Boolean).join(" | "),
-            week_type: item.week_type,
+            week_type: effectiveWeekType,
           });
         }
       }
@@ -2402,8 +2514,10 @@ export default function Home() {
     activeOverviewSubtab,
     classNameById,
     meetings,
+    overviewBlockWeekTypeBySlot,
     overviewFlatColumns,
     overviewScheduleItems,
+    overviewSubjectToBlockId,
     roomNameById,
     teacherNameById,
   ]);
@@ -7749,7 +7863,13 @@ export default function Home() {
                             if (!enableAlternatingWeeks || weekView === "both") {
                               return true;
                             }
-                            return !item.week_type || item.week_type === weekView;
+
+                            const blockInfo = subjectToBlockInfo.get(item.subject_id);
+                            const effectiveWeekType = blockInfo
+                              ? blockWeekTypeBySlot.get(`${blockInfo.block_id}|${item.timeslot_id}`)
+                              : item.week_type;
+
+                            return !effectiveWeekType || effectiveWeekType === weekView;
                           })
                           .flatMap((item) => {
                             const ts = timeslotById[item.timeslot_id];
@@ -8697,7 +8817,54 @@ export default function Home() {
                       <tr key={row.id}>
                         <th className="overview-row-label">{row.label}</th>
                         {overviewFlatColumns.map((column) => {
-                          const entries = overviewCellMap.get(`${row.id}|${column.slot.id}`) ?? [];
+                          const rawEntries = overviewCellMap.get(`${row.id}|${column.slot.id}`) ?? [];
+                          const entriesBySignature = new Map<string, {
+                            key: string;
+                            title: string;
+                            subtitle: string;
+                            isMeeting?: boolean;
+                            weeks: Set<"A" | "B">;
+                            hasSharedWeek: boolean;
+                          }>();
+
+                          for (const entry of rawEntries) {
+                            const signature = `${entry.title}|${entry.subtitle}|${entry.isMeeting ? "1" : "0"}`;
+                            const current = entriesBySignature.get(signature) ?? {
+                              key: entry.key,
+                              title: entry.title,
+                              subtitle: entry.subtitle,
+                              isMeeting: entry.isMeeting,
+                              weeks: new Set<"A" | "B">(),
+                              hasSharedWeek: false,
+                            };
+
+                            if (entry.week_type === "A" || entry.week_type === "B") {
+                              current.weeks.add(entry.week_type);
+                            } else {
+                              current.hasSharedWeek = true;
+                            }
+
+                            entriesBySignature.set(signature, current);
+                          }
+
+                          const entries = Array.from(entriesBySignature.values()).map((entry) => {
+                            const weekType = entry.hasSharedWeek || (entry.weeks.has("A") && entry.weeks.has("B"))
+                              ? undefined
+                              : entry.weeks.has("A")
+                                ? "A"
+                                : entry.weeks.has("B")
+                                  ? "B"
+                                  : undefined;
+
+                            return {
+                              key: entry.key,
+                              title: entry.title,
+                              subtitle: entry.subtitle,
+                              isMeeting: entry.isMeeting,
+                              week_type: weekType,
+                            };
+                          });
+
                           return (
                             <td
                               key={`${row.id}_${column.slot.id}`}
@@ -8710,7 +8877,7 @@ export default function Home() {
                                   {entries.map((entry) => (
                                     <div
                                       key={entry.key}
-                                      className={`overview-entry ${entry.isMeeting ? "meeting" : ""}`}
+                                      className={`overview-entry ${entry.isMeeting ? "meeting" : entry.week_type === "A" ? "week-a" : entry.week_type === "B" ? "week-b" : "week-shared"}`}
                                       title={`${entry.title}${entry.week_type ? ` (${entry.week_type})` : ""}${entry.subtitle ? `\n${entry.subtitle}` : ""}`}
                                       onMouseEnter={(e) => {
                                         const rect = e.currentTarget.getBoundingClientRect();
