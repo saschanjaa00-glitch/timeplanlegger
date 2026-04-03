@@ -691,14 +691,14 @@ p {
 }
 
 .subject-column-title {
-  margin: 0 0 0.28rem;
+  margin: 0 0 0.2rem;
   display: inline-flex;
   align-items: center;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: #222220;
-  padding: 0.12rem 0.45rem;
+  padding: 0.1rem 0.38rem;
   border-radius: 999px;
   border: 1px solid #c6c6c2;
   background: #ececea;
@@ -719,8 +719,8 @@ p {
 .subject-column .list.subject-card-list.subject-card-list-column {
   border: 1px solid rgba(40, 40, 40, 0.22);
   border-radius: 4px;
-  padding: 0.32rem;
-  margin-top: 0.2rem;
+  padding: 0.24rem;
+  margin-top: 0.14rem;
   background: rgba(255, 255, 255, 0.5);
 }
 
@@ -731,8 +731,38 @@ p {
   color: #66645f;
 }
 
+.subject-add-panel {
+  border: 1px solid #d1d0cb;
+  background: #f8f8f5;
+  border-radius: 4px;
+  padding: 0.36rem 0.42rem;
+  margin-bottom: 0.5rem;
+}
+
+.subject-add-panel-title {
+  margin: 0 0 0.22rem;
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #3f3e39;
+}
+
+.subject-add-inline-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(220px, 0.9fr);
+  gap: 0.3rem;
+  align-items: end;
+}
+
+.subject-add-conditional-slot {
+  min-height: 56px;
+  display: grid;
+  align-content: start;
+  gap: 0.12rem;
+}
+
 .subject-block-group {
-  margin-bottom: 0.55rem;
+  margin-bottom: 0.45rem;
 }
 
 .subject-block-group-title {
@@ -744,19 +774,27 @@ p {
   color: #3e3e3b;
 }
 
+.subject-group-blocks-inline {
+  font-size: 0.7rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: #5c5a54;
+}
+
 .subject-class-chip {
   background: #e8eaef;
   border: 1px solid #c5cad5;
-  padding: 0.1rem 0.4rem;
-  font-size: 0.7rem;
+  padding: 0.08rem 0.32rem;
+  font-size: 0.66rem;
   letter-spacing: 0.03em;
 }
 
 .subject-card-item {
   border: 1px solid #d7d6d1;
   background: #f7f7f4;
-  margin-bottom: 0.35rem;
-  padding: 0.2rem;
+  margin-bottom: 0.3rem;
+  padding: 0.12rem;
   position: relative;
 }
 
@@ -779,7 +817,7 @@ p {
 .subject-expand-trigger {
   width: 100%;
   margin: 0;
-  padding: 0.4rem 0.5rem;
+  padding: 0.2rem 0.3rem;
   border: 0;
   background: transparent;
   color: inherit;
@@ -796,7 +834,7 @@ p {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
+  gap: 0.26rem;
   flex: 1;
 }
 
@@ -806,7 +844,7 @@ p {
 }
 
 .subject-expand-meta {
-  font-size: 0.72rem;
+  font-size: 0.68rem;
   color: var(--muted);
   white-space: nowrap;
 }
@@ -818,7 +856,7 @@ p {
 }
 
 .subject-expand-symbol {
-  min-width: 1.1rem;
+  min-width: 0.9rem;
   text-align: center;
   font-weight: 700;
   flex-shrink: 0;
@@ -830,6 +868,18 @@ p {
   padding: 0.35rem 0.4rem 0.3rem;
   display: grid;
   gap: 0.35rem;
+}
+
+.subject-block-assignment-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+
+.subject-block-assignment-text {
+  font-size: 0.78rem;
+  color: #2f2f2c;
 }
 
 .subject-card-grid {
@@ -887,6 +937,64 @@ p {
   padding: 0.32rem 0.4rem;
   display: grid;
   gap: 0.22rem;
+}
+
+.subject-class-toggle-line {
+  display: flex;
+  align-items: center;
+  gap: 0.18rem;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding-bottom: 0;
+}
+
+.subject-class-toggle-group {
+  display: flex;
+  align-items: center;
+  gap: 0.14rem;
+  flex: 0 0 auto;
+}
+
+.subject-class-toggle-divider {
+  width: 1px;
+  height: 14px;
+  background: #b8b8b3;
+  flex: 0 0 auto;
+}
+
+.subject-class-toggle-year {
+  width: auto;
+  border: 1px solid #bdbdb7;
+  background: #e8e8e2;
+  color: #3a3a36;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 0.62rem;
+  line-height: 1;
+  height: 18px;
+  padding: 0 0.18rem;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+.subject-class-toggle-year:hover {
+  background: #dcdcd5;
+  transform: none;
+}
+
+.subject-inline-toggle-chip {
+  flex: 0 0 auto;
+}
+
+.subject-class-toggle-line .class-toggle-chip {
+  height: 18px;
+  padding: 0 0.18rem;
+  font-size: 0.62rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 
 .subject-class-manager-chips {
@@ -1751,13 +1859,13 @@ button.secondary {
 }
 
 .list.subject-card-list {
-  height: 600px;
-  max-height: 600px;
+  height: 540px;
+  max-height: 540px;
 }
 
 .list.subject-card-list.subject-card-list-column {
-  height: 560px;
-  max-height: 560px;
+  height: 504px;
+  max-height: 504px;
 }
 
 .item {

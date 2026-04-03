@@ -156,6 +156,7 @@ type BlokkfagGroup = {
   key: string;
   title: string;
   entries: SubjectTabEntry[];
+  blockNames?: string[];
 };
 
 type PersistedState = {
@@ -851,6 +852,9 @@ export default function Home() {
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
+    subject_type: "fellesfag" as "fellesfag" | "programfag",
+    block_id: "",
+    class_ids: [] as string[],
   });
   const [teacherForm, setTeacherForm] = useState({
     name: "",
@@ -2278,6 +2282,29 @@ export default function Home() {
     return groups;
   }, [blokkfagSubjectTabEntries, blocks]);
 
+  const blockNamesBySubjectId = useMemo(() => {
+    const namesBySubject = new Map<string, Set<string>>();
+    for (const block of blocks) {
+      const blockName = (block.name || block.id).trim() || block.id;
+      const linkedSubjectIds = new Set<string>([
+        ...((block.subject_entries ?? []).map((entry) => entry.subject_id).filter(Boolean)),
+        ...((block.subject_ids ?? []).filter(Boolean)),
+      ]);
+      for (const subjectId of linkedSubjectIds) {
+        if (!namesBySubject.has(subjectId)) {
+          namesBySubject.set(subjectId, new Set<string>());
+        }
+        namesBySubject.get(subjectId)!.add(blockName);
+      }
+    }
+
+    const normalized = new Map<string, string[]>();
+    namesBySubject.forEach((names, subjectId) => {
+      normalized.set(subjectId, Array.from(names).sort((a, b) => a.localeCompare(b)));
+    });
+    return normalized;
+  }, [blocks]);
+
   const blokkfagGroupsBySubject = useMemo<BlokkfagGroup[]>(() => {
     const grouped = new Map<string, BlokkfagGroup>();
 
@@ -2301,12 +2328,23 @@ export default function Home() {
     }
 
     return Array.from(grouped.values())
-      .map((group) => ({
-        ...group,
-        entries: group.entries.sort((a, b) => a.subject.id.localeCompare(b.subject.id)),
-      }))
+      .map((group) => {
+        const blockNameSet = new Set<string>();
+        for (const entry of group.entries) {
+          const names = blockNamesBySubjectId.get(entry.subject.id) ?? [];
+          for (const name of names) {
+            blockNameSet.add(name);
+          }
+        }
+
+        return {
+          ...group,
+          entries: group.entries.sort((a, b) => a.subject.id.localeCompare(b.subject.id)),
+          blockNames: Array.from(blockNameSet).sort((a, b) => a.localeCompare(b)),
+        };
+      })
       .sort((a, b) => a.title.localeCompare(b.title));
-  }, [blokkfagSubjectTabEntries]);
+  }, [blokkfagSubjectTabEntries, blockNamesBySubjectId]);
 
   const blokkfagDisplayedGroups = useMemo<BlokkfagGroup[]>(() => {
     if (blokkfagSortMode === "subject") {
@@ -3815,25 +3853,113 @@ export default function Home() {
       return;
     }
 
+    const isBlokkfag = subjectForm.subject_type === "programfag";
+    const selectedBlockId = subjectForm.block_id;
+    const selectedClassIds = subjectForm.subject_type === "fellesfag"
+      ? Array.from(new Set(subjectForm.class_ids))
+      : [];
+    if (isBlokkfag && sortedBlocksByName.length > 0 && !selectedBlockId) {
+      setStatusText("Select a block for the blokkfag subject.");
+      return;
+    }
+
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
-    setSubjects((prev) => [
-      ...prev,
-      {
+    let addedClassCopies = 0;
+    let skippedClassCopies = 0;
+    setSubjects((prev) => {
+      const template: Subject = {
         id,
         name,
         teacher_id: "",
         teacher_ids: [],
         class_ids: [],
-        subject_type: "fellesfag",
+        subject_type: subjectForm.subject_type,
         sessions_per_week: 1,
         force_place: false,
+        allowed_block_ids: isBlokkfag && selectedBlockId ? [selectedBlockId] : undefined,
         preferred_room_ids: [],
         room_requirement_mode: "always",
-      },
-    ]);
+      };
 
-    setSubjectForm({ name: "" });
-    setStatusText(`Added subject card ${name}.`);
+      let next = [...prev, template];
+
+      if (!isBlokkfag) {
+        for (const classId of selectedClassIds) {
+          const className = classes.find((c) => c.id === classId)?.name ?? classId;
+          const alreadyExists = next.some(
+            (s) => s.subject_type === "fellesfag"
+              && s.name === template.name
+              && s.class_ids.length === 1
+              && s.class_ids[0] === classId,
+          );
+          if (alreadyExists) {
+            skippedClassCopies += 1;
+            continue;
+          }
+
+          const copyId = makeUniqueId(
+            `subject_${toSlug(template.name) || "item"}_${toSlug(className) || "class"}`,
+            next.map((s) => s.id),
+          );
+          next = [
+            ...next,
+            {
+              ...template,
+              id: copyId,
+              class_ids: [classId],
+            },
+          ];
+          addedClassCopies += 1;
+        }
+      }
+
+      return next;
+    });
+
+    if (isBlokkfag && selectedBlockId) {
+      setBlocks((prev) => prev.map((block) => {
+        if (block.id !== selectedBlockId) {
+          return block;
+        }
+        const alreadyLinked = (block.subject_entries ?? []).some((entry) => entry.subject_id === id);
+        return {
+          ...block,
+          subject_entries: alreadyLinked
+            ? (block.subject_entries ?? [])
+            : [
+                ...(block.subject_entries ?? []),
+                { subject_id: id, teacher_id: "", teacher_ids: [], preferred_room_id: "" },
+              ],
+          subject_ids: (block.subject_ids ?? []).includes(id)
+            ? (block.subject_ids ?? [])
+            : [...(block.subject_ids ?? []), id],
+        };
+      }));
+    }
+
+    setSubjectForm((prev) => ({
+      ...prev,
+      name: "",
+      class_ids: [],
+    }));
+
+    if (isBlokkfag) {
+      const blockName = sortedBlocksByName.find((block) => block.id === selectedBlockId)?.name ?? selectedBlockId;
+      setStatusText(
+        selectedBlockId
+          ? `Added blokkfag subject card ${name} to block ${blockName}.`
+          : `Added blokkfag subject card ${name}.`,
+      );
+      return;
+    }
+    if (addedClassCopies > 0 || skippedClassCopies > 0) {
+      setStatusText(
+        `Added fellesfag subject card ${name}. Added to ${addedClassCopies} class(es)`
+        + (skippedClassCopies > 0 ? `, skipped ${skippedClassCopies} existing.` : "."),
+      );
+      return;
+    }
+    setStatusText(`Added fellesfag subject card ${name}.`);
   }
 
   function updateSubjectCard(subjectId: string, patch: Partial<Subject>) {
@@ -4078,7 +4204,11 @@ export default function Home() {
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
-  const renderSubjectCards = (entries: SubjectTabEntry[], emptyText: string) => {
+  const renderSubjectCards = (
+    entries: SubjectTabEntry[],
+    emptyText: string,
+    options?: { showProgramfagBlockNames?: boolean },
+  ) => {
     if (entries.length === 0) {
       return <p className="subject-column-empty">{emptyText}</p>;
     }
@@ -4106,6 +4236,9 @@ export default function Home() {
       const preferredRoomIds = Array.from(new Set((subject.preferred_room_ids ?? []).filter((roomId) => rooms.some((room) => room.id === roomId))));
       const roomSearchKey = `rooms_subjects_${subject.id}`;
       const roomDraft = roomSearchBySubjectEntity[roomSearchKey] ?? "";
+      const programfagBlockNames = subject.subject_type === "programfag"
+        ? (blockNamesBySubjectId.get(subject.id) ?? [])
+        : [];
 
       return (
       <article
@@ -4135,12 +4268,25 @@ export default function Home() {
                 ))}
               </span>
             )}
+            {options?.showProgramfagBlockNames && subject.subject_type === "programfag" && (
+              <span className="subject-expand-meta">
+                Blocks: {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Unassigned"}
+              </span>
+            )}
           </span>
           <span className="subject-expand-symbol">{expandedSubjectId === subject.id ? "-" : "+"}</span>
         </button>
 
         {expandedSubjectId === subject.id && (
           <div className="subject-expand-panel">
+            {options?.showProgramfagBlockNames && subject.subject_type === "programfag" && (
+              <div className="subject-block-assignment-row">
+                <span className="subject-teacher-section-title">Blocks</span>
+                <span className="subject-block-assignment-text">
+                  {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Unassigned"}
+                </span>
+              </div>
+            )}
             <div className="subject-card-grid">
               <div className="calendar-field subject-name-field">
                 <label>Subject Name</label>
@@ -4576,10 +4722,6 @@ export default function Home() {
             {showUltrawideTimeline ? "Exit Ultrawide" : "Show Ultrawide"}
           </button>
         </div>
-        <p>
-          Build entities, define constraints, and generate a valid timetable with a CP-SAT solver.
-          This version keeps data in memory for rapid iteration.
-        </p>
       </section>
 
       <section className="tab-strip" aria-label="Workflow tabs">
@@ -5315,16 +5457,123 @@ export default function Home() {
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
           <h2>Subjects</h2>
-          <p>Add a subject name, then configure each subject card below.</p>
-          <form onSubmit={(e) => { e.preventDefault(); addSubjectCard(); }}>
-            <label>Subject Name</label>
-            <input
-              value={subjectForm.name}
-              onChange={(e) => setSubjectForm((s) => ({ ...s, name: e.target.value }))}
-              placeholder="Geografi"
-            />
-            <button type="submit">Add Subject Card</button>
-          </form>
+          <section className="subject-add-panel">
+            <h3 className="subject-add-panel-title">Add Subject Card</h3>
+            <form onSubmit={(e) => { e.preventDefault(); addSubjectCard(); }}>
+              <div className="subject-add-inline-row">
+                <div className="calendar-field">
+                  <label>Subject Name</label>
+                  <input
+                    value={subjectForm.name}
+                    onChange={(e) => setSubjectForm((s) => ({ ...s, name: e.target.value }))}
+                    placeholder="Geografi"
+                  />
+                </div>
+
+                <div className="calendar-field">
+                  <label>Subject Type</label>
+                  <select
+                    value={subjectForm.subject_type}
+                    onChange={(e) => {
+                      const nextType = e.target.value === "programfag" ? "programfag" : "fellesfag";
+                      setSubjectForm((s) => ({
+                        ...s,
+                        subject_type: nextType,
+                        block_id: nextType === "programfag" ? s.block_id : "",
+                        class_ids: nextType === "fellesfag" ? s.class_ids : [],
+                      }));
+                    }}
+                  >
+                    <option value="fellesfag">Fellesfag</option>
+                    <option value="programfag">Blokkfag</option>
+                  </select>
+                </div>
+              </div>
+
+              {subjectForm.subject_type === "fellesfag" && (
+                <div className="subject-add-conditional-slot">
+                  <label>Classes With Subject</label>
+                  <div className="subject-class-toggle-line">
+                    {classRowsByYear.every((row) => row.classes.length === 0) ? (
+                      <span className="subject-class-empty">No classes available</span>
+                    ) : (
+                      classRowsByYear.map((row, rowIndex) => (
+                        <Fragment key={`add_subject_${row.yearPrefix}`}>
+                          {rowIndex > 0 && <span className="subject-class-toggle-divider" aria-hidden="true" />}
+                          <div className="subject-class-toggle-group">
+                            <button
+                              type="button"
+                              className="subject-class-toggle-year"
+                              onClick={() => {
+                                const rowClassIds = row.classes.map((schoolClass) => schoolClass.id);
+                                const selectedRowClassIds = rowClassIds.filter((classId) => subjectForm.class_ids.includes(classId));
+                                const allSelected = rowClassIds.length > 0 && selectedRowClassIds.length === rowClassIds.length;
+
+                                setSubjectForm((s) => {
+                                  const current = new Set(s.class_ids);
+                                  if (allSelected) {
+                                    rowClassIds.forEach((classId) => current.delete(classId));
+                                  } else {
+                                    rowClassIds.forEach((classId) => current.add(classId));
+                                  }
+                                  return {
+                                    ...s,
+                                    class_ids: Array.from(current),
+                                  };
+                                });
+                              }}
+                            >
+                              {row.yearPrefix}. trinn
+                            </button>
+                            {row.classes.length === 0 ? (
+                              <span className="subject-class-empty">No classes</span>
+                            ) : (
+                              row.classes.map((schoolClass) => {
+                                const isSelected = subjectForm.class_ids.includes(schoolClass.id);
+                                return (
+                                  <button
+                                    key={`add_subject_${schoolClass.id}`}
+                                    type="button"
+                                    className={`class-toggle-chip subject-inline-toggle-chip ${isSelected ? "on" : "off"}`}
+                                    onClick={() => setSubjectForm((s) => ({
+                                      ...s,
+                                      class_ids: isSelected
+                                        ? s.class_ids.filter((id) => id !== schoolClass.id)
+                                        : [...s.class_ids, schoolClass.id],
+                                    }))}
+                                  >
+                                    {schoolClass.name}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </Fragment>
+                      ))
+                    )}
+                  </div>
+                  </div>
+              )}
+
+              {subjectForm.subject_type === "programfag" && (
+                  <div className="subject-add-conditional-slot">
+                  <label>Block</label>
+                  <select
+                    value={subjectForm.block_id}
+                    onChange={(e) => setSubjectForm((s) => ({ ...s, block_id: e.target.value }))}
+                  >
+                    <option value="">Select block</option>
+                    {sortedBlocksByName.map((block) => (
+                      <option key={block.id} value={block.id}>
+                        {block.name}
+                      </option>
+                    ))}
+                  </select>
+                  </div>
+              )}
+              <button type="submit">Add Subject Card</button>
+            </form>
+          </section>
 
           <div className="subject-columns">
             <section className="subject-column subject-column-fellesfag">
@@ -5395,15 +5644,26 @@ export default function Home() {
                             style={{ width: "100%", textAlign: "left", fontSize: "0.84rem", padding: "4px 8px" }}
                           >
                             {isExpanded ? "▼" : "▶"} {group.title} ({group.entries.length})
+                            {isSubjectMode && (
+                              <span className="subject-group-blocks-inline">
+                                {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
+                              </span>
+                            )}
                           </button>
                         ) : (
                           <h4 className="subject-block-group-title">
                             {group.title}{isSubjectMode ? "" : ""}
+                            {isSubjectMode && (
+                              <span className="subject-group-blocks-inline">
+                                {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
+                              </span>
+                            )}
                           </h4>
                         )}
                         {isExpanded && renderSubjectCards(
                           group.entries,
-                          isSubjectMode ? "No subjects with this name." : "No subjects in this block."
+                          isSubjectMode ? "No subjects with this name." : "No subjects in this block.",
+                          { showProgramfagBlockNames: isSubjectMode }
                         )}
                       </section>
                     );
