@@ -393,6 +393,10 @@ def _assign_rooms_to_schedule(
         def item_priority(item: ScheduledItem) -> Tuple[int, int, str]:
             subject = subjects_by_id.get(item.subject_id)
             preferred_rooms, mode = _room_policy_for_item(item, subject)
+            if item.subject_id in sports_only_subject_ids:
+                preferred_rooms = [room_id for room_id in preferred_rooms if room_id in sports_hall_ids]
+            else:
+                preferred_rooms = [room_id for room_id in preferred_rooms if room_id not in sports_hall_ids]
             week_key = item.week_type or "base"
             once_pending = not once_mode_satisfied[(item.subject_id, week_key)]
             prioritized_preferred_rooms = [room_id for room_id in preferred_rooms if room_id in prioritized_rooms]
@@ -423,15 +427,20 @@ def _assign_rooms_to_schedule(
             week_key = item.week_type or "base"
             subject_week_key = (item.subject_id, week_key)
             used_rooms = room_usage[(timeslot_id, week_type)]
+            is_sports_only = item.subject_id in sports_only_subject_ids
 
             preferred_rooms, mode = _room_policy_for_item(item, subject)
+            if is_sports_only:
+                preferred_rooms = [room_id for room_id in preferred_rooms if room_id in sports_hall_ids]
+            else:
+                preferred_rooms = [room_id for room_id in preferred_rooms if room_id not in sports_hall_ids]
 
             assigned_room_id: str | None = None
             available_preferred = [room_id for room_id in preferred_rooms if room_id not in used_rooms]
             available_any = [room_id for room_id in room_ids_ordered if room_id not in used_rooms]
             # Sports-only subjects must use sports hall rooms exclusively; all other
             # subjects must NOT use sports hall rooms.
-            if item.subject_id in sports_only_subject_ids:
+            if is_sports_only:
                 available_any = [room_id for room_id in available_any if room_id in sports_hall_ids]
             else:
                 available_any = [room_id for room_id in available_any if room_id not in sports_hall_ids]
@@ -444,7 +453,7 @@ def _assign_rooms_to_schedule(
                 room_id for room_id in available_prioritized if room_id not in preferred_rooms
             ]
             base_room_id: str | None = None
-            if subject and subject.subject_type == "fellesfag" and item.class_ids:
+            if not is_sports_only and subject and subject.subject_type == "fellesfag" and item.class_ids:
                 first_class_id = item.class_ids[0]
                 base_room_id = class_to_base_room.get(first_class_id)
 
@@ -887,6 +896,44 @@ def _generate_schedule_staged(
                 subject_to_room[subject.id] = class_to_base_room[class_id]
                 break
 
+    sports_halls = data.sports_halls or []
+    sports_hall_ids: Set[str] = {sh.id for sh in sports_halls}
+    sports_only_subject_ids: Set[str] = {
+        sid
+        for sh in sports_halls
+        for sid in (sh.allowed_subject_ids or [])
+        if sid in subjects_by_id
+    }
+    sports_hall_capacity = len(sports_hall_ids)
+    regular_room_capacity = len(data.rooms or [])
+    sports_slot_usage_by_week: Dict[Tuple[str, str], int] = defaultdict(int)
+    regular_room_slot_usage_by_week: Dict[Tuple[str, str], int] = defaultdict(int)
+
+    def _is_force_locked_to_slot(subject: Subject | None, ts_id: str) -> bool:
+        if not subject or not getattr(subject, "force_place", False):
+            return False
+        return (getattr(subject, "force_timeslot_id", "") or "").strip() == ts_id
+
+    def _room_capacity_available(subject: Subject | None, ts_id: str, week_key: str) -> bool:
+        if not subject:
+            return True
+        # Explicit force-place overrides hall-capacity placement checks.
+        if _is_force_locked_to_slot(subject, ts_id):
+            return True
+        if subject.id in sports_only_subject_ids:
+            if sports_hall_capacity <= 0:
+                return False
+            return sports_slot_usage_by_week[(week_key, ts_id)] < sports_hall_capacity
+        if regular_room_capacity <= 0:
+            return False
+        return regular_room_slot_usage_by_week[(week_key, ts_id)] < regular_room_capacity
+
+    def _increment_room_slot_usage(subject_id: str, ts_id: str, week_key: str) -> None:
+        if subject_id in sports_only_subject_ids:
+            sports_slot_usage_by_week[(week_key, ts_id)] += 1
+        else:
+            regular_room_slot_usage_by_week[(week_key, ts_id)] += 1
+
     block_to_timeslots: Dict[str, Set[str]] = {}
     for block in data.blocks:
         slot_set: Set[str] = set()
@@ -986,6 +1033,7 @@ def _generate_schedule_staged(
             item_units = _item_units(item, timeslot_units_by_id)
             seeded_units_by_subject[item.subject_id] += item_units
             seeded_days_by_subject[item.subject_id].add(item.day)
+            _increment_room_slot_usage(item.subject_id, item.timeslot_id, (item.week_type or "base"))
             for class_id in item.class_ids:
                 class_occupied.add((class_id, item.timeslot_id))
                 class_day_load_units[(class_id, item.day)] += item_units
@@ -1080,6 +1128,7 @@ def _generate_schedule_staged(
             class_week_units[class_id] += forced_units
         for teacher_id in teacher_ids:
             teacher_occupied.add((teacher_id, forced_ts_id))
+        _increment_room_slot_usage(subject.id, forced_ts_id, (week_label or "base"))
 
     block_subject_ids: Set[str] = set(linked_block_ids.keys())
 
@@ -1176,6 +1225,8 @@ def _generate_schedule_staged(
             units_placed = 0
             rendered_span_keys: Set[str] = set()
             for ts_id in candidate_slots:
+                if not _room_capacity_available(subject, ts_id, week_label or "base"):
+                    continue
                 if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                     continue
 
@@ -1234,6 +1285,7 @@ def _generate_schedule_staged(
                         teacher_occupied.add((teacher_id, ts_id))
 
                 units_placed += timeslot_units_by_id.get(ts_id, 1)
+                _increment_room_slot_usage(subject.id, ts_id, (week_label or "base"))
                 for class_id in placement_class_ids:
                     class_day_load_units[(class_id, timeslots_by_id[ts_id].day)] += timeslot_units_by_id.get(ts_id, 1)
                     class_week_units[class_id] += timeslot_units_by_id.get(ts_id, 1)
@@ -1309,7 +1361,10 @@ def _generate_schedule_staged(
         feasible_count = 0
         feasible_days: Set[str] = set()
         feasible_capacity_units = 0
+        planning_week_key_local = week_label or "base"
         for ts_id in allowed_slots_local:
+            if not _room_capacity_available(subject, ts_id, planning_week_key_local):
+                continue
             if any((tid, ts_id) in teacher_occupied for tid in teacher_ids_local):
                 continue
             if any((cid, ts_id) in class_occupied for cid in subject.class_ids):
@@ -1469,6 +1524,11 @@ def _generate_schedule_staged(
                         f"Linked subject '{subject.name}' ({subject.id}) cannot use slot {linked_slot_id} "
                         f"required by its link group ({linked_group_id})."
                     )
+                if not _room_capacity_available(subject, linked_slot_id, planning_week_key):
+                    return _partial_infeasible_response(
+                        f"Linked subject '{subject.name}' ({subject.id}) cannot use slot {linked_slot_id} "
+                        f"because no compatible room is available in week {planning_week_key}."
+                    )
                 if any((teacher_id, linked_slot_id) in teacher_occupied for teacher_id in teacher_ids):
                     return _partial_infeasible_response(
                         f"Linked subject '{subject.name}' ({subject.id}) conflicts with teacher occupancy "
@@ -1505,6 +1565,7 @@ def _generate_schedule_staged(
                     class_week_units[class_id] += placed_units
                 for teacher_id in teacher_ids:
                     teacher_occupied.add((teacher_id, linked_slot_id))
+                _increment_room_slot_usage(subject.id, linked_slot_id, planning_week_key)
 
                 units_placed += placed_units
 
@@ -1562,6 +1623,8 @@ def _generate_schedule_staged(
             for slot_candidates in slot_passes:
                 feasible_candidates = []
                 for ts_id in slot_candidates:
+                    if not _room_capacity_available(subject, ts_id, planning_week_key):
+                        continue
                     if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                         continue
                     if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
@@ -1576,6 +1639,9 @@ def _generate_schedule_staged(
                                 continue
                             follower_allowed_slots = subject_allowed_slots_without_occupancy.get(follower_id, set())
                             if ts_id not in follower_allowed_slots:
+                                linked_slot_valid = False
+                                break
+                            if not _room_capacity_available(follower_subject, ts_id, planning_week_key):
                                 linked_slot_valid = False
                                 break
 
@@ -1636,6 +1702,8 @@ def _generate_schedule_staged(
                     remaining_capacity_after = 0
                     for other_ts_id in candidate_slots:
                         if other_ts_id == ts_id:
+                            continue
+                        if not _room_capacity_available(subject, other_ts_id, planning_week_key):
                             continue
                         if any((teacher_id, other_ts_id) in teacher_occupied for teacher_id in teacher_ids):
                             continue
@@ -1773,6 +1841,7 @@ def _generate_schedule_staged(
                 class_week_units[class_id] += chosen_units
             for teacher_id in teacher_ids:
                 teacher_occupied.add((teacher_id, chosen_ts_id))
+            _increment_room_slot_usage(subject.id, chosen_ts_id, planning_week_key)
 
             subject_days_used.add(chosen_ts.day)
             subject_periods_by_day[chosen_ts.day].add(chosen_ts.period)
@@ -1791,17 +1860,32 @@ def _generate_schedule_staged(
             and subject.id not in partial_subject_ids
         ):
             feasible_capacity_now = 0
+            feasible_capacity_without_room = 0
+            room_blocked_slot_count = 0
             for ts_id in candidate_slots:
                 if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                     continue
                 if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):
                     continue
-                feasible_capacity_now += timeslot_units_by_id.get(ts_id, 1)
+
+                slot_units = timeslot_units_by_id.get(ts_id, 1)
+                feasible_capacity_without_room += slot_units
+                if not _room_capacity_available(subject, ts_id, planning_week_key):
+                    room_blocked_slot_count += 1
+                    continue
+                feasible_capacity_now += slot_units
+
+            room_reason = ""
+            if feasible_capacity_without_room > 0 and feasible_capacity_now == 0:
+                room_type_label = "Idrettshaller" if subject.id in sports_only_subject_ids else "rom"
+                room_reason = (
+                    f" No compatible {room_type_label} available in {room_blocked_slot_count} otherwise free allowed slot(s)."
+                )
 
             return _partial_infeasible_response(
                 f"No valid schedule found for remaining subject '{subject.name}' ({subject.id}). "
                 f"Required {required_units}u, placed {units_placed}u. "
-                f"Current free capacity {feasible_capacity_now}u across allowed slots."
+                f"Current free capacity {feasible_capacity_now}u across allowed slots.{room_reason}"
             )
 
         if subject.id in partial_subject_ids:
@@ -1811,6 +1895,8 @@ def _generate_schedule_staged(
             # actually reachable given current A-week occupancy constraints.
             feasible_capacity_now = 0
             for ts_id in candidate_slots:
+                if not _room_capacity_available(subject, ts_id, planning_week_key):
+                    continue
                 if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
                     continue
                 if any((class_id, ts_id) in class_occupied for class_id in subject.class_ids):

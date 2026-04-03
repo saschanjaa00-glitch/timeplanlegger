@@ -862,7 +862,7 @@ function indexToLetters(index: number): string {
   return result;
 }
 
-const SPORTS_SUBJECT_KEYWORDS = ["kroppsøving", "aktivitetslære", "treningsledelse", "breddeidrett"];
+const SPORTS_SUBJECT_KEYWORDS = ["kroppsøving", "aktivitetslære", "treningsledelse", "breddeidrett", "idrett", "toppidrett"];
 
 export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -1177,6 +1177,7 @@ export default function Home() {
         teachers: Teacher[];
         meetings: Meeting[];
         rooms: Room[];
+        sports_halls: SportsHall[];
         classes: SchoolClass[];
         timeslots: Timeslot[];
         weekCalendarSetups: WeekCalendarSetup[];
@@ -1207,6 +1208,7 @@ export default function Home() {
       teachers,
       meetings,
       rooms,
+      sports_halls: sportsHalls,
       classes,
       timeslots,
       weekCalendarSetups,
@@ -1226,6 +1228,7 @@ export default function Home() {
     teachers,
     meetings,
     rooms,
+    sportsHalls,
     classes,
     timeslots,
     weekCalendarSetups,
@@ -1334,6 +1337,21 @@ export default function Home() {
     return [...rooms].sort((a, b) => a.name.localeCompare(b.name));
   }, [rooms]);
 
+  const displayRoomOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const room of rooms) {
+      byId.set(room.id, room.name || room.id);
+    }
+    for (const hall of sportsHalls) {
+      if (!byId.has(hall.id)) {
+        byId.set(hall.id, hall.name || hall.id);
+      }
+    }
+    return Array.from(byId.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [rooms, sportsHalls]);
+
   const filteredCompareClasses = useMemo(() => {
     const q = compareClassSearchQuery.trim().toLowerCase();
     if (!q) {
@@ -1347,12 +1365,12 @@ export default function Home() {
   const filteredCompareRooms = useMemo(() => {
     const q = compareRoomSearchQuery.trim().toLowerCase();
     if (!q) {
-      return sortedRooms;
+      return displayRoomOptions;
     }
-    return sortedRooms.filter((room) =>
+    return displayRoomOptions.filter((room) =>
       room.name.toLowerCase().includes(q) || room.id.toLowerCase().includes(q)
     );
-  }, [sortedRooms, compareRoomSearchQuery]);
+  }, [displayRoomOptions, compareRoomSearchQuery]);
 
   const roomsAssignedToClasses = useMemo(() => {
     return new Set(classes.map((c) => c.base_room_id).filter((id): id is string => !!id));
@@ -1890,13 +1908,21 @@ export default function Home() {
     }
     const names = input.split(",").map((n) => n.trim()).filter((n) => n.length > 0);
     const existingIds = sportsHalls.map((sh) => sh.id);
+    const autoAllowedSubjectIds = Array.from(new Set(
+      subjects
+        .filter((s) => SPORTS_SUBJECT_KEYWORDS.some((kw) => normalizeSearchText(s.name).includes(normalizeSearchText(kw))))
+        .map((s) => s.id)
+    ));
     const newHalls: SportsHall[] = [];
     for (const name of names) {
       const id = makeUniqueId(`sh_${toSlug(name) || "item"}`, [...existingIds, ...newHalls.map((h) => h.id)]);
-      newHalls.push({ id, name, allowed_subject_ids: [] });
+      newHalls.push({ id, name, allowed_subject_ids: autoAllowedSubjectIds });
     }
     setSportsHalls((prev) => [...prev, ...newHalls]);
-    setStatusText(names.length === 1 ? `Added sports hall ${names[0]}.` : `Added ${names.length} sports halls.`);
+    const autoInfo = autoAllowedSubjectIds.length > 0
+      ? ` Auto-enabled preferences for ${autoAllowedSubjectIds.length} sports subject(s).`
+      : "";
+    setStatusText((names.length === 1 ? `Added sports hall ${names[0]}.` : `Added ${names.length} sports halls.`) + autoInfo);
     setSportsHallForm({ name: "" });
   }
 
@@ -1942,6 +1968,33 @@ export default function Home() {
     }
     setSportsHallPreferencesId(hallId);
     setSportsHallSubjectSearch("");
+  }
+
+  function autoAssignSubjectIdsToSportsHalls(subjectIds: string[], subjectName: string) {
+    const normalizedName = normalizeSearchText(subjectName);
+    const shouldAutoAssign = SPORTS_SUBJECT_KEYWORDS.some((kw) => normalizedName.includes(normalizeSearchText(kw)));
+    if (!shouldAutoAssign || subjectIds.length === 0) {
+      return;
+    }
+
+    const uniqueSubjectIds = Array.from(new Set(subjectIds.filter(Boolean)));
+    if (uniqueSubjectIds.length === 0) {
+      return;
+    }
+
+    setSportsHalls((prev) => prev.map((hall) => {
+      const current = new Set(hall.allowed_subject_ids);
+      let changed = false;
+      for (const subjectId of uniqueSubjectIds) {
+        if (!current.has(subjectId)) {
+          current.add(subjectId);
+          changed = true;
+        }
+      }
+      return changed
+        ? { ...hall, allowed_subject_ids: Array.from(current) }
+        : hall;
+    }));
   }
 
   function resolveTeacherIdFromInput(inputValue: string): string | null {
@@ -2129,6 +2182,7 @@ export default function Home() {
     };
 
     setSubjects((prev) => [...prev, createdSubject]);
+    autoAssignSubjectIdsToSportsHalls([id], name);
     setBlocks((prev) => prev.map((block) => {
       if (block.id !== blockId) {
         return block;
@@ -2249,8 +2303,8 @@ export default function Home() {
   }, [teachers]);
 
   const roomNameById = useMemo(() => {
-    return Object.fromEntries(rooms.map((room) => [room.id, room.name])) as Record<string, string>;
-  }, [rooms]);
+    return Object.fromEntries(displayRoomOptions.map((room) => [room.id, room.name])) as Record<string, string>;
+  }, [displayRoomOptions]);
 
   const classSubjectsById = useMemo(() => {
     const grouped: Record<string, Subject[]> = {};
@@ -2486,10 +2540,10 @@ export default function Home() {
   type OverviewRow = { id: string; label: string };
 
   const overviewRowsByKind = useMemo<Record<OverviewDataKind, OverviewRow[]>>(() => ({
-    rooms: sortedRooms.map((room) => ({ id: room.id, label: room.name || room.id })),
+    rooms: displayRoomOptions.map((room) => ({ id: room.id, label: room.name || room.id })),
     teachers: sortedTeachersByFirstName.map((teacher) => ({ id: teacher.id, label: teacher.name || teacher.id })),
     classes: sortedClasses.map((schoolClass) => ({ id: schoolClass.id, label: schoolClass.name || schoolClass.id })),
-  }), [sortedClasses, sortedRooms, sortedTeachersByFirstName]);
+  }), [displayRoomOptions, sortedClasses, sortedTeachersByFirstName]);
 
   const activeOverviewDataKind: OverviewDataKind = activeOverviewSubtab === "rooms"
     ? "rooms"
@@ -2518,8 +2572,8 @@ export default function Home() {
   const overviewAutocompleteOptionsByKind = useMemo<Record<OverviewDataKind, string[]>>(() => ({
     classes: sortedClasses.map((schoolClass) => schoolClass.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
     teachers: sortedTeachersByFirstName.map((teacher) => teacher.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
-    rooms: sortedRooms.map((room) => room.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
-  }), [sortedClasses, sortedRooms, sortedTeachersByFirstName]);
+    rooms: displayRoomOptions.map((room) => room.name).filter(Boolean).sort((a, b) => a.localeCompare(b, "nb")),
+  }), [displayRoomOptions, sortedClasses, sortedTeachersByFirstName]);
 
   const overviewRowSearchTextByIdByKind = useMemo<Record<OverviewDataKind, Map<string, string>>>(() => {
     const maps: Record<OverviewDataKind, Map<string, string>> = {
@@ -4362,6 +4416,7 @@ export default function Home() {
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
     // alternating_week_split removed - auto-balancing is used instead
     setSubjects((prev) => [...prev, { id, name, teacher_id: "", teacher_ids: [], class_ids: [], subject_type: "programfag", sessions_per_week: occurrenceCount }]);
+    autoAssignSubjectIdsToSportsHalls([id], name);
     setBlocks((prev) => prev.map((b) =>
       b.id !== blockId ? b : {
         ...b,
@@ -4556,6 +4611,7 @@ export default function Home() {
     }
 
     const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((s) => s.id));
+    const createdSubjectIds: string[] = [];
     let addedClassCopies = 0;
     let skippedClassCopies = 0;
     setSubjects((prev) => {
@@ -4572,6 +4628,7 @@ export default function Home() {
         preferred_room_ids: [],
         room_requirement_mode: "always",
       };
+      createdSubjectIds.push(template.id);
 
       let next = [...prev, template];
 
@@ -4601,12 +4658,14 @@ export default function Home() {
               class_ids: [classId],
             },
           ];
+          createdSubjectIds.push(copyId);
           addedClassCopies += 1;
         }
       }
 
       return next;
     });
+    autoAssignSubjectIdsToSportsHalls(createdSubjectIds, name);
 
     if (isBlokkfag && selectedBlockId) {
       setBlocks((prev) => prev.map((block) => {
@@ -7025,7 +7084,7 @@ export default function Home() {
                       <div style={{ fontSize: "0.82em", color: "#555", display: "flex", flexWrap: "wrap", gap: "6px" }}>
                         {block.occurrences.map((occ) => (
                           <span key={occ.id} style={{ background: "#e8f4f8", padding: "1px 6px", borderRadius: "3px" }}>
-                            {occ.day} {occ.start_time}–{occ.end_time}{occ.week_type !== "both" ? ` (${occ.week_type})` : ""}
+                            {occ.day} {occ.start_time}–{occ.end_time} ({occ.week_type === "both" ? "A+B" : occ.week_type})
                           </span>
                         ))}
                       </div>
@@ -8410,7 +8469,7 @@ export default function Home() {
                             const teacherLabel = teacherIds
                               .map((teacherId) => teacherNameById[teacherId] ?? teacherId)
                               .join(", ");
-                            const roomLabel = item.room_id ? rooms.find((r) => r.id === item.room_id)?.name : undefined;
+                            const roomLabel = item.room_id ? (roomNameById[item.room_id] ?? item.room_id) : undefined;
                             const blockInfo = subjectToBlockInfo.get(item.subject_id);
                             const blockClassIds = blockInfo?.class_ids ?? [];
 
