@@ -2498,18 +2498,72 @@ export default function Home() {
     return map;
   }, [blocks, timeslots]);
 
+  const overviewWeekSplitByRoomKeys = useMemo(() => {
+    type WeekRooms = { a: Set<string>; b: Set<string> };
+    const buckets = new Map<string, WeekRooms>();
+
+    for (const item of schedule) {
+      if (item.week_type !== "A" && item.week_type !== "B") {
+        continue;
+      }
+
+      const classKey = [...(item.class_ids ?? [])].sort().join(",");
+      const key = [
+        item.subject_id,
+        item.teacher_id,
+        item.timeslot_id,
+        item.day,
+        String(item.period),
+        classKey,
+      ].join("|");
+      const bucket = buckets.get(key) ?? { a: new Set<string>(), b: new Set<string>() };
+      const roomKey = item.room_id ?? "";
+      if (item.week_type === "A") {
+        bucket.a.add(roomKey);
+      } else {
+        bucket.b.add(roomKey);
+      }
+      buckets.set(key, bucket);
+    }
+
+    const splitKeys = new Set<string>();
+    for (const [key, bucket] of buckets.entries()) {
+      if (bucket.a.size === 0 || bucket.b.size === 0) {
+        continue;
+      }
+      const aRooms = Array.from(bucket.a).sort().join("|");
+      const bRooms = Array.from(bucket.b).sort().join("|");
+      if (aRooms !== bRooms) {
+        splitKeys.add(key);
+      }
+    }
+
+    return splitKeys;
+  }, [schedule]);
+
   const overviewScheduleItems = useMemo(() => {
     if (!enableAlternatingWeeks || weekView === "both") {
       return displaySchedule;
     }
     return displaySchedule.filter((item) => {
       const blockId = overviewSubjectToBlockId.get(item.subject_id);
+      const weekSplitKey = [
+        item.subject_id,
+        item.teacher_id,
+        item.timeslot_id,
+        item.day,
+        String(item.period),
+        [...(item.class_ids ?? [])].sort().join(","),
+      ].join("|");
+      const shouldUseSolvedWeekType = overviewWeekSplitByRoomKeys.has(weekSplitKey);
       const effectiveWeekType = blockId
-        ? overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`)
+        ? (shouldUseSolvedWeekType
+          ? item.week_type
+          : overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`))
         : item.week_type;
       return !effectiveWeekType || effectiveWeekType === weekView;
     });
-  }, [displaySchedule, enableAlternatingWeeks, overviewBlockWeekTypeBySlot, overviewSubjectToBlockId, weekView]);
+  }, [displaySchedule, enableAlternatingWeeks, overviewBlockWeekTypeBySlot, overviewSubjectToBlockId, overviewWeekSplitByRoomKeys, weekView]);
 
   const overviewColumnsByDay = useMemo(() => {
     return calendarDays.map((day) => ({
@@ -2737,8 +2791,19 @@ export default function Home() {
       const classNames = (item.class_ids ?? []).map((classId) => classNameById[classId] ?? classId).join(", ");
       const roomName = item.room_id ? (roomNameById[item.room_id] ?? item.room_id) : "";
       const blockId = overviewSubjectToBlockId.get(item.subject_id);
+      const weekSplitKey = [
+        item.subject_id,
+        item.teacher_id,
+        item.timeslot_id,
+        item.day,
+        String(item.period),
+        [...(item.class_ids ?? [])].sort().join(","),
+      ].join("|");
+      const shouldUseSolvedWeekType = overviewWeekSplitByRoomKeys.has(weekSplitKey);
       const effectiveWeekType = blockId
-        ? overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`)
+        ? (shouldUseSolvedWeekType
+          ? item.week_type
+          : overviewBlockWeekTypeBySlot.get(`${blockId}|${item.timeslot_id}`))
         : item.week_type;
       const canonicalSessionSignature = [
         item.subject_id,
@@ -2812,6 +2877,7 @@ export default function Home() {
     overviewFlatColumns,
     overviewScheduleItems,
     overviewSubjectToBlockId,
+    overviewWeekSplitByRoomKeys,
     roomNameById,
     teacherNameById,
   ]);
@@ -3276,6 +3342,49 @@ export default function Home() {
 
     return map;
   }, [blocks, timeslots]);
+
+  const timelineWeekSplitByRoomKeys = useMemo(() => {
+    type WeekRooms = { a: Set<string>; b: Set<string> };
+    const buckets = new Map<string, WeekRooms>();
+
+    for (const item of schedule) {
+      if (item.week_type !== "A" && item.week_type !== "B") {
+        continue;
+      }
+
+      const classKey = [...(item.class_ids ?? [])].sort().join(",");
+      const key = [
+        item.subject_id,
+        item.teacher_id,
+        item.timeslot_id,
+        item.day,
+        String(item.period),
+        classKey,
+      ].join("|");
+      const bucket = buckets.get(key) ?? { a: new Set<string>(), b: new Set<string>() };
+      const roomKey = item.room_id ?? "";
+      if (item.week_type === "A") {
+        bucket.a.add(roomKey);
+      } else {
+        bucket.b.add(roomKey);
+      }
+      buckets.set(key, bucket);
+    }
+
+    const splitKeys = new Set<string>();
+    for (const [key, bucket] of buckets.entries()) {
+      if (bucket.a.size === 0 || bucket.b.size === 0) {
+        continue;
+      }
+      const aRooms = Array.from(bucket.a).sort().join("|");
+      const bRooms = Array.from(bucket.b).sort().join("|");
+      if (aRooms !== bRooms) {
+        splitKeys.add(key);
+      }
+    }
+
+    return splitKeys;
+  }, [schedule]);
 
   useEffect(() => {
     timeslotsRef.current = timeslots;
@@ -8439,8 +8548,19 @@ export default function Home() {
                             }
 
                             const blockInfo = subjectToBlockInfo.get(item.subject_id);
+                            const weekSplitKey = [
+                              item.subject_id,
+                              item.teacher_id,
+                              item.timeslot_id,
+                              item.day,
+                              String(item.period),
+                              [...(item.class_ids ?? [])].sort().join(","),
+                            ].join("|");
+                            const shouldUseSolvedWeekType = timelineWeekSplitByRoomKeys.has(weekSplitKey);
                             const effectiveWeekType = blockInfo
-                              ? blockWeekTypeBySlot.get(`${blockInfo.block_id}|${item.timeslot_id}`)
+                              ? (shouldUseSolvedWeekType
+                                ? item.week_type
+                                : blockWeekTypeBySlot.get(`${blockInfo.block_id}|${item.timeslot_id}`))
                               : item.week_type;
 
                             return !effectiveWeekType || effectiveWeekType === weekView;
@@ -8520,8 +8640,17 @@ export default function Home() {
                               let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;
                               if (blockInfo) {
                                 const weekKey = `${blockInfo.block_id}|${item.timeslot_id}`;
+                                const weekSplitKey = [
+                                  item.subject_id,
+                                  item.teacher_id,
+                                  item.timeslot_id,
+                                  item.day,
+                                  String(item.period),
+                                  [...(item.class_ids ?? [])].sort().join(","),
+                                ].join("|");
+                                const shouldUseSolvedWeekType = timelineWeekSplitByRoomKeys.has(weekSplitKey);
                                 blockWeekTypeFromDefinition = blockWeekTypeBySlot.has(weekKey)
-                                  ? blockWeekTypeBySlot.get(weekKey)
+                                  ? (shouldUseSolvedWeekType ? item.week_type : blockWeekTypeBySlot.get(weekKey))
                                   : item.week_type;
                               }
 
