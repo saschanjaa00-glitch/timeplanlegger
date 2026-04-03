@@ -95,9 +95,10 @@ type Room = {
   prioritize_for_preferred_subjects?: boolean;
 };
 
-type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate";
+type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate" | "overview";
 
 type WeekView = "both" | "A" | "B";
+type OverviewSubtab = "rooms" | "teachers" | "classes" | "constraints";
 
 type ResizeState = {
   timeslotId: string;
@@ -298,6 +299,7 @@ const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "rom", label: "Rom" },
   { id: "teachers", label: "Teachers" },
   { id: "generate", label: "Generate" },
+  { id: "overview", label: "Oversikt" },
 ];
 
 function parseWeekView(value: unknown): WeekView {
@@ -851,6 +853,7 @@ export default function Home() {
   const [statusText, setStatusText] = useState("Ready");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("files");
+  const [activeOverviewSubtab, setActiveOverviewSubtab] = useState<OverviewSubtab>("rooms");
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
@@ -897,6 +900,12 @@ export default function Home() {
   const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
   const [hoveredTimelineSubjectId, setHoveredTimelineSubjectId] = useState<string | null>(null);
   const [expandedTimelineEventKey, setExpandedTimelineEventKey] = useState<string | null>(null);
+  const [overviewHoverCard, setOverviewHoverCard] = useState<{
+    x: number;
+    y: number;
+    title: string;
+    lines: string[];
+  } | null>(null);
   const [classForm, setClassForm] = useState({ name: "", setupId: "" });
   const [bulkClassForm, setBulkClassForm] = useState({
     years: "3",
@@ -929,8 +938,11 @@ export default function Home() {
   const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(null);
   const [blokkfagSortMode, setBlokkfagSortMode] = useState<"block" | "subject">("block");
   const [expandedBlokkfagSubjectGroups, setExpandedBlokkfagSubjectGroups] = useState<Set<string>>(new Set());
+  const [blockAddSubjectPopupBlockId, setBlockAddSubjectPopupBlockId] = useState<string | null>(null);
+  const [blockAddSubjectName, setBlockAddSubjectName] = useState("");
   const [excludedSessionSearchBySubjectEntity, setExcludedSessionSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [roomSearchBySubjectEntity, setRoomSearchBySubjectEntity] = useState<Record<string, string>>({});
+  const [overviewTeacherUnavailableDraftById, setOverviewTeacherUnavailableDraftById] = useState<Record<string, string>>({});
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
   const [newFellesfagNameByClass, setNewFellesfagNameByClass] = useState<Record<string, string>>({});
   const [duplicateTargetsByClass, setDuplicateTargetsByClass] = useState<Record<string, string[]>>({});
@@ -1507,9 +1519,9 @@ export default function Home() {
   function filterRoomsForQuery(query: string): Room[] {
     const normalizedQuery = normalizeSearchText(query);
     if (!normalizedQuery) {
-      return rooms;
+      return sortedRooms;
     }
-    return rooms.filter((room) => (
+    return sortedRooms.filter((room) => (
       normalizeSearchText(room.name).includes(normalizedQuery)
       || normalizeSearchText(room.id).includes(normalizedQuery)
     ));
@@ -1979,6 +1991,56 @@ export default function Home() {
     setStatusText(`Assigned ${subject.name} to block ${targetBlock?.name ?? nextBlockId}.`);
   }
 
+  function addSubjectToBlockFromPopup(blockId: string) {
+    const name = blockAddSubjectName.trim();
+    if (!name) {
+      setStatusText("Enter a subject name before adding it to the block.");
+      return;
+    }
+
+    const targetBlock = blocks.find((block) => block.id === blockId);
+    if (!targetBlock) {
+      setStatusText("Could not find selected block.");
+      return;
+    }
+
+    const id = makeUniqueId(`subject_${toSlug(name) || "item"}`, subjects.map((subject) => subject.id));
+    const createdSubject: Subject = {
+      id,
+      name,
+      teacher_id: "",
+      teacher_ids: [],
+      class_ids: [],
+      subject_type: "programfag",
+      sessions_per_week: 1,
+      force_place: false,
+      allowed_block_ids: [blockId],
+      preferred_room_ids: [],
+      room_requirement_mode: "always",
+    };
+
+    setSubjects((prev) => [...prev, createdSubject]);
+    setBlocks((prev) => prev.map((block) => {
+      if (block.id !== blockId) {
+        return block;
+      }
+      return {
+        ...block,
+        subject_entries: [
+          ...(block.subject_entries ?? []),
+          { subject_id: id, teacher_id: "", teacher_ids: [], preferred_room_id: "" },
+        ],
+        subject_ids: (block.subject_ids ?? []).includes(id)
+          ? (block.subject_ids ?? [])
+          : [...(block.subject_ids ?? []), id],
+      };
+    }));
+
+    setBlockAddSubjectPopupBlockId(null);
+    setBlockAddSubjectName("");
+    setStatusText(`Added blokkfag subject card ${name} to block ${targetBlock.name || targetBlock.id}.`);
+  }
+
   function addTeachersToSubject(subject: Subject, teacherIdsToAdd: string[]) {
     if (subject.subject_type === "programfag") {
       const normalizedTeacherIdsToAdd = Array.from(new Set(teacherIdsToAdd.filter(Boolean)));
@@ -2170,6 +2232,181 @@ export default function Home() {
   }, [compareEntities]);
 
   const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
+
+  const overviewScheduleItems = useMemo(() => {
+    if (!enableAlternatingWeeks || weekView === "both") {
+      return displaySchedule;
+    }
+    return displaySchedule.filter((item) => !item.week_type || item.week_type === weekView);
+  }, [displaySchedule, enableAlternatingWeeks, weekView]);
+
+  const overviewColumnsByDay = useMemo(() => {
+    return calendarDays.map((day) => ({
+      day,
+      slots: sortedTimeslots
+        .filter((slot) => slot.day === day)
+        .sort((a, b) => {
+          const startCmp = toMinutes(a.start_time) - toMinutes(b.start_time);
+          if (startCmp !== 0) {
+            return startCmp;
+          }
+          return a.period - b.period;
+        }),
+    }));
+  }, [sortedTimeslots]);
+
+  const overviewFlatColumns = useMemo(() => {
+    return overviewColumnsByDay.flatMap((group, dayIndex) => (
+      group.slots.map((slot) => ({
+        day: group.day,
+        dayIndex,
+        slot,
+      }))
+    ));
+  }, [overviewColumnsByDay]);
+
+  const overviewRows = useMemo(() => {
+    if (activeOverviewSubtab === "rooms") {
+      return sortedRooms.map((room) => ({ id: room.id, label: room.name || room.id }));
+    }
+    if (activeOverviewSubtab === "teachers") {
+      return sortedTeachersByFirstName.map((teacher) => ({ id: teacher.id, label: teacher.name || teacher.id }));
+    }
+    if (activeOverviewSubtab === "constraints") {
+      return [];
+    }
+    return sortedClasses.map((schoolClass) => ({ id: schoolClass.id, label: schoolClass.name || schoolClass.id }));
+  }, [activeOverviewSubtab, sortedRooms, sortedTeachersByFirstName, sortedClasses]);
+
+  const overviewEntityLabel = activeOverviewSubtab === "rooms"
+    ? "Rom"
+    : activeOverviewSubtab === "teachers"
+      ? "Lærer"
+      : activeOverviewSubtab === "constraints"
+        ? "Begrensning"
+        : "Klasse";
+
+  const sortedSubjectsByName = useMemo(() => {
+    return [...subjects].sort((a, b) => a.name.localeCompare(b.name));
+  }, [subjects]);
+
+  const teachersWithCustomRoomConstraints = useMemo(() => {
+    return sortedTeachersByFirstName.filter((teacher) => (
+      (teacher.room_requirement_mode ?? "always") !== "always"
+      || (teacher.preferred_room_ids ?? []).some((roomId) => rooms.some((room) => room.id === roomId))
+    ));
+  }, [rooms, sortedTeachersByFirstName]);
+
+  const teachersWithUnavailableTimes = useMemo(() => {
+    return sortedTeachersByFirstName.filter((teacher) => teacher.unavailable_timeslots.length > 0);
+  }, [sortedTeachersByFirstName]);
+
+  const subjectsWithCustomRoomConstraints = useMemo(() => {
+    return sortedSubjectsByName.filter((subject) => (
+      (subject.room_requirement_mode ?? "always") !== "always"
+      || (subject.preferred_room_ids ?? []).some((roomId) => rooms.some((room) => room.id === roomId))
+    ));
+  }, [rooms, sortedSubjectsByName]);
+
+  const overviewCellMap = useMemo(() => {
+    type OverviewCellEntry = {
+      key: string;
+      title: string;
+      subtitle: string;
+      week_type?: "A" | "B";
+      isMeeting?: boolean;
+    };
+
+    const map = new Map<string, OverviewCellEntry[]>();
+
+    const addEntry = (entityId: string, timeslotId: string, entry: OverviewCellEntry) => {
+      const cellKey = `${entityId}|${timeslotId}`;
+      const current = map.get(cellKey) ?? [];
+      if (current.some((existing) => existing.key === entry.key)) {
+        return;
+      }
+      current.push(entry);
+      current.sort((a, b) => a.title.localeCompare(b.title));
+      map.set(cellKey, current);
+    };
+
+    const formatTeacherNames = (teacherIds: string[]) => {
+      if (teacherIds.length === 0) {
+        return "";
+      }
+      return teacherIds.map((teacherId) => teacherNameById[teacherId] ?? teacherId).join(", ");
+    };
+
+    for (const item of overviewScheduleItems) {
+      if (!overviewFlatColumns.some((column) => column.slot.id === item.timeslot_id)) {
+        continue;
+      }
+
+      const itemTeacherIds = Array.from(new Set([
+        ...(item.teacher_id ? [item.teacher_id] : []),
+        ...(item.teacher_ids ?? []),
+      ].filter(Boolean)));
+      const teacherNames = formatTeacherNames(itemTeacherIds);
+      const classNames = (item.class_ids ?? []).map((classId) => classNameById[classId] ?? classId).join(", ");
+      const roomName = item.room_id ? (roomNameById[item.room_id] ?? item.room_id) : "";
+
+      if (activeOverviewSubtab === "rooms") {
+        if (!item.room_id) {
+          continue;
+        }
+        addEntry(item.room_id, item.timeslot_id, {
+          key: `${item.subject_id}|${item.teacher_id}|${item.class_ids.join(",")}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+          title: item.subject_name,
+          subtitle: classNames || teacherNames,
+          week_type: item.week_type,
+        });
+      } else if (activeOverviewSubtab === "teachers") {
+        for (const teacherId of itemTeacherIds) {
+          addEntry(teacherId, item.timeslot_id, {
+            key: `${item.subject_id}|${teacherId}|${item.class_ids.join(",")}|${item.room_id ?? ""}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+            title: item.subject_name,
+            subtitle: [classNames, roomName].filter(Boolean).join(" | "),
+            week_type: item.week_type,
+          });
+        }
+      } else {
+        for (const classId of item.class_ids ?? []) {
+          addEntry(classId, item.timeslot_id, {
+            key: `${item.subject_id}|${classId}|${item.teacher_id}|${item.room_id ?? ""}|${item.week_type ?? "both"}|${item.start_time ?? ""}|${item.end_time ?? ""}`,
+            title: item.subject_name,
+            subtitle: [teacherNames, roomName].filter(Boolean).join(" | "),
+            week_type: item.week_type,
+          });
+        }
+      }
+    }
+
+    if (activeOverviewSubtab === "teachers") {
+      for (const meeting of meetings) {
+        if (!overviewFlatColumns.some((column) => column.slot.id === meeting.timeslot_id)) {
+          continue;
+        }
+        for (const assignment of meeting.teacher_assignments) {
+          addEntry(assignment.teacher_id, meeting.timeslot_id, {
+            key: `meeting|${meeting.id}|${assignment.teacher_id}`,
+            title: `Møte: ${meeting.name}`,
+            subtitle: assignment.mode === "unavailable" ? "Opptatt" : "Prioritert",
+            isMeeting: true,
+          });
+        }
+      }
+    }
+
+    return map;
+  }, [
+    activeOverviewSubtab,
+    classNameById,
+    meetings,
+    overviewFlatColumns,
+    overviewScheduleItems,
+    roomNameById,
+    teacherNameById,
+  ]);
 
   // Template fellesfag: subjects that are the canonical definition (not a per-class copy).
   // A per-class copy has exactly 1 class_id. Templates have 0 or multiple class_ids.
@@ -5648,7 +5885,11 @@ export default function Home() {
                   <button
                     type="button"
                     className="secondary"
-                    onClick={() => setBlokkfagSortMode("block")}
+                    onClick={() => {
+                      setBlokkfagSortMode("block");
+                      setBlockAddSubjectPopupBlockId(null);
+                      setBlockAddSubjectName("");
+                    }}
                     style={{
                       padding: "2px 8px",
                       fontSize: "0.78rem",
@@ -5661,7 +5902,11 @@ export default function Home() {
                   <button
                     type="button"
                     className="secondary"
-                    onClick={() => setBlokkfagSortMode("subject")}
+                    onClick={() => {
+                      setBlokkfagSortMode("subject");
+                      setBlockAddSubjectPopupBlockId(null);
+                      setBlockAddSubjectName("");
+                    }}
                     style={{
                       padding: "2px 8px",
                       fontSize: "0.78rem",
@@ -5677,13 +5922,19 @@ export default function Home() {
                 {blokkfagDisplayedGroups.length === 0 ? (
                   <p className="subject-column-empty">No blokkfag subjects yet.</p>
                 ) : (
-                  blokkfagDisplayedGroups.map((group) => {
+                  blokkfagDisplayedGroups.map((group, groupIndex) => {
                     const isSubjectMode = blokkfagSortMode === "subject";
                     const isCollapsible = isSubjectMode && group.entries.length > 1;
                     const isExpanded = !isCollapsible || expandedBlokkfagSubjectGroups.has(group.key);
+                    const toneClass = groupIndex % 2 === 0 ? "subject-block-group-tone-even" : "subject-block-group-tone-odd";
+                    const isRealBlockGroup = !isSubjectMode && group.key !== "unassigned";
+                    const isAddPopupOpen = isRealBlockGroup && blockAddSubjectPopupBlockId === group.key;
 
                     return (
-                      <section key={group.key} className="subject-block-group">
+                      <section
+                        key={group.key}
+                        className={`subject-block-group ${isSubjectMode ? "subject-block-group-subject" : "subject-block-group-block"} ${toneClass}`}
+                      >
                         {isCollapsible ? (
                           <button
                             type="button"
@@ -5709,15 +5960,73 @@ export default function Home() {
                             )}
                           </button>
                         ) : (
-                          <h4 className="subject-block-group-title">
-                            {group.title}{isSubjectMode ? "" : ""}
-                            {isSubjectMode && (
-                              <span className="subject-group-blocks-inline">
-                                {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
-                              </span>
-                            )}
-                          </h4>
+                          <div className="subject-block-group-header">
+                            <h4 className="subject-block-group-title">
+                              {group.title}
+                              {isSubjectMode && (
+                                <span className="subject-group-blocks-inline">
+                                  {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
+                                </span>
+                              )}
+                            </h4>
+                            {isRealBlockGroup ? (
+                              <div className="subject-block-group-actions">
+                                <button
+                                  type="button"
+                                  className="secondary subject-block-add-button"
+                                  onClick={() => {
+                                    if (isAddPopupOpen) {
+                                      setBlockAddSubjectPopupBlockId(null);
+                                      setBlockAddSubjectName("");
+                                      return;
+                                    }
+                                    setBlockAddSubjectPopupBlockId(group.key);
+                                    setBlockAddSubjectName("");
+                                  }}
+                                >
+                                  Add Subject
+                                </button>
+                              </div>
+                            ) : null}
+                          </div>
                         )}
+                        {isAddPopupOpen ? (
+                          <div className="subject-block-add-popup" role="dialog" aria-label={`Add subject to ${group.title}`}>
+                            <label>New subject name for {group.title}</label>
+                            <input
+                              type="text"
+                              value={blockAddSubjectName}
+                              onChange={(e) => setBlockAddSubjectName(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  addSubjectToBlockFromPopup(group.key);
+                                }
+                              }}
+                              placeholder="Write subject name"
+                              autoFocus
+                            />
+                            <div className="subject-block-add-popup-actions">
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => {
+                                  setBlockAddSubjectPopupBlockId(null);
+                                  setBlockAddSubjectName("");
+                                }}
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => addSubjectToBlockFromPopup(group.key)}
+                                disabled={!blockAddSubjectName.trim()}
+                              >
+                                Add
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         {isExpanded && renderSubjectCards(
                           group.entries,
                           isSubjectMode ? "No subjects with this name." : "No subjects in this block.",
@@ -7907,6 +8216,565 @@ export default function Home() {
         )}
 
       </>
+      )}
+
+      {activeTab === "overview" && (
+      <section className="card overview-board" onMouseLeave={() => setOverviewHoverCard(null)}>
+        <div className="overview-header-row">
+          <h2>Oversikt</h2>
+          <div className="overview-controls-row">
+            <div className="overview-subtabs" role="tablist" aria-label="Oversikt type">
+              <button
+                type="button"
+                className={`secondary overview-subtab-button ${activeOverviewSubtab === "rooms" ? "active" : ""}`}
+                onClick={() => setActiveOverviewSubtab("rooms")}
+              >
+                Rom
+              </button>
+              <button
+                type="button"
+                className={`secondary overview-subtab-button ${activeOverviewSubtab === "teachers" ? "active" : ""}`}
+                onClick={() => setActiveOverviewSubtab("teachers")}
+              >
+                Lærere
+              </button>
+              <button
+                type="button"
+                className={`secondary overview-subtab-button ${activeOverviewSubtab === "classes" ? "active" : ""}`}
+                onClick={() => setActiveOverviewSubtab("classes")}
+              >
+                Klasser
+              </button>
+              <button
+                type="button"
+                className={`secondary overview-subtab-button ${activeOverviewSubtab === "constraints" ? "active" : ""}`}
+                onClick={() => setActiveOverviewSubtab("constraints")}
+              >
+                Begrensninger
+              </button>
+            </div>
+            {activeOverviewSubtab !== "constraints" && (
+              <div className="compare-week-view" style={{ minWidth: "170px" }}>
+                <label>Display</label>
+                <select
+                  value={weekView}
+                  onChange={(e) => setWeekView(parseWeekView(e.target.value))}
+                >
+                  <option value="both">Show both weeks</option>
+                  <option value="A">Show A-week only</option>
+                  <option value="B">Show B-week only</option>
+                </select>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {activeOverviewSubtab === "constraints" ? (
+          <div className="overview-constraints-wrap">
+            <p>
+              Rediger lærer- og fagbegrensninger her: romkrav (alltid eller minst en gang per uke) og lærere som ikke kan undervise i bestemte tider.
+            </p>
+
+            <section className="overview-constraints-section">
+              <h3>Lærere: Romkrav</h3>
+              {teachersWithCustomRoomConstraints.length === 0 ? (
+                <p style={{ color: "#999", marginTop: "8px" }}>Ingen avvik fra standard (always + ingen rom) for lærere.</p>
+              ) : (
+                <div className="overview-constraints-table-wrap">
+                  <table className="overview-constraints-table">
+                    <thead>
+                      <tr>
+                        <th>Lærer</th>
+                        <th>Rom-modus</th>
+                        <th>Foretrukne rom</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teachersWithCustomRoomConstraints.map((teacher) => {
+                        const teacherPreferredRoomIds = Array.from(new Set((teacher.preferred_room_ids ?? []).filter((roomId) => rooms.some((room) => room.id === roomId))));
+                        const roomDraft = teacherRoomSearchByTeacherId[teacher.id] ?? "";
+
+                        return (
+                          <tr key={`constraint_teacher_rooms_${teacher.id}`}>
+                            <td>{teacher.name}</td>
+                            <td>
+                              <select
+                                value={teacher.room_requirement_mode ?? "always"}
+                                onChange={(e) => {
+                                  const nextMode = e.target.value === "once_per_week" ? "once_per_week" : "always";
+                                  setTeachers((prev) => prev.map((entry) => (
+                                    entry.id === teacher.id
+                                      ? { ...entry, room_requirement_mode: nextMode }
+                                      : entry
+                                  )));
+                                }}
+                              >
+                                <option value="always">Always</option>
+                                <option value="once_per_week">Once per week</option>
+                              </select>
+                            </td>
+                            <td>
+                              <div className="overview-constraints-field-stack">
+                                <input
+                                  list={`overview-teacher-room-options-${teacher.id}`}
+                                  value={roomDraft}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const resolvedRoomId = resolveRoomIdFromInput(nextValue);
+                                    if (resolvedRoomId) {
+                                      if (!teacherPreferredRoomIds.includes(resolvedRoomId)) {
+                                        setTeachers((prev) => prev.map((entry) => (
+                                          entry.id === teacher.id
+                                            ? { ...entry, preferred_room_ids: [...teacherPreferredRoomIds, resolvedRoomId] }
+                                            : entry
+                                        )));
+                                      }
+                                      setTeacherRoomSearchByTeacherId((prev) => ({ ...prev, [teacher.id]: "" }));
+                                      return;
+                                    }
+                                    setTeacherRoomSearchByTeacherId((prev) => ({ ...prev, [teacher.id]: nextValue }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") {
+                                      return;
+                                    }
+                                    e.preventDefault();
+                                    const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
+                                    if (resolvedRoomIds === null) {
+                                      setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                      return;
+                                    }
+                                    if (resolvedRoomIds.length === 0) {
+                                      return;
+                                    }
+                                    const nextSet = new Set(teacherPreferredRoomIds);
+                                    for (const roomId of resolvedRoomIds) {
+                                      nextSet.add(roomId);
+                                    }
+                                    setTeachers((prev) => prev.map((entry) => (
+                                      entry.id === teacher.id
+                                        ? { ...entry, preferred_room_ids: Array.from(nextSet) }
+                                        : entry
+                                    )));
+                                    setTeacherRoomSearchByTeacherId((prev) => ({ ...prev, [teacher.id]: "" }));
+                                  }}
+                                  placeholder="Søk rom (kommaseparert)"
+                                />
+                                <div className="overview-constraints-chip-row">
+                                  {teacherPreferredRoomIds.length === 0 ? (
+                                    <span className="overview-constraints-empty">Ingen rom valgt</span>
+                                  ) : (
+                                    teacherPreferredRoomIds.map((roomId) => {
+                                      const roomLabel = roomNameById[roomId] ?? roomId;
+                                      return (
+                                        <span key={`teacher_room_${teacher.id}_${roomId}`} className="overview-constraints-chip">
+                                          <span>{roomLabel}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setTeachers((prev) => prev.map((entry) => (
+                                                entry.id === teacher.id
+                                                  ? { ...entry, preferred_room_ids: teacherPreferredRoomIds.filter((id) => id !== roomId) }
+                                                  : entry
+                                              )));
+                                            }}
+                                            aria-label={`Fjern rom ${roomLabel}`}
+                                          >
+                                            x
+                                          </button>
+                                        </span>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                              <datalist id={`overview-teacher-room-options-${teacher.id}`}>
+                                {filterRoomsForQuery(roomDraft).map((room) => (
+                                  <option key={room.id} value={room.name} />
+                                ))}
+                              </datalist>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="overview-constraints-section">
+              <h3>Lærere: Ikke tilgjengelige tider</h3>
+              {teachersWithUnavailableTimes.length === 0 ? (
+                <p style={{ color: "#999", marginTop: "8px" }}>Ingen avvik fra standard (ingen blokkerte tider) for lærere.</p>
+              ) : (
+                <div className="overview-constraints-table-wrap">
+                  <table className="overview-constraints-table">
+                    <thead>
+                      <tr>
+                        <th>Lærer</th>
+                        <th>Ikke tilgjengelig</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {teachersWithUnavailableTimes.map((teacher) => {
+                        const unavailableDraft = overviewTeacherUnavailableDraftById[teacher.id] ?? "";
+                        const unavailableSlots = teacher.unavailable_timeslots
+                          .map((slotId) => timeslotById[slotId])
+                          .filter((slot): slot is Timeslot => Boolean(slot))
+                          .sort((a, b) => {
+                            const dayCmp = dayOrder.indexOf(a.day) - dayOrder.indexOf(b.day);
+                            if (dayCmp !== 0) {
+                              return dayCmp;
+                            }
+                            const timeCmp = toMinutes(a.start_time) - toMinutes(b.start_time);
+                            if (timeCmp !== 0) {
+                              return timeCmp;
+                            }
+                            return a.period - b.period;
+                          });
+
+                        return (
+                          <tr key={`constraint_teacher_times_${teacher.id}`}>
+                            <td>{teacher.name}</td>
+                            <td>
+                              <div className="overview-constraints-field-stack">
+                                <input
+                                  list={`overview-teacher-timeslot-options-${teacher.id}`}
+                                  value={unavailableDraft}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const resolvedTimeslotId = resolveTimeslotIdFromInput(nextValue);
+                                    if (resolvedTimeslotId) {
+                                      if (!teacher.unavailable_timeslots.includes(resolvedTimeslotId)) {
+                                        setTeachers((prev) => prev.map((entry) => (
+                                          entry.id === teacher.id
+                                            ? { ...entry, unavailable_timeslots: [...entry.unavailable_timeslots, resolvedTimeslotId] }
+                                            : entry
+                                        )));
+                                      }
+                                      setOverviewTeacherUnavailableDraftById((prev) => ({ ...prev, [teacher.id]: "" }));
+                                      return;
+                                    }
+                                    setOverviewTeacherUnavailableDraftById((prev) => ({ ...prev, [teacher.id]: nextValue }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") {
+                                      return;
+                                    }
+                                    e.preventDefault();
+                                    const resolvedTimeslotIds = resolveTimeslotIdsFromInput(unavailableDraft);
+                                    if (resolvedTimeslotIds === null) {
+                                      setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                                      return;
+                                    }
+                                    if (resolvedTimeslotIds.length === 0) {
+                                      return;
+                                    }
+                                    const nextSet = new Set(teacher.unavailable_timeslots);
+                                    for (const slotId of resolvedTimeslotIds) {
+                                      nextSet.add(slotId);
+                                    }
+                                    setTeachers((prev) => prev.map((entry) => (
+                                      entry.id === teacher.id
+                                        ? { ...entry, unavailable_timeslots: Array.from(nextSet) }
+                                        : entry
+                                    )));
+                                    setOverviewTeacherUnavailableDraftById((prev) => ({ ...prev, [teacher.id]: "" }));
+                                  }}
+                                  placeholder="Søk time(r), kommaseparert"
+                                />
+                                <div className="overview-constraints-chip-row">
+                                  {unavailableSlots.length === 0 ? (
+                                    <span className="overview-constraints-empty">Ingen blokkerte tider</span>
+                                  ) : (
+                                    unavailableSlots.map((slot) => {
+                                      const slotLabel = formatTimeslotLabel(slot);
+                                      return (
+                                        <span key={`teacher_unavailable_${teacher.id}_${slot.id}`} className="overview-constraints-chip">
+                                          <span>{slotLabel}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setTeachers((prev) => prev.map((entry) => (
+                                                entry.id === teacher.id
+                                                  ? {
+                                                      ...entry,
+                                                      unavailable_timeslots: entry.unavailable_timeslots.filter((id) => id !== slot.id),
+                                                    }
+                                                  : entry
+                                              )));
+                                            }}
+                                            aria-label={`Fjern blokkert tid ${slotLabel}`}
+                                          >
+                                            x
+                                          </button>
+                                        </span>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                              <datalist id={`overview-teacher-timeslot-options-${teacher.id}`}>
+                                {filterTimeslotsForQuery(unavailableDraft).map((slot) => (
+                                  <option key={slot.id} value={formatTimeslotLabel(slot)} />
+                                ))}
+                              </datalist>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            <section className="overview-constraints-section">
+              <h3>Fag: Romkrav</h3>
+              {subjectsWithCustomRoomConstraints.length === 0 ? (
+                <p style={{ color: "#999", marginTop: "8px" }}>Ingen avvik fra standard (always + ingen rom) for fag.</p>
+              ) : (
+                <div className="overview-constraints-table-wrap">
+                  <table className="overview-constraints-table">
+                    <thead>
+                      <tr>
+                        <th>Fag</th>
+                        <th>Type</th>
+                        <th>Rom-modus</th>
+                        <th>Foretrukne rom</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {subjectsWithCustomRoomConstraints.map((subject) => {
+                        const preferredRoomIds = Array.from(new Set((subject.preferred_room_ids ?? []).filter((roomId) => rooms.some((room) => room.id === roomId))));
+                        const roomSearchKey = `overview_subject_${subject.id}`;
+                        const roomDraft = roomSearchBySubjectEntity[roomSearchKey] ?? "";
+
+                        return (
+                          <tr key={`constraint_subject_rooms_${subject.id}`}>
+                            <td>{subject.name}</td>
+                            <td>{subject.subject_type === "fellesfag" ? "Fellesfag" : "Programfag"}</td>
+                            <td>
+                              <select
+                                value={subject.room_requirement_mode ?? "always"}
+                                onChange={(e) => updateSubjectCard(subject.id, {
+                                  room_requirement_mode: e.target.value === "once_per_week" ? "once_per_week" : "always",
+                                })}
+                              >
+                                <option value="always">Always</option>
+                                <option value="once_per_week">Once per week</option>
+                              </select>
+                            </td>
+                            <td>
+                              <div className="overview-constraints-field-stack">
+                                <input
+                                  list={`overview-subject-room-options-${subject.id}`}
+                                  value={roomDraft}
+                                  onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const resolvedRoomId = resolveRoomIdFromInput(nextValue);
+                                    if (resolvedRoomId) {
+                                      if (!preferredRoomIds.includes(resolvedRoomId)) {
+                                        updateSubjectCard(subject.id, {
+                                          preferred_room_ids: [...preferredRoomIds, resolvedRoomId],
+                                        });
+                                      }
+                                      setRoomSearchBySubjectEntity((prev) => ({ ...prev, [roomSearchKey]: "" }));
+                                      return;
+                                    }
+                                    setRoomSearchBySubjectEntity((prev) => ({ ...prev, [roomSearchKey]: nextValue }));
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") {
+                                      return;
+                                    }
+                                    e.preventDefault();
+                                    const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
+                                    if (resolvedRoomIds === null) {
+                                      setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                      return;
+                                    }
+                                    if (resolvedRoomIds.length === 0) {
+                                      return;
+                                    }
+                                    const nextSet = new Set(preferredRoomIds);
+                                    for (const roomId of resolvedRoomIds) {
+                                      nextSet.add(roomId);
+                                    }
+                                    updateSubjectCard(subject.id, {
+                                      preferred_room_ids: Array.from(nextSet),
+                                    });
+                                    setRoomSearchBySubjectEntity((prev) => ({ ...prev, [roomSearchKey]: "" }));
+                                  }}
+                                  placeholder="Søk rom (kommaseparert)"
+                                />
+                                <div className="overview-constraints-chip-row">
+                                  {preferredRoomIds.length === 0 ? (
+                                    <span className="overview-constraints-empty">Ingen rom valgt</span>
+                                  ) : (
+                                    preferredRoomIds.map((roomId) => {
+                                      const roomLabel = roomNameById[roomId] ?? roomId;
+                                      return (
+                                        <span key={`subject_room_${subject.id}_${roomId}`} className="overview-constraints-chip">
+                                          <span>{roomLabel}</span>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              updateSubjectCard(subject.id, {
+                                                preferred_room_ids: preferredRoomIds.filter((id) => id !== roomId),
+                                              });
+                                            }}
+                                            aria-label={`Fjern rom ${roomLabel}`}
+                                          >
+                                            x
+                                          </button>
+                                        </span>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              </div>
+                              <datalist id={`overview-subject-room-options-${subject.id}`}>
+                                {filterRoomsForQuery(roomDraft).map((room) => (
+                                  <option key={room.id} value={room.name} />
+                                ))}
+                              </datalist>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </div>
+        ) : (
+          <>
+            <p>
+              {overviewEntityLabel} on rows, week sessions on columns. Each cell shows the scheduled subject in that slot.
+            </p>
+
+            {schedule.length === 0 ? (
+              <p style={{ color: "#999", marginTop: "10px" }}>Generate a schedule to populate this overview.</p>
+            ) : overviewFlatColumns.length === 0 ? (
+              <p style={{ color: "#999", marginTop: "10px" }}>No timeslots found in the active week calendar.</p>
+            ) : overviewRows.length === 0 ? (
+              <p style={{ color: "#999", marginTop: "10px" }}>No {overviewEntityLabel.toLowerCase()} available.</p>
+            ) : (
+              <div className="overview-table-wrap">
+                <table className="overview-table">
+                  <thead>
+                    <tr>
+                      <th rowSpan={2} className="overview-entity-head">{overviewEntityLabel}</th>
+                      {overviewColumnsByDay
+                        .filter((group) => group.slots.length > 0)
+                        .map((group) => {
+                          const dayIndex = overviewColumnsByDay.findIndex((candidate) => candidate.day === group.day);
+                          const toneClass = dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd";
+                          return (
+                          <th key={`day_${group.day}`} colSpan={group.slots.length} className={`overview-day-head ${toneClass}`}>
+                            {group.day}
+                          </th>
+                          );
+                        })}
+                    </tr>
+                    <tr>
+                      {overviewFlatColumns.map((column) => (
+                        <th
+                          key={`slot_${column.day}_${column.slot.id}`}
+                          className={`overview-slot-head ${column.dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd"}`}
+                        >
+                          <div>{column.slot.start_time ?? `P${column.slot.period}`}</div>
+                          <small>{column.slot.end_time ?? ""}</small>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {overviewRows.map((row) => (
+                      <tr key={row.id}>
+                        <th className="overview-row-label">{row.label}</th>
+                        {overviewFlatColumns.map((column) => {
+                          const entries = overviewCellMap.get(`${row.id}|${column.slot.id}`) ?? [];
+                          return (
+                            <td
+                              key={`${row.id}_${column.slot.id}`}
+                              className={`overview-cell ${column.dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd"}`}
+                            >
+                              {entries.length === 0 ? (
+                                <span className="overview-empty-cell">-</span>
+                              ) : (
+                                <div className="overview-cell-entries">
+                                  {entries.map((entry) => (
+                                    <div
+                                      key={entry.key}
+                                      className={`overview-entry ${entry.isMeeting ? "meeting" : ""}`}
+                                      title={`${entry.title}${entry.week_type ? ` (${entry.week_type})` : ""}${entry.subtitle ? `\n${entry.subtitle}` : ""}`}
+                                      onMouseEnter={(e) => {
+                                        const rect = e.currentTarget.getBoundingClientRect();
+                                        const cardWidth = 280;
+                                        const rightCandidate = rect.right + 10;
+                                        const leftCandidate = rect.left - cardWidth - 10;
+                                        const viewportWidth = window.innerWidth;
+                                        const viewportHeight = window.innerHeight;
+                                        const x = rightCandidate + cardWidth <= viewportWidth - 10
+                                          ? rightCandidate
+                                          : Math.max(10, leftCandidate);
+                                        const y = Math.min(
+                                          Math.max(10, rect.top),
+                                          Math.max(10, viewportHeight - 170)
+                                        );
+                                        const timeRange = `${column.slot.start_time ?? `P${column.slot.period}`}${column.slot.end_time ? `-${column.slot.end_time}` : ""}`;
+
+                                        setOverviewHoverCard({
+                                          x,
+                                          y,
+                                          title: entry.title,
+                                          lines: [
+                                            `${overviewEntityLabel}: ${row.label}`,
+                                            `Tid: ${column.day} ${timeRange}`,
+                                            ...(entry.week_type ? [`Uke: ${entry.week_type}`] : []),
+                                            ...(entry.subtitle ? [entry.subtitle] : []),
+                                          ],
+                                        });
+                                      }}
+                                      onMouseLeave={() => setOverviewHoverCard(null)}
+                                    >
+                                      <div className="overview-entry-title-row">
+                                        <strong>{entry.title}</strong>
+                                        {entry.week_type ? <small>{entry.week_type}</small> : null}
+                                      </div>
+                                      {entry.subtitle ? <span>{entry.subtitle}</span> : null}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </>
+        )}
+
+        {overviewHoverCard && (
+          <div
+            className="overview-hover-card"
+            style={{ left: `${overviewHoverCard.x}px`, top: `${overviewHoverCard.y}px` }}
+          >
+            <strong>{overviewHoverCard.title}</strong>
+            {overviewHoverCard.lines.map((line, idx) => (
+              <div key={`hover_line_${idx}`}>{line}</div>
+            ))}
+          </div>
+        )}
+      </section>
       )}
     </main>
   );
