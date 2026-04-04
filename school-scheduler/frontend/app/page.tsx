@@ -5149,7 +5149,7 @@ export default function Home() {
       ]);
 
       // Ensure all arrays are properly defined
-      const cleanSubjects = subjects
+      const cleanSubjects: Subject[] = subjects
         .filter((s) => {
           if (!s.id) {
             return false;
@@ -8835,7 +8835,8 @@ export default function Home() {
                               }
 
                               const blockSummaryGroupKey = isClassView && blockInfo
-                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}`
+                                // In class view, show a single block-subject card per week.
+                                ? `${entityId}|${item.subject_id}`
                                 : undefined;
 
                               let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;

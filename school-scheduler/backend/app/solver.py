@@ -1311,6 +1311,14 @@ def _generate_schedule_staged(
         if not block_slots:
             continue
 
+        week_specific_slot_ids: Set[str] = set()
+        if week_label:
+            for occ in block.occurrences:
+                occ_week = (occ.week_type or "both").upper()
+                if occ_week != week_label.upper():
+                    continue
+                week_specific_slot_ids |= (_timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids)
+
         slot_span_by_id: Dict[str, Tuple[str, str]] = {}
         for occ in block.occurrences:
             if week_label:
@@ -1394,11 +1402,19 @@ def _generate_schedule_staged(
 
             subject_allowed_slots = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
             candidate_slots = [ts_id for ts_id in block_slots if ts_id in subject_allowed_slots]
+            if week_label and week_specific_slot_ids:
+                candidate_slots.sort(
+                    key=lambda ts_id: (
+                        0 if ts_id in week_specific_slot_ids else 1,
+                        _slot_sort_key(ts_id),
+                    )
+                )
             if week_label and cross_week_preferred_slots_by_subject:
                 preferred_cross_week_slots = set(cross_week_preferred_slots_by_subject.get(subject.id, set()))
                 if preferred_cross_week_slots:
                     candidate_slots.sort(
                         key=lambda ts_id: (
+                            0 if (week_specific_slot_ids and ts_id in week_specific_slot_ids) else 1,
                             0 if ts_id in preferred_cross_week_slots else 1,
                             _slot_sort_key(ts_id),
                         )
@@ -4220,6 +4236,21 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 teacher_busy.add((teacher_id, week_key, item.timeslot_id))
                 teacher_day_count[(teacher_id, week_key, item.day)] += 1
 
+        def _rebuild_usage_maps() -> None:
+            class_busy.clear()
+            teacher_busy.clear()
+            teacher_day_count.clear()
+            subject_day_used.clear()
+
+            for scheduled_item in working_items:
+                week_key = scheduled_item.week_type or "base"
+                subject_day_used[(scheduled_item.subject_id, week_key, scheduled_item.day)] += 1
+                for class_id in scheduled_item.class_ids:
+                    class_busy.add((class_id, week_key, scheduled_item.timeslot_id))
+                for teacher_id in _item_teacher_ids_for_rules(scheduled_item):
+                    teacher_busy.add((teacher_id, week_key, scheduled_item.timeslot_id))
+                    teacher_day_count[(teacher_id, week_key, scheduled_item.day)] += 1
+
         added_count = 0
 
         def _find_class_conflicting_items(
@@ -4631,6 +4662,260 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
             if not moved_any:
                 break
+
+        _rebuild_usage_maps()
+
+        def _local_cp_sat_violation_repair() -> bool:
+            violation_seed_items = _subject_day_violation_items() + _teacher_day_violation_items()
+            if not violation_seed_items:
+                return False
+
+            affected_weeks: Set[str] = set()
+            affected_classes: Set[str] = set()
+            affected_teachers: Set[str] = set()
+            affected_subjects: Set[str] = set()
+            for seed_item in violation_seed_items:
+                week_key = seed_item.week_type or "base"
+                affected_weeks.add(week_key)
+                affected_subjects.add(seed_item.subject_id)
+                for class_id in seed_item.class_ids:
+                    affected_classes.add(class_id)
+                for teacher_id in _item_teacher_ids_for_rules(seed_item):
+                    affected_teachers.add(teacher_id)
+
+            movable_indices: List[int] = []
+            for idx, scheduled_item in enumerate(working_items):
+                if _is_block_item_for_rules(scheduled_item):
+                    continue
+                week_key = scheduled_item.week_type or "base"
+                if week_key not in affected_weeks:
+                    continue
+                item_teacher_ids = set(_item_teacher_ids_for_rules(scheduled_item))
+                if (
+                    any(class_id in affected_classes for class_id in scheduled_item.class_ids)
+                    or any(teacher_id in affected_teachers for teacher_id in item_teacher_ids)
+                    or scheduled_item.subject_id in affected_subjects
+                ):
+                    movable_indices.append(idx)
+
+            if not movable_indices:
+                return False
+
+            # Keep neighborhood bounded for stable runtime.
+            movable_indices = movable_indices[:80]
+            movable_index_set = set(movable_indices)
+
+            fixed_class_slot_count: Dict[Tuple[str, str, str], int] = defaultdict(int)
+            fixed_teacher_slot_count: Dict[Tuple[str, str, str], int] = defaultdict(int)
+            fixed_teacher_day_count: Dict[Tuple[str, str, str], int] = defaultdict(int)
+            fixed_subject_day_count: Dict[Tuple[str, str, str], int] = defaultdict(int)
+
+            for idx, scheduled_item in enumerate(working_items):
+                if idx in movable_index_set:
+                    continue
+                week_key = scheduled_item.week_type or "base"
+                for class_id in scheduled_item.class_ids:
+                    fixed_class_slot_count[(class_id, week_key, scheduled_item.timeslot_id)] += 1
+                for teacher_id in _item_teacher_ids_for_rules(scheduled_item):
+                    fixed_teacher_slot_count[(teacher_id, week_key, scheduled_item.timeslot_id)] += 1
+                    fixed_teacher_day_count[(teacher_id, week_key, scheduled_item.day)] += 1
+                fixed_subject_day_count[(scheduled_item.subject_id, week_key, scheduled_item.day)] += 1
+
+            model = cp_model.CpModel()
+            y: Dict[Tuple[int, str], cp_model.IntVar] = {}
+            candidate_days: Dict[Tuple[int, str], str] = {}
+            current_slot_by_index: Dict[int, str] = {}
+
+            for idx in movable_indices:
+                item = working_items[idx]
+                week_key = item.week_type or "base"
+                subject = subjects_by_id.get(item.subject_id)
+                if not subject:
+                    continue
+
+                current_slot_by_index[idx] = item.timeslot_id
+                item_units = _item_units(item, timeslot_units_map)
+
+                allowed_slots = _compute_allowed_timeslots(
+                    subject,
+                    alternating_all_timeslot_ids,
+                    alternating_block_to_timeslots,
+                    alternating_timeslots_by_id,
+                )
+                allowed_weeks = _compute_allowed_weeks(
+                    subject,
+                    data.alternating_weeks_enabled,
+                    blocks_by_id_for_rules,
+                    linked_block_ids_for_rules,
+                )
+
+                candidate_slot_ids: Set[str] = {item.timeslot_id}
+                if week_key in allowed_weeks:
+                    for slot_id in allowed_slots:
+                        if timeslot_units_map.get(slot_id, 1) != item_units:
+                            continue
+
+                        class_blocked = any(
+                            slot_id in blocked_class_slots_by_week_for_rules.get((class_id, week_key), set())
+                            for class_id in item.class_ids
+                        )
+                        if class_blocked and slot_id != item.timeslot_id:
+                            continue
+
+                        teacher_unavailable = False
+                        for teacher_id in _item_teacher_ids_for_rules(item):
+                            if teacher_id in alternating_teachers_by_id and slot_id in set(alternating_teachers_by_id[teacher_id].unavailable_timeslots):
+                                teacher_unavailable = True
+                                break
+                            if slot_id in alternating_teacher_meeting_unavailable.get(teacher_id, set()):
+                                teacher_unavailable = True
+                                break
+                        if teacher_unavailable and slot_id != item.timeslot_id:
+                            continue
+
+                        candidate_slot_ids.add(slot_id)
+
+                slot_var_keys: List[Tuple[int, str]] = []
+                for slot_id in sorted(candidate_slot_ids, key=_alternating_slot_sort_key):
+                    key = (idx, slot_id)
+                    y[key] = model.NewBoolVar(f"move_{idx}_{slot_id}")
+                    slot_var_keys.append(key)
+                    ts = alternating_timeslots_by_id[slot_id]
+                    candidate_days[key] = ts.day
+
+                if not slot_var_keys:
+                    return False
+                model.Add(sum(y[key] for key in slot_var_keys) == 1)
+
+            if not y:
+                return False
+
+            # No class slot collisions.
+            class_slot_keys: Set[Tuple[str, str, str]] = set(fixed_class_slot_count.keys())
+            for idx in movable_indices:
+                item = working_items[idx]
+                week_key = item.week_type or "base"
+                for slot_id in {slot for (item_idx, slot) in y if item_idx == idx}:
+                    for class_id in item.class_ids:
+                        class_slot_keys.add((class_id, week_key, slot_id))
+
+            for class_id, week_key, slot_id in class_slot_keys:
+                expr_terms = [
+                    y[(idx, cand_slot)]
+                    for (idx, cand_slot) in y
+                    if (working_items[idx].week_type or "base") == week_key
+                    and cand_slot == slot_id
+                    and class_id in (working_items[idx].class_ids or [])
+                ]
+                model.Add(fixed_class_slot_count.get((class_id, week_key, slot_id), 0) + sum(expr_terms) <= 1)
+
+            # No teacher slot collisions.
+            teacher_slot_keys: Set[Tuple[str, str, str]] = set(fixed_teacher_slot_count.keys())
+            for idx in movable_indices:
+                item = working_items[idx]
+                week_key = item.week_type or "base"
+                item_teacher_ids = _item_teacher_ids_for_rules(item)
+                for slot_id in {slot for (item_idx, slot) in y if item_idx == idx}:
+                    for teacher_id in item_teacher_ids:
+                        teacher_slot_keys.add((teacher_id, week_key, slot_id))
+
+            for teacher_id, week_key, slot_id in teacher_slot_keys:
+                expr_terms = [
+                    y[(idx, cand_slot)]
+                    for (idx, cand_slot) in y
+                    if (working_items[idx].week_type or "base") == week_key
+                    and cand_slot == slot_id
+                    and teacher_id in _item_teacher_ids_for_rules(working_items[idx])
+                ]
+                model.Add(fixed_teacher_slot_count.get((teacher_id, week_key, slot_id), 0) + sum(expr_terms) <= 1)
+
+            teacher_over_vars: List[cp_model.IntVar] = []
+            for teacher_id in affected_teachers:
+                for week_key in affected_weeks:
+                    for day in DAY_ORDER_INDEX.keys():
+                        expr_terms = [
+                            y[(idx, cand_slot)]
+                            for (idx, cand_slot) in y
+                            if (working_items[idx].week_type or "base") == week_key
+                            and teacher_id in _item_teacher_ids_for_rules(working_items[idx])
+                            and candidate_days[(idx, cand_slot)].lower() == day
+                        ]
+                        if not expr_terms and fixed_teacher_day_count.get((teacher_id, week_key, day.title()), 0) == 0:
+                            continue
+                        over = model.NewIntVar(0, 10, f"teacher_over_{teacher_id}_{week_key}_{day}")
+                        day_total = fixed_teacher_day_count.get((teacher_id, week_key, day.title()), 0) + sum(expr_terms)
+                        model.Add(over >= day_total - 3)
+                        teacher_over_vars.append(over)
+
+            subject_over_vars: List[cp_model.IntVar] = []
+            for subject_id in affected_subjects:
+                subject = subjects_by_id.get(subject_id)
+                if _is_norsk_vg3_subject(subject):
+                    continue
+                for week_key in affected_weeks:
+                    for day in DAY_ORDER_INDEX.keys():
+                        expr_terms = [
+                            y[(idx, cand_slot)]
+                            for (idx, cand_slot) in y
+                            if working_items[idx].subject_id == subject_id
+                            and (working_items[idx].week_type or "base") == week_key
+                            and candidate_days[(idx, cand_slot)].lower() == day
+                        ]
+                        if not expr_terms and fixed_subject_day_count.get((subject_id, week_key, day.title()), 0) == 0:
+                            continue
+                        over = model.NewIntVar(0, 10, f"subject_over_{subject_id}_{week_key}_{day}")
+                        day_total = fixed_subject_day_count.get((subject_id, week_key, day.title()), 0) + sum(expr_terms)
+                        model.Add(over >= day_total - 1)
+                        subject_over_vars.append(over)
+
+            moved_vars: List[cp_model.IntVar] = []
+            for idx in movable_indices:
+                current_slot_id = current_slot_by_index.get(idx)
+                if not current_slot_id or (idx, current_slot_id) not in y:
+                    continue
+                moved = model.NewBoolVar(f"moved_{idx}")
+                model.Add(y[(idx, current_slot_id)] == 0).OnlyEnforceIf(moved)
+                model.Add(y[(idx, current_slot_id)] == 1).OnlyEnforceIf(moved.Not())
+                moved_vars.append(moved)
+
+            model.Minimize(
+                1000 * sum(teacher_over_vars)
+                + 800 * sum(subject_over_vars)
+                + 3 * sum(moved_vars)
+            )
+
+            solver = cp_model.CpSolver()
+            solver.parameters.max_time_in_seconds = 3.0
+            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            status = solver.Solve(model)
+            if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+                return False
+
+            changed = False
+            for idx in movable_indices:
+                chosen_slot_id = None
+                for slot_id in {slot for (item_idx, slot) in y if item_idx == idx}:
+                    if solver.Value(y[(idx, slot_id)]) == 1:
+                        chosen_slot_id = slot_id
+                        break
+                if not chosen_slot_id:
+                    continue
+
+                item = working_items[idx]
+                if item.timeslot_id == chosen_slot_id:
+                    continue
+                ts = alternating_timeslots_by_id[chosen_slot_id]
+                item.timeslot_id = chosen_slot_id
+                item.day = ts.day
+                item.period = ts.period
+                item.start_time = None
+                item.end_time = None
+                changed = True
+
+            return changed
+
+        if _local_cp_sat_violation_repair():
+            _rebuild_usage_maps()
 
         return working_items, added_count
 
