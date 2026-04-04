@@ -523,7 +523,38 @@ type CompareEntity = {
   color: string;
 };
 
-const API_BASE = "http://127.0.0.1:8000";
+const API_BASE_CANDIDATES = [
+  "http://127.0.0.1:8000",
+  "http://localhost:8000",
+];
+
+async function postGenerateWithFallback(bodyStr: string, runId: number): Promise<Response> {
+  const errors: string[] = [];
+
+  for (const base of API_BASE_CANDIDATES) {
+    try {
+      return await fetch(`${base}/generate-schedule?run=${Date.now()}`, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+          "Cache-Control": "no-cache",
+          "Pragma": "no-cache",
+          "X-Run-Id": String(runId),
+        },
+        body: bodyStr,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push(`${base}: ${message}`);
+    }
+  }
+
+  throw new Error(
+    `Could not reach backend API on ${API_BASE_CANDIDATES.join(" or ")} (run ${runId}). ` +
+      "Start backend server and try again.",
+  );
+}
 
 const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const calendarDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -5464,17 +5495,7 @@ export default function Home() {
         throw new Error(`Could not serialize payload: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      const res = await fetch(`${API_BASE}/generate-schedule?run=${Date.now()}`, {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-          "Cache-Control": "no-cache",
-          "Pragma": "no-cache",
-          "X-Run-Id": String(runId),
-        },
-        body: bodyStr,
-      });
+      const res = await postGenerateWithFallback(bodyStr, runId);
 
       if (!res.ok) {
         let detail = `Server error ${res.status}`;

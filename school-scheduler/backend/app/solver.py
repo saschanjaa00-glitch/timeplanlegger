@@ -2928,7 +2928,7 @@ def _post_optimize_ab_day_uniqueness(
             + reduced_tail_mismatch_penalty * 700
             + ab_mismatch_penalty * 1200
             + repeat_penalty * 220
-            - norsk_pairs * 5
+            - norsk_pairs * 450
         )
 
     def _slot_sort_key(ts_id: str) -> Tuple[str, int]:
@@ -3334,6 +3334,199 @@ def _post_optimize_ab_day_uniqueness(
         if not improved:
             break
 
+    # Stage 2c: Norsk vg3 adjacency improvement.
+    # When Norsk vg3 appears twice on the same day in a week, prefer contiguous
+    # placement (typically periods 1+2 or 3+4) and try a local swap if needed.
+    slot_id_by_day_period: Dict[Tuple[str, int], str] = {
+        (ts.day, ts.period): ts.id for ts in timeslots_by_id.values()
+    }
+
+    def _norsk_non_adjacent_penalty(items: List[ScheduledItem]) -> int:
+        penalty = 0
+        norsk_subject_ids = {
+            s.id
+            for s in data.subjects
+            if _is_norsk_vg3_subject(s)
+            and s.id not in block_subject_ids
+            and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+        }
+        for subject_id in norsk_subject_ids:
+            for week_key in ["A", "B"]:
+                by_day: Dict[str, List[int]] = defaultdict(list)
+                for item in items:
+                    if item.subject_id != subject_id:
+                        continue
+                    if (item.week_type or "base") != week_key:
+                        continue
+                    by_day[item.day].append(item.period)
+                for periods in by_day.values():
+                    if len(periods) < 2:
+                        continue
+                    periods = sorted(periods)
+                    has_adjacent = any((periods[i + 1] - periods[i]) == 1 for i in range(len(periods) - 1))
+                    if not has_adjacent:
+                        penalty += 1
+        return penalty
+
+    for _ in range(24):
+        improved = False
+        current_norsk_penalty = _norsk_non_adjacent_penalty(working_items)
+        for subject in data.subjects:
+            if not _is_norsk_vg3_subject(subject):
+                continue
+            if subject.id in block_subject_ids:
+                continue
+            if getattr(subject, "force_place", False) and (getattr(subject, "force_timeslot_id", "") or "").strip():
+                continue
+
+            for week_key in ["A", "B"]:
+                subject_items = [
+                    (idx, item)
+                    for idx, item in enumerate(working_items)
+                    if item.subject_id == subject.id
+                    and (item.week_type or "base") == week_key
+                    and not (item.start_time or item.end_time)
+                ]
+                if len(subject_items) < 2:
+                    continue
+
+                by_day: Dict[str, List[Tuple[int, ScheduledItem]]] = defaultdict(list)
+                for idx, item in subject_items:
+                    by_day[item.day].append((idx, item))
+
+                for day, day_items in by_day.items():
+                    if len(day_items) < 2:
+                        continue
+
+                    periods = sorted(item.period for _, item in day_items)
+                    has_adjacent = any((periods[i + 1] - periods[i]) == 1 for i in range(len(periods) - 1))
+                    if has_adjacent:
+                        continue
+
+                    prefer_first_half = any(period <= 2 for period in periods)
+                    target_pairs = [(1, 2), (3, 4)] if prefer_first_half else [(3, 4), (1, 2)]
+
+                    for p1, p2 in target_pairs:
+                        s1 = slot_id_by_day_period.get((day, p1))
+                        s2 = slot_id_by_day_period.get((day, p2))
+                        if not s1 or not s2:
+                            continue
+
+                        subject_slots_today = {item.timeslot_id for _, item in day_items}
+                        if s1 in subject_slots_today and s2 in subject_slots_today:
+                            continue
+
+                        missing_target = s1 if s1 not in subject_slots_today else s2
+
+                        move_candidates = [
+                            (idx, item)
+                            for idx, item in subject_items
+                            if item.day == day
+                            if item.timeslot_id != missing_target
+                        ]
+                        move_candidates.sort(key=lambda pair: pair[1].period)
+
+                        for move_idx, move_item in move_candidates:
+                            if move_item.timeslot_id == missing_target:
+                                continue
+
+                            exclusions = {move_idx}
+                            can_direct = _can_place_item_in_slot(
+                                move_item,
+                                missing_target,
+                                week_key,
+                                working_items,
+                                exclusions,
+                                allowed_slots_by_subject,
+                                allowed_weeks_by_subject,
+                                teacher_unavailable,
+                                blocked_class_slots_by_week,
+                            )
+
+                            candidate: List[ScheduledItem] | None = None
+                            target_slot = timeslots_by_id.get(missing_target)
+                            if not target_slot:
+                                continue
+
+                            if can_direct:
+                                candidate = list(working_items)
+                                candidate[move_idx] = _move_item_to_slot(move_item, target_slot)
+                            else:
+                                blocking_indices = [
+                                    idx
+                                    for idx, item in enumerate(working_items)
+                                    if idx != move_idx
+                                    and (item.week_type or "base") == week_key
+                                    and item.timeslot_id == missing_target
+                                    and bool(set(item.class_ids).intersection(move_item.class_ids))
+                                ]
+                                if len(blocking_indices) != 1:
+                                    continue
+                                block_idx = blocking_indices[0]
+                                blocking_item = working_items[block_idx]
+                                blocking_subject = subjects_by_id.get(blocking_item.subject_id)
+                                if not blocking_subject:
+                                    continue
+                                if blocking_item.start_time or blocking_item.end_time:
+                                    continue
+                                if blocking_item.subject_id in block_subject_ids:
+                                    continue
+                                if getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
+                                    continue
+                                if _item_units(blocking_item, timeslot_units_map) != _item_units(move_item, timeslot_units_map):
+                                    continue
+
+                                can_move_blocker = _can_place_item_in_slot(
+                                    blocking_item,
+                                    move_item.timeslot_id,
+                                    week_key,
+                                    working_items,
+                                    {move_idx, block_idx},
+                                    allowed_slots_by_subject,
+                                    allowed_weeks_by_subject,
+                                    teacher_unavailable,
+                                    blocked_class_slots_by_week,
+                                )
+                                if not can_move_blocker:
+                                    continue
+
+                                candidate = list(working_items)
+                                candidate[move_idx] = _move_item_to_slot(move_item, target_slot)
+                                blocker_target_slot = timeslots_by_id.get(move_item.timeslot_id)
+                                if not blocker_target_slot:
+                                    continue
+                                candidate[block_idx] = _move_item_to_slot(blocking_item, blocker_target_slot)
+
+                            if candidate is None:
+                                continue
+
+                            candidate_score = _score(candidate)
+                            candidate_norsk_penalty = _norsk_non_adjacent_penalty(candidate)
+                            if (
+                                candidate_norsk_penalty < current_norsk_penalty
+                                or (
+                                    candidate_norsk_penalty == current_norsk_penalty
+                                    and candidate_score < best_score
+                                )
+                            ):
+                                working_items = candidate
+                                best_score = candidate_score
+                                current_norsk_penalty = candidate_norsk_penalty
+                                improved = True
+                                break
+
+                        if improved:
+                            break
+                    if improved:
+                        break
+                if improved:
+                    break
+            if improved:
+                break
+
+        if not improved:
+            break
+
     # Stage 2b: odd-subject one-to-one consolidation.
     # If a subject has exactly one A-only and one B-only signature, try to align
     # one onto the other to avoid unnecessary 4-slot fragmentation.
@@ -3397,6 +3590,157 @@ def _post_optimize_ab_day_uniqueness(
                 if candidate_score < best_score:
                     working_items = candidate
                     best_score = candidate_score
+                    improved = True
+                    break
+
+            if improved:
+                break
+
+        if not improved:
+            break
+
+    # Stage 2d: Align simple A/B pairs for subjects with exactly one placement
+    # in each week. This catches cases like Kroppsoving where A/B land on
+    # different slots even though direct alignment is feasible.
+    def _single_pair_ab_mismatch_penalty(items: List[ScheduledItem]) -> int:
+        penalty = 0
+        by_subject_week: Dict[str, Dict[str, List[ScheduledItem]]] = defaultdict(lambda: defaultdict(list))
+        for item in items:
+            week_key = item.week_type or "base"
+            if week_key not in {"A", "B"}:
+                continue
+            by_subject_week[item.subject_id][week_key].append(item)
+
+        for subject_id, per_week in by_subject_week.items():
+            a_items = per_week.get("A", [])
+            b_items = per_week.get("B", [])
+            if len(a_items) != 1 or len(b_items) != 1:
+                continue
+            if a_items[0].timeslot_id != b_items[0].timeslot_id:
+                penalty += 1
+        return penalty
+
+    for _ in range(40):
+        improved = False
+        current_pair_penalty = _single_pair_ab_mismatch_penalty(working_items)
+
+        for subject in data.subjects:
+            if subject.id in block_subject_ids:
+                continue
+            if getattr(subject, "force_place", False) and (getattr(subject, "force_timeslot_id", "") or "").strip():
+                continue
+
+            subject_indices = [
+                idx
+                for idx, item in enumerate(working_items)
+                if item.subject_id == subject.id and not (item.start_time or item.end_time)
+            ]
+            a_indices = [idx for idx in subject_indices if (working_items[idx].week_type or "base") == "A"]
+            b_indices = [idx for idx in subject_indices if (working_items[idx].week_type or "base") == "B"]
+            if len(a_indices) != 1 or len(b_indices) != 1:
+                continue
+
+            idx_a = a_indices[0]
+            idx_b = b_indices[0]
+            item_a = working_items[idx_a]
+            item_b = working_items[idx_b]
+            if item_a.timeslot_id == item_b.timeslot_id:
+                continue
+            if _item_units(item_a, timeslot_units_map) != _item_units(item_b, timeslot_units_map):
+                continue
+
+            move_options: List[Tuple[int, ScheduledItem, str, str, int]] = [
+                (idx_a, item_a, "A", item_b.timeslot_id, idx_b),
+                (idx_b, item_b, "B", item_a.timeslot_id, idx_a),
+            ]
+
+            for move_idx, move_item, move_week, target_ts_id, other_idx in move_options:
+                if move_item.timeslot_id == target_ts_id:
+                    continue
+
+                exclusions = {move_idx, other_idx}
+                can_direct = _can_place_item_in_slot(
+                    move_item,
+                    target_ts_id,
+                    move_week,
+                    working_items,
+                    exclusions,
+                    allowed_slots_by_subject,
+                    allowed_weeks_by_subject,
+                    teacher_unavailable,
+                    blocked_class_slots_by_week,
+                )
+
+                candidate: List[ScheduledItem] | None = None
+                target_slot = timeslots_by_id.get(target_ts_id)
+                if not target_slot:
+                    continue
+
+                if can_direct:
+                    candidate = list(working_items)
+                    candidate[move_idx] = _move_item_to_slot(move_item, target_slot)
+                else:
+                    blocking_indices = [
+                        idx
+                        for idx, item in enumerate(working_items)
+                        if idx not in exclusions
+                        and (item.week_type or "base") == move_week
+                        and item.timeslot_id == target_ts_id
+                        and bool(set(item.class_ids).intersection(move_item.class_ids))
+                    ]
+
+                    for block_idx in blocking_indices:
+                        blocking_item = working_items[block_idx]
+                        blocking_subject = subjects_by_id.get(blocking_item.subject_id)
+                        if not blocking_subject:
+                            continue
+                        if blocking_item.start_time or blocking_item.end_time:
+                            continue
+                        if blocking_item.subject_id in block_subject_ids:
+                            continue
+                        if getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
+                            continue
+                        if _item_units(blocking_item, timeslot_units_map) != _item_units(move_item, timeslot_units_map):
+                            continue
+
+                        can_move_blocker = _can_place_item_in_slot(
+                            blocking_item,
+                            move_item.timeslot_id,
+                            move_week,
+                            working_items,
+                            {move_idx, other_idx, block_idx},
+                            allowed_slots_by_subject,
+                            allowed_weeks_by_subject,
+                            teacher_unavailable,
+                            blocked_class_slots_by_week,
+                        )
+                        if not can_move_blocker:
+                            continue
+
+                        blocker_target_slot = timeslots_by_id.get(move_item.timeslot_id)
+                        if not blocker_target_slot:
+                            continue
+
+                        candidate = list(working_items)
+                        candidate[move_idx] = _move_item_to_slot(move_item, target_slot)
+                        candidate[block_idx] = _move_item_to_slot(blocking_item, blocker_target_slot)
+                        break
+
+                if candidate is None:
+                    continue
+
+                candidate_score = _score(candidate)
+                candidate_pair_penalty = _single_pair_ab_mismatch_penalty(candidate)
+                if (
+                    candidate_pair_penalty < current_pair_penalty
+                    or (
+                        candidate_pair_penalty == current_pair_penalty
+                        and candidate_score < best_score
+                    )
+                ):
+                    working_items = candidate
+                    best_score = candidate_score
+                    current_pair_penalty = candidate_pair_penalty
                     improved = True
                     break
 
@@ -3551,6 +3895,102 @@ def _post_optimize_ab_day_uniqueness(
                                 candidate = list(working_items)
                                 candidate[a_idx] = _move_item_to_slot(a_item, timeslots_by_id[b_slot_id])
                                 candidate[block_idx] = _move_item_to_slot(blocking_item, timeslots_by_id[a_item.timeslot_id])
+                                candidate_score = _score(candidate)
+                                if candidate_score < best_score:
+                                    working_items = candidate
+                                    best_score = candidate_score
+                                    consolidation_improved = True
+                                    break
+
+            if consolidation_improved:
+                continue
+
+            # Mirror pass: also handle A-only slots by moving/swapping B items.
+            a_only_slots = a_slots - b_slots
+            for a_slot_id in sorted(a_only_slots):
+                if consolidation_improved:
+                    break
+
+                # Find any A item in this slot to use as a reference
+                a_ref_idx = None
+                a_ref_item = None
+                for idx, item in a_items:
+                    if item.timeslot_id == a_slot_id:
+                        a_ref_idx = idx
+                        a_ref_item = item
+                        break
+
+                if a_ref_idx is None or a_ref_item is None:
+                    continue
+
+                # Try to find a B item that could swap into this A slot
+                for b_idx, b_item in b_items:
+                    if b_item.start_time or b_item.end_time:
+                        continue
+                    if _item_units(b_item, timeslot_units_map) != _item_units(a_ref_item, timeslot_units_map):
+                        continue
+
+                    # Check if we can directly place the B item in the A slot (in week B)
+                    can_place_direct = _can_place_item_in_slot(
+                        b_item,
+                        a_slot_id,
+                        "B",
+                        working_items,
+                        {a_ref_idx, b_idx},
+                        allowed_slots_by_subject,
+                        allowed_weeks_by_subject,
+                        teacher_unavailable,
+                        blocked_class_slots_by_week,
+                    )
+
+                    if can_place_direct:
+                        # Direct consolidation: move B item to A's slot
+                        candidate = list(working_items)
+                        candidate[b_idx] = _move_item_to_slot(b_item, timeslots_by_id[a_slot_id])
+                        candidate_score = _score(candidate)
+                        if candidate_score < best_score:
+                            working_items = candidate
+                            best_score = candidate_score
+                            consolidation_improved = True
+                            break
+                    else:
+                        # Try indirect consolidation: find what's blocking and swap it
+                        blocking_indices = [
+                            idx
+                            for idx, item in enumerate(working_items)
+                            if (item.week_type or "base") == "B"
+                            and item.timeslot_id == a_slot_id
+                            and set(item.class_ids).intersection(b_item.class_ids)
+                            and item.subject_id != subject_id
+                        ]
+
+                        for block_idx in blocking_indices:
+                            if consolidation_improved:
+                                break
+
+                            blocking_item = working_items[block_idx]
+                            if blocking_item.start_time or blocking_item.end_time:
+                                continue
+                            if _item_units(blocking_item, timeslot_units_map) != _item_units(b_item, timeslot_units_map):
+                                continue
+
+                            # Try to swap: move blocking item to b's current slot, move b to a's slot
+                            can_place_blocking = _can_place_item_in_slot(
+                                blocking_item,
+                                b_item.timeslot_id,
+                                "B",
+                                working_items,
+                                {b_idx, block_idx},
+                                allowed_slots_by_subject,
+                                allowed_weeks_by_subject,
+                                teacher_unavailable,
+                                blocked_class_slots_by_week,
+                            )
+
+                            if can_place_blocking:
+                                candidate = list(working_items)
+                                candidate[b_idx] = _move_item_to_slot(b_item, timeslots_by_id[a_slot_id])
+                                candidate[block_idx] = _move_item_to_slot(blocking_item, timeslots_by_id[b_item.timeslot_id])
                                 candidate_score = _score(candidate)
                                 if candidate_score < best_score:
                                     working_items = candidate
@@ -4230,7 +4670,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         ]
         for attempt in attempts:
             if attempt.status == "success":
-                return _success_response_with_hard_rules(attempt)
+                return attempt
         return attempts[0]
 
     # Collect subjects linked to blocks — their placements are driven by block
