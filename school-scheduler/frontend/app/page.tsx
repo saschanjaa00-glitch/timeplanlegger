@@ -146,6 +146,25 @@ type GenerateResponse = {
   message: string;
   schedule: ScheduledItem[];
   metadata?: Record<string, number>;
+  diagnostics?: {
+    missing_subjects?: MissingSubjectDiagnostic[];
+  };
+};
+
+type MissingSubjectDiagnostic = {
+  subject_id: string;
+  subject_name: string;
+  expected_units: number;
+  actual_units: number;
+  missing_units: number;
+  placed_units_by_week?: Record<string, number>;
+  blockers?: {
+    class_slot?: number;
+    teacher_slot?: number;
+    teacher_day_cap?: number;
+    same_day_rule?: number;
+  };
+  samples?: string[];
 };
 
 type PlacementWarningDetail = {
@@ -286,6 +305,39 @@ function formatGeneratedScheduleStatus(data: GenerateResponse, runId: number): s
     : "";
 
   return `${data.message} ${schedule.length} raw item(s): ${countShared} shared, ${countA} A, ${countB} B; combined view shows ${mergedCount} item(s) (run ${runId}).${filterHint}`;
+}
+
+function formatGenerationAttemptDetails(metadata?: Record<string, number>): string {
+  if (!metadata) {
+    return "";
+  }
+
+  const planned = Math.round(metadata.attempt_total_planned ?? 0);
+  const executed = Math.round(metadata.attempt_total_executed ?? 0);
+  const valid = Math.round(metadata.attempt_success_valid ?? 0);
+  const rejected = Math.round(metadata.attempt_success_rejected ?? 0);
+  const failed = Math.round(metadata.attempt_failed ?? 0);
+  const seeds = Math.round(metadata.attempt_seed_variants_tested ?? 0);
+  const workers = Math.round(metadata.attempt_workers ?? 0);
+  const placedUnits = Math.round(metadata.placed_units_non_block ?? 0);
+  const requiredUnits = Math.round(metadata.required_units_non_block ?? 0);
+  const shortage = Math.round(metadata.selected_shortage_units ?? 0);
+
+  if (executed <= 0 && planned <= 0) {
+    return "";
+  }
+
+  const parts: string[] = [];
+  parts.push(
+    `Attempts ${executed}${planned > 0 ? `/${planned}` : ""}` +
+      `${seeds > 0 ? `, seeds ${seeds}` : ""}` +
+      `${workers > 0 ? `, workers ${workers}` : ""}.`,
+  );
+  parts.push(`Valid ${valid}, rejected ${rejected}, failed ${failed}.`);
+  if (requiredUnits > 0) {
+    parts.push(`Placed ${placedUnits}/${requiredUnits} non-block units, shortage ${shortage}.`);
+  }
+  return parts.join(" ");
 }
 
 function getFailedWeeksFromMetadata(metadata?: Record<string, number>): Array<"A" | "B"> {
@@ -450,6 +502,9 @@ function collectUnplacedStatusDetails(
   }
 
   const details: UnplacedStatusDetail[] = [];
+  const diagnosticsBySubjectId = new Map<string, MissingSubjectDiagnostic>(
+    (response.diagnostics?.missing_subjects ?? []).map((entry) => [entry.subject_id, entry]),
+  );
   for (const subject of plannedSubjects) {
     const perWeekUnits = Math.max(1, Number(subject.sessions_per_week || 1));
     const requiredTotalUnits = alternatingWeeksEnabled ? perWeekUnits * 2 : perWeekUnits;
@@ -467,7 +522,24 @@ function collectUnplacedStatusDetails(
       : "Unassigned";
 
     const isBlockLinked = blockLinkedSubjectIds.has(subject.id);
+    // Block-linked subjects often have intentional partial coverage within
+    // constrained windows. Keep the unplaced panel focused on actionable
+    // deficits by hiding partially placed block-linked entries.
+    if (isBlockLinked && placedTotalUnits > 0) {
+      continue;
+    }
     const reasonParts: string[] = [];
+    const subjectDiag = diagnosticsBySubjectId.get(subject.id);
+    const diagBlockers = subjectDiag?.blockers;
+    const blockerSummary = diagBlockers
+      ? [
+          `class-slot ${diagBlockers.class_slot ?? 0}`,
+          `teacher-slot ${diagBlockers.teacher_slot ?? 0}`,
+          `teacher-day-cap ${diagBlockers.teacher_day_cap ?? 0}`,
+          `same-day-rule ${diagBlockers.same_day_rule ?? 0}`,
+        ].join(", ")
+      : "";
+    const diagSamples = (subjectDiag?.samples ?? []).filter(Boolean);
     if (isBlockLinked) {
       if (placedTotalUnits === 0) {
         reasonParts.push("No feasible placement was found inside the configured block windows/weeks for this run.");
@@ -478,7 +550,19 @@ function collectUnplacedStatusDetails(
         reasonParts.push("Overall schedule run is infeasible under current hard constraints.");
       }
     } else if (response.status !== "success") {
-      reasonParts.push(response.message || "Solver reported infeasible schedule.");
+      if (subjectDiag) {
+        reasonParts.push(`Blockers sampled for this subject: ${blockerSummary}.`);
+        if (diagSamples.length > 0) {
+          reasonParts.push(`Examples: ${diagSamples.join(" | ")}.`);
+        }
+      } else {
+        const msg = (response.message || "").toLowerCase();
+        if (msg.includes("required x45 totals are not exact")) {
+          reasonParts.push("Required x45 totals were not met for this run; this subject still has missing units.");
+        } else {
+          reasonParts.push("Solver reported an infeasible run under current hard constraints.");
+        }
+      }
     } else {
       reasonParts.push("Could not place all required units with current constraints.");
     }
@@ -528,12 +612,19 @@ const API_BASE_CANDIDATES = [
   "http://localhost:8000",
 ];
 
-async function postGenerateWithFallback(bodyStr: string, runId: number): Promise<Response> {
+async function postGenerateWithFallback(
+  bodyStr: string,
+  runId: number,
+  requestTimeoutMs: number,
+): Promise<Response> {
   const errors: string[] = [];
+  let timedOutBase: string | null = null;
 
   for (const base of API_BASE_CANDIDATES) {
+    const controller = new AbortController();
+    const timeoutHandle = window.setTimeout(() => controller.abort(), Math.max(1000, requestTimeoutMs));
     try {
-      return await fetch(`${base}/generate-schedule?run=${Date.now()}`, {
+      const response = await fetch(`${base}/generate-schedule?run=${Date.now()}`, {
         method: "POST",
         cache: "no-store",
         headers: {
@@ -543,11 +634,30 @@ async function postGenerateWithFallback(bodyStr: string, runId: number): Promise
           "X-Run-Id": String(runId),
         },
         body: bodyStr,
+        signal: controller.signal,
       });
+      window.clearTimeout(timeoutHandle);
+      return response;
     } catch (error) {
+      window.clearTimeout(timeoutHandle);
+      const isAbortTimeout =
+        (error instanceof DOMException && error.name === "AbortError")
+        || (error instanceof Error && /abort|timed out|timeout/i.test(error.message));
+      if (isAbortTimeout) {
+        timedOutBase = base;
+        errors.push(`${base}: timed out after ${Math.round(requestTimeoutMs / 1000)}s`);
+        break;
+      }
       const message = error instanceof Error ? error.message : String(error);
       errors.push(`${base}: ${message}`);
     }
+  }
+
+  if (timedOutBase) {
+    throw new Error(
+      `Backend request timed out after ${Math.round(requestTimeoutMs / 1000)}s on ${timedOutBase} (run ${runId}). `
+      + "Backend may be overloaded or still solving.",
+    );
   }
 
   throw new Error(
@@ -1157,16 +1267,33 @@ export default function Home() {
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [schedule, setSchedule] = useState<ScheduledItem[]>([]);
   const [statusText, setStatusText] = useState("Ready");
+  const [lastRunMetadata, setLastRunMetadata] = useState<Record<string, number> | null>(null);
   const [placementWarningDetails, setPlacementWarningDetails] = useState<PlacementWarningDetail[]>([]);
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
   const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
   const [loading, setLoading] = useState(false);
+  const [generationPopup, setGenerationPopup] = useState<{
+    visible: boolean;
+    tone: "running" | "success" | "error";
+    message: string;
+    details: string;
+    runId: number | null;
+  }>({
+    visible: false,
+    tone: "running",
+    message: "",
+    details: "",
+    runId: null,
+  });
   const [activeTab, setActiveTab] = useState<TabKey>("files");
   const [activeOverviewSubtab, setActiveOverviewSubtab] = useState<OverviewSubtab>("rooms");
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
+  const [solverEngine, setSolverEngine] = useState<"staged" | "cp_sat_experimental">("cp_sat_experimental");
+  const [showAdvancedSolverOptions, setShowAdvancedSolverOptions] = useState(false);
+  const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -1290,6 +1417,91 @@ export default function Home() {
   const excelFileRef = useRef<HTMLInputElement>(null);
   const jsonFileRef = useRef<HTMLInputElement>(null);
   const generationRunRef = useRef(0);
+  const generationPopupAutoHideRef = useRef<number | null>(null);
+  const generationProgressIntervalRef = useRef<number | null>(null);
+  const generationStartedAtRef = useRef<number | null>(null);
+  const generationPhaseRef = useRef("");
+
+  function clearGenerationPopupAutoHide() {
+    if (generationPopupAutoHideRef.current !== null) {
+      window.clearTimeout(generationPopupAutoHideRef.current);
+      generationPopupAutoHideRef.current = null;
+    }
+  }
+
+  function clearGenerationProgressTicker() {
+    if (generationProgressIntervalRef.current !== null) {
+      window.clearInterval(generationProgressIntervalRef.current);
+      generationProgressIntervalRef.current = null;
+    }
+  }
+
+  function generationElapsedLabel(): string {
+    if (!generationStartedAtRef.current) {
+      return "0s";
+    }
+    const elapsedMs = Math.max(0, Date.now() - generationStartedAtRef.current);
+    return `${Math.floor(elapsedMs / 1000)}s`;
+  }
+
+  function setGenerationPhase(phase: string) {
+    generationPhaseRef.current = phase;
+    setGenerationPopup((prev) => {
+      if (!prev.visible || prev.tone !== "running") {
+        return prev;
+      }
+      return {
+        ...prev,
+        details: `${phase} Elapsed ${generationElapsedLabel()}.`,
+      };
+    });
+  }
+
+  function startGenerationProgressTicker() {
+    clearGenerationProgressTicker();
+    generationProgressIntervalRef.current = window.setInterval(() => {
+      setGenerationPopup((prev) => {
+        if (!prev.visible || prev.tone !== "running") {
+          return prev;
+        }
+        return {
+          ...prev,
+          details: `${generationPhaseRef.current || "Working..."} Elapsed ${generationElapsedLabel()}.`,
+        };
+      });
+    }, 1000);
+  }
+
+  function openGenerationPopup(
+    tone: "running" | "success" | "error",
+    message: string,
+    runId: number,
+    details: string = "",
+    autoHideMs?: number,
+  ) {
+    clearGenerationPopupAutoHide();
+    setGenerationPopup({
+      visible: true,
+      tone,
+      message,
+      details,
+      runId,
+    });
+
+    if ((autoHideMs ?? 0) > 0) {
+      generationPopupAutoHideRef.current = window.setTimeout(() => {
+        setGenerationPopup((prev) => ({ ...prev, visible: false }));
+        generationPopupAutoHideRef.current = null;
+      }, autoHideMs);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      clearGenerationPopupAutoHide();
+      clearGenerationProgressTicker();
+    };
+  }, []);
 
   function buildPersistedState(): PersistedState {
     return {
@@ -5374,12 +5586,18 @@ export default function Home() {
   async function generateSchedule() {
     const runId = generationRunRef.current + 1;
     generationRunRef.current = runId;
+    generationStartedAtRef.current = Date.now();
     setLoading(true);
-    setStatusText(`Generating schedule (run ${runId})...`);
+    const startStatus = `Generating schedule (run ${runId})...`;
+    setStatusText(startStatus);
+    openGenerationPopup("running", startStatus, runId);
+    setGenerationPhase("Phase 1/4: Preparing input...");
+    startGenerationProgressTicker();
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setLastRunMetadata(null);
     setSchedule([]);
 
     try {
@@ -5477,6 +5695,8 @@ export default function Home() {
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
         alternate_non_block_subjects: alternateNonBlockSubjects,
+        solver_engine: solverEngine,
+        solver_timeout_seconds: Math.max(5, Math.min(600, Math.round(solverTimeoutSeconds))),
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
           name: block.name,
@@ -5489,13 +5709,18 @@ export default function Home() {
       };
 
       let bodyStr: string;
+      const requestTimeoutMs = ((payload.solver_timeout_seconds ?? 90) + 5) * 1000;
       try {
         bodyStr = JSON.stringify(payload);
       } catch (err) {
         throw new Error(`Could not serialize payload: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      const res = await postGenerateWithFallback(bodyStr, runId);
+      setGenerationPhase("Phase 2/4: Connecting to backend...");
+      // fetch resolves only when backend responds, which includes solver time.
+      // Show this explicitly so long waits are not misread as request upload time.
+      setGenerationPhase("Phase 3/4: Backend solving schedule...");
+      const res = await postGenerateWithFallback(bodyStr, runId, requestTimeoutMs);
 
       if (!res.ok) {
         let detail = `Server error ${res.status}`;
@@ -5507,6 +5732,7 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
+      setGenerationPhase("Phase 4/4: Processing response...");
       const canShowPlacementWarnings = data.status === "success" && (data.schedule?.length ?? 0) > 0;
       const blockLinkedSubjectIds = new Set<string>([
         ...payload.blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
@@ -5550,16 +5776,31 @@ export default function Home() {
         setUnplacedStatusSummary("");
       }
 
-      setStatusText(formatGeneratedScheduleStatus(data, runId));
+      const successStatus = formatGeneratedScheduleStatus(data, runId);
+      const attemptDetails = formatGenerationAttemptDetails(data.metadata);
+      const successWithElapsed = `${successStatus} Total time ${generationElapsedLabel()}.`;
+      setStatusText(successStatus);
+      setLastRunMetadata(data.metadata ?? null);
+      openGenerationPopup(
+        data.status === "success" ? "success" : "error",
+        successWithElapsed,
+        runId,
+        attemptDetails,
+        data.status === "success" ? 3500 : undefined,
+      );
       setSchedule(data.schedule || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
+      const failStatus = `Failed (run ${runId}): ${message}. Total time ${generationElapsedLabel()}.`;
       setPlacementWarningDetails([]);
       setPlacementWarningSummary("");
       setUnplacedStatusDetails([]);
       setUnplacedStatusSummary("");
-      setStatusText(`Failed (run ${runId}): ${message}`);
+      setLastRunMetadata(null);
+      setStatusText(failStatus);
+      openGenerationPopup("error", failStatus, runId);
     } finally {
+      clearGenerationProgressTicker();
       setLoading(false);
     }
   }
@@ -5570,6 +5811,7 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setLastRunMetadata(null);
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
@@ -6085,6 +6327,39 @@ export default function Home() {
 
   return (
     <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
+      {generationPopup.visible && (
+        <div className="generation-popup-overlay" role="status" aria-live="polite" aria-atomic="true">
+          <div className={`generation-popup generation-popup-${generationPopup.tone}`}>
+            <div className="generation-popup-header">
+              <strong>
+                {generationPopup.tone === "running"
+                  ? `Generating run ${generationPopup.runId ?? ""}`
+                  : generationPopup.tone === "success"
+                    ? `Run ${generationPopup.runId ?? ""} completed`
+                    : `Run ${generationPopup.runId ?? ""} failed`}
+              </strong>
+              {generationPopup.tone !== "running" && (
+                <button
+                  type="button"
+                  className="generation-popup-close"
+                  onClick={() => setGenerationPopup((prev) => ({ ...prev, visible: false }))}
+                >
+                  Close
+                </button>
+              )}
+            </div>
+            <p>{generationPopup.message}</p>
+            {generationPopup.details && <p className="generation-popup-details">{generationPopup.details}</p>}
+            {generationPopup.tone === "running" && (
+              <div className="generation-popup-progress">
+                <span className="generation-popup-spinner" aria-hidden="true" />
+                Solver is working. This may take a while for complex inputs.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       <section className="hero">
         <div className="hero-title-row">
           <h1>School Scheduling Studio</h1>
@@ -8785,6 +9060,48 @@ export default function Home() {
       <>
         <section className="card week-strategy">
           <h2>Scheduling Mode</h2>
+          <div className="form-grid" style={{ marginTop: "10px" }}>
+            <div>
+              <div style={{ fontSize: "0.95em", color: "#444", marginBottom: "8px" }}>
+                Engine: <strong>CP-SAT (default)</strong>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAdvancedSolverOptions((prev) => !prev)}
+                disabled={loading}
+              >
+                {showAdvancedSolverOptions ? "Hide advanced options" : "Show advanced options"}
+              </button>
+            </div>
+            {showAdvancedSolverOptions && (
+              <label>
+                Solver engine (advanced)
+                <select
+                  value={solverEngine}
+                  onChange={(e) => setSolverEngine(e.target.value as "staged" | "cp_sat_experimental")}
+                  disabled={loading}
+                >
+                  <option value="cp_sat_experimental">CP-SAT (recommended)</option>
+                  <option value="staged">Staged (fallback)</option>
+                </select>
+              </label>
+            )}
+            <label>
+              Solver timeout (seconds)
+              <input
+                type="number"
+                min={5}
+                max={600}
+                step={5}
+                value={solverTimeoutSeconds}
+                onChange={(e) => setSolverTimeoutSeconds(Number.parseInt(e.target.value, 10) || 90)}
+                disabled={loading}
+              />
+            </label>
+          </div>
+          <p style={{ marginTop: "8px", fontSize: "0.9em", color: "#555" }}>
+            CP-SAT is the default engine. Use staged only for fallback troubleshooting.
+          </p>
         </section>
 
         <section className="toolbar">
@@ -8799,6 +9116,36 @@ export default function Home() {
             Clear Generated Schedule
           </button>
           <div className="status">{statusText}</div>
+          {lastRunMetadata && (
+            <details className="status-warning-panel">
+              <summary>
+                <span>Last Run Summary</span>
+                <span className="status-warning-summary-hint">Click to expand</span>
+              </summary>
+              <div className="status-warning-content">
+                <p>
+                  Engine: {
+                    (lastRunMetadata.solver_engine_effective_cp_sat ?? 0) > 0
+                      ? "CP-SAT experimental"
+                      : "Staged"
+                  }
+                  {((lastRunMetadata.solver_engine_cp_sat_requested ?? 0) > 0
+                    && (lastRunMetadata.solver_engine_effective_staged ?? 0) > 0)
+                    ? " (fallback to staged)"
+                    : ""}
+                </p>
+                <ul>
+                  <li>Timeout requested: {Math.round(lastRunMetadata.solver_timeout_seconds ?? 0)}s</li>
+                  <li>Timed out: {(lastRunMetadata.timed_out ?? 0) > 0 ? "yes" : "no"}</li>
+                  <li>Attempts executed: {Math.round(lastRunMetadata.attempt_total_executed ?? 0)}</li>
+                  <li>Valid/rejected/failed: {Math.round(lastRunMetadata.attempt_success_valid ?? 0)} / {Math.round(lastRunMetadata.attempt_success_rejected ?? 0)} / {Math.round(lastRunMetadata.attempt_failed ?? 0)}</li>
+                  <li>Placed non-block units: {Math.round(lastRunMetadata.placed_units_non_block ?? 0)} / {Math.round(lastRunMetadata.required_units_non_block ?? 0)}</li>
+                  <li>Selected shortage units: {Math.round(lastRunMetadata.selected_shortage_units ?? 0)}</li>
+                  <li>Post-process skipped (timeout safety): {(lastRunMetadata.postprocess_skipped_timeout ?? 0) > 0 ? "yes" : "no"}</li>
+                </ul>
+              </div>
+            </details>
+          )}
           {placementWarningDetails.length > 0 && (
             <details className="status-warning-panel">
               <summary>
@@ -9147,9 +9494,12 @@ export default function Home() {
                                   ...item.class_ids
                                     .filter((id) => selectedClassCompareIds.includes(id))
                                     .map((id) => `class:${id}`),
-                                  ...blockClassIds
-                                    .filter((id) => selectedClassCompareIds.includes(id) && !item.class_ids.includes(id))
-                                    .map((id) => `class:${id}`),
+                                  // Only use block class_ids as fallback when the item itself has no class assignment.
+                                  ...(item.class_ids.length === 0
+                                    ? blockClassIds
+                                        .filter((id) => selectedClassCompareIds.includes(id))
+                                        .map((id) => `class:${id}`)
+                                    : []),
                                   ...teacherIds
                                     .filter((teacherId) => selectedTeacherCompareIds.includes(teacherId))
                                     .map((teacherId) => `teacher:${teacherId}`),
