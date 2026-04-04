@@ -3067,7 +3067,7 @@ button.secondary {
   z-index: 12;
   overflow: auto;
   transform: translateY(25px);
-  pointer-events: none;
+  pointer-events: auto;
   box-shadow: 0 8px 14px rgba(17, 24, 39, 0.2);
 }
 
@@ -3091,13 +3091,13 @@ button.secondary {
 }
 
 .weekly-event.meeting {
-  background-color: #efe7d9;
+  background-color: #f3ede3;
   background-image: repeating-linear-gradient(
     -45deg,
-    rgba(102, 78, 42, 0.18) 0,
-    rgba(102, 78, 42, 0.18) 8px,
-    rgba(255, 255, 255, 0.14) 8px,
-    rgba(255, 255, 255, 0.14) 16px
+    rgba(102, 78, 42, 0.04) 0,
+    rgba(102, 78, 42, 0.04) 12px,
+    rgba(255, 255, 255, 0.12) 12px,
+    rgba(255, 255, 255, 0.12) 24px
   );
 }
 

@@ -9401,7 +9401,7 @@ export default function Home() {
                         const laneLeft = event.laneIndex * laneWidth;
                         const overlapWidth = laneWidth / Math.max(1, event.overlapCols);
                         const overlapLeft = laneLeft + event.overlapCol * overlapWidth;
-                        const canExpand = (concurrentEventCounts.get(event.key) ?? 1) > 1;
+                        const canExpand = true;
                         const isHovered = hoveredTimelineEventKey === event.key;
                         const isSubjectGroupHovered = Boolean(
                           hoveredTimelineSubjectId &&
@@ -9442,6 +9442,14 @@ export default function Home() {
                             ) : null}
                           </>
                         );
+
+                        const popoutDetailLineCount = 2
+                          + (enableAlternatingWeeks && event.weekType ? 1 : 0)
+                          + (!event.isBlockSummary && compareEntities.length > 0 && event.laneEntityKind !== "class" ? 1 : 0)
+                          + (!event.isBlockSummary && shouldShowClassLine ? 1 : 0)
+                          + (!event.isBlockSummary && event.teacherLabel ? 1 : 0)
+                          + (!event.isBlockSummary && event.roomLabel ? 1 : 0);
+                        const popoutMinHeightPx = 34 + popoutDetailLineCount * 16;
 
                         const baseEventBackgroundColor =
                           (event.isBlockSubject && compareEntities.length === 0 ? "#f9ebe6" : event.fillColor)
@@ -9497,6 +9505,7 @@ export default function Home() {
                                 style={{
                                   top: `${event.topPct}%`,
                                   height: `${Math.max(event.heightPct, 4)}%`,
+                                  minHeight: `${popoutMinHeightPx}px`,
                                   left: "2px",
                                   width: "calc(100% - 4px)",
                                   right: "auto",
