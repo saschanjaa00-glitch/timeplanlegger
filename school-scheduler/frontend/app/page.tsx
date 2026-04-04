@@ -157,6 +157,16 @@ type PlacementWarningDetail = {
   missing_units: number;
 };
 
+type UnplacedStatusDetail = {
+  subject_id: string;
+  subject_name: string;
+  teacher_label: string;
+  required_units: number;
+  placed_units: number;
+  missing_units: number;
+  reason: string;
+};
+
 type SavedJsonExport = {
   id: string;
   name: string;
@@ -396,6 +406,109 @@ function collectPlacementWarningDetails(
     const weekCmp = a.week.localeCompare(b.week);
     if (weekCmp !== 0) {
       return weekCmp;
+    }
+    return a.subject_name.localeCompare(b.subject_name);
+  });
+
+  return details;
+}
+
+function collectUnplacedStatusDetails(
+  response: GenerateResponse,
+  plannedSubjects: Subject[],
+  timeslots: Timeslot[],
+  blockLinkedSubjectIds: Set<string>,
+  alternatingWeeksEnabled: boolean,
+  teacherNameById: Record<string, string>,
+): UnplacedStatusDetail[] {
+  const timeslotById: Record<string, Timeslot> = Object.fromEntries(timeslots.map((slot) => [slot.id, slot]));
+  const placedUnitsBySubject: Record<string, number> = {};
+  const placedUnitsBySubjectWeek: Record<string, { A: number; B: number }> = {};
+  const failedWeeks = getFailedWeeksFromMetadata(response.metadata);
+
+  for (const subject of plannedSubjects) {
+    placedUnitsBySubject[subject.id] = 0;
+    placedUnitsBySubjectWeek[subject.id] = { A: 0, B: 0 };
+  }
+
+  for (const item of response.schedule || []) {
+    if (!(item.subject_id in placedUnitsBySubject)) {
+      continue;
+    }
+    const units = scheduledItemUnits(item, timeslotById);
+    placedUnitsBySubject[item.subject_id] += units;
+
+    if (item.week_type === "A") {
+      placedUnitsBySubjectWeek[item.subject_id].A += units;
+    } else if (item.week_type === "B") {
+      placedUnitsBySubjectWeek[item.subject_id].B += units;
+    } else if (alternatingWeeksEnabled) {
+      // Shared item counts toward both weeks in alternating mode.
+      placedUnitsBySubjectWeek[item.subject_id].A += units;
+      placedUnitsBySubjectWeek[item.subject_id].B += units;
+    }
+  }
+
+  const details: UnplacedStatusDetail[] = [];
+  for (const subject of plannedSubjects) {
+    const perWeekUnits = Math.max(1, Number(subject.sessions_per_week || 1));
+    const requiredTotalUnits = alternatingWeeksEnabled ? perWeekUnits * 2 : perWeekUnits;
+    const placedTotalUnits = placedUnitsBySubject[subject.id] ?? 0;
+    if (placedTotalUnits >= requiredTotalUnits) {
+      continue;
+    }
+
+    const teacherIds = Array.from(new Set([
+      ...(subject.teacher_id ? [subject.teacher_id] : []),
+      ...(subject.teacher_ids ?? []),
+    ].filter(Boolean)));
+    const teacherLabel = teacherIds.length > 0
+      ? teacherIds.map((teacherId) => teacherNameById[teacherId] ?? teacherId).join(", ")
+      : "Unassigned";
+
+    const isBlockLinked = blockLinkedSubjectIds.has(subject.id);
+    const reasonParts: string[] = [];
+    if (isBlockLinked) {
+      if (placedTotalUnits === 0) {
+        reasonParts.push("No feasible placement was found inside the configured block windows/weeks for this run.");
+      } else {
+        reasonParts.push("Subject is partially placed in configured block windows/weeks; remaining units did not fit.");
+      }
+      if (response.status !== "success") {
+        reasonParts.push("Overall schedule run is infeasible under current hard constraints.");
+      }
+    } else if (response.status !== "success") {
+      reasonParts.push(response.message || "Solver reported infeasible schedule.");
+    } else {
+      reasonParts.push("Could not place all required units with current constraints.");
+    }
+
+    if (alternatingWeeksEnabled && failedWeeks.length > 0) {
+      const weekShortfalls = failedWeeks.filter((week) => {
+        const placedWeekUnits = week === "A"
+          ? (placedUnitsBySubjectWeek[subject.id]?.A ?? 0)
+          : (placedUnitsBySubjectWeek[subject.id]?.B ?? 0);
+        return placedWeekUnits < Math.floor(perWeekUnits / 2);
+      });
+      if (weekShortfalls.length > 0) {
+        reasonParts.push(`Shortfall detected in week ${weekShortfalls.join("+")}.`);
+      }
+    }
+
+    details.push({
+      subject_id: subject.id,
+      subject_name: subject.name,
+      teacher_label: teacherLabel,
+      required_units: requiredTotalUnits,
+      placed_units: placedTotalUnits,
+      missing_units: requiredTotalUnits - placedTotalUnits,
+      reason: reasonParts.join(" "),
+    });
+  }
+
+  details.sort((a, b) => {
+    if (b.missing_units !== a.missing_units) {
+      return b.missing_units - a.missing_units;
     }
     return a.subject_name.localeCompare(b.subject_name);
   });
@@ -1015,6 +1128,8 @@ export default function Home() {
   const [statusText, setStatusText] = useState("Ready");
   const [placementWarningDetails, setPlacementWarningDetails] = useState<PlacementWarningDetail[]>([]);
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
+  const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
+  const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>("files");
   const [activeOverviewSubtab, setActiveOverviewSubtab] = useState<OverviewSubtab>("rooms");
@@ -4975,6 +5090,10 @@ export default function Home() {
       const shouldPropagateName =
         hasNamePatch &&
         nextName !== oldName;
+      const hasRoomModePatch = Object.prototype.hasOwnProperty.call(patch, "room_requirement_mode");
+      const hasPreferredRoomsPatch = Object.prototype.hasOwnProperty.call(patch, "preferred_room_ids");
+      const shouldPropagateRoomSettings =
+        target.subject_type === "fellesfag" && (hasRoomModePatch || hasPreferredRoomsPatch);
 
       return prev.map((subject) => {
         const isTarget = subject.id === subjectId;
@@ -4984,13 +5103,28 @@ export default function Home() {
           subject.subject_type === oldType &&
           subject.name === oldName &&
           subject.class_ids.length === 1;
+        const isFellesfagFamilyForRoomSettings =
+          shouldPropagateRoomSettings &&
+          subject.id !== subjectId &&
+          subject.subject_type === "fellesfag" &&
+          subject.name === oldName;
 
-        if (!isTarget && !isPerClassCopyOfTarget) {
+        if (!isTarget && !isPerClassCopyOfTarget && !isFellesfagFamilyForRoomSettings) {
           return subject;
         }
 
         const merged = isTarget
           ? { ...subject, ...patch, name: nextName }
+          : isFellesfagFamilyForRoomSettings
+            ? {
+                ...subject,
+                room_requirement_mode: hasRoomModePatch
+                  ? (patch.room_requirement_mode === "once_per_week" ? "once_per_week" : "always")
+                  : subject.room_requirement_mode,
+                preferred_room_ids: hasPreferredRoomsPatch
+                  ? (Array.isArray(patch.preferred_room_ids) ? patch.preferred_room_ids.filter(Boolean) : [])
+                  : subject.preferred_room_ids,
+              }
           : { ...subject, name: nextName };
         const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
         const mergedTeacherIds = Array.from(new Set([
@@ -5140,6 +5274,8 @@ export default function Home() {
     setStatusText(`Generating schedule (run ${runId})...`);
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
+    setUnplacedStatusDetails([]);
+    setUnplacedStatusSummary("");
     setSchedule([]);
 
     try {
@@ -5147,6 +5283,29 @@ export default function Home() {
         ...(blocks ?? []).flatMap((block) => block.subject_ids ?? []),
         ...(blocks ?? []).flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id)),
       ]);
+
+      const fellesfagRoomTemplateByName = new Map<string, { preferred_room_ids: string[]; room_requirement_mode: "always" | "once_per_week" }>();
+      for (const subject of subjects) {
+        if (subject.subject_type !== "fellesfag") {
+          continue;
+        }
+        if ((subject.class_ids ?? []).length !== 0) {
+          continue;
+        }
+        const preferred = Array.isArray(subject.preferred_room_ids) ? subject.preferred_room_ids.filter(Boolean) : [];
+        const mode: "always" | "once_per_week" = subject.room_requirement_mode === "once_per_week" ? "once_per_week" : "always";
+        if (preferred.length === 0 && mode === "always") {
+          continue;
+        }
+        const key = subject.name.trim().toLocaleLowerCase();
+        if (!key || fellesfagRoomTemplateByName.has(key)) {
+          continue;
+        }
+        fellesfagRoomTemplateByName.set(key, {
+          preferred_room_ids: preferred,
+          room_requirement_mode: mode,
+        });
+      }
 
       // Ensure all arrays are properly defined
       const cleanSubjects: Subject[] = subjects
@@ -5161,33 +5320,48 @@ export default function Home() {
           }
           return true;
         })
-        .map((s) => ({
-          ...s,
-          teacher_ids: Array.from(new Set([
-            ...(s.teacher_id ? [s.teacher_id] : []),
-            ...((s.teacher_ids ?? []).filter(Boolean)),
-          ])),
-          teacher_id: (Array.from(new Set([
-            ...(s.teacher_id ? [s.teacher_id] : []),
-            ...((s.teacher_ids ?? []).filter(Boolean)),
-          ]))[0] ?? ""),
-          class_ids: s.class_ids ?? [],
-          sessions_per_week: s.sessions_per_week || 1,
-          force_place: Boolean(s.force_place),
-          force_timeslot_id:
-            typeof s.force_timeslot_id === "string" && s.force_timeslot_id.trim()
-              ? s.force_timeslot_id.trim()
-              : undefined,
-          // alternating_week_split is DISABLED - auto-balancing is used instead
-          allowed_block_ids: s.allowed_block_ids ?? undefined,
-          allowed_timeslots: s.allowed_timeslots ?? undefined,
-          link_group_id:
-            typeof s.link_group_id === "string" && s.link_group_id.trim()
-              ? s.link_group_id.trim()
-              : undefined,
-          preferred_room_ids: Array.isArray(s.preferred_room_ids) ? s.preferred_room_ids.filter(Boolean) : [],
-          room_requirement_mode: s.room_requirement_mode === "once_per_week" ? "once_per_week" : "always",
-        }));
+        .map((s) => {
+          const ownPreferred = Array.isArray(s.preferred_room_ids) ? s.preferred_room_ids.filter(Boolean) : [];
+          const ownMode: "always" | "once_per_week" = s.room_requirement_mode === "once_per_week" ? "once_per_week" : "always";
+          let effectivePreferred = ownPreferred;
+          let effectiveMode = ownMode;
+
+          if (s.subject_type === "fellesfag" && (s.class_ids ?? []).length === 1 && ownPreferred.length === 0 && ownMode === "always") {
+            const inherited = fellesfagRoomTemplateByName.get(s.name.trim().toLocaleLowerCase());
+            if (inherited) {
+              effectivePreferred = inherited.preferred_room_ids;
+              effectiveMode = inherited.room_requirement_mode;
+            }
+          }
+
+          return {
+            ...s,
+            teacher_ids: Array.from(new Set([
+              ...(s.teacher_id ? [s.teacher_id] : []),
+              ...((s.teacher_ids ?? []).filter(Boolean)),
+            ])),
+            teacher_id: (Array.from(new Set([
+              ...(s.teacher_id ? [s.teacher_id] : []),
+              ...((s.teacher_ids ?? []).filter(Boolean)),
+            ]))[0] ?? ""),
+            class_ids: s.class_ids ?? [],
+            sessions_per_week: s.sessions_per_week || 1,
+            force_place: Boolean(s.force_place),
+            force_timeslot_id:
+              typeof s.force_timeslot_id === "string" && s.force_timeslot_id.trim()
+                ? s.force_timeslot_id.trim()
+                : undefined,
+            // alternating_week_split is DISABLED - auto-balancing is used instead
+            allowed_block_ids: s.allowed_block_ids ?? undefined,
+            allowed_timeslots: s.allowed_timeslots ?? undefined,
+            link_group_id:
+              typeof s.link_group_id === "string" && s.link_group_id.trim()
+                ? s.link_group_id.trim()
+                : undefined,
+            preferred_room_ids: effectivePreferred,
+            room_requirement_mode: effectiveMode,
+          };
+        });
 
       const payload = {
         subjects: cleanSubjects,
@@ -5240,11 +5414,11 @@ export default function Home() {
 
       const data: GenerateResponse = await res.json();
       const canShowPlacementWarnings = data.status === "success" && (data.schedule?.length ?? 0) > 0;
+      const blockLinkedSubjectIds = new Set<string>([
+        ...payload.blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
+        ...payload.blocks.flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id).filter(Boolean)),
+      ]);
       if (canShowPlacementWarnings) {
-        const blockLinkedSubjectIds = new Set<string>([
-          ...payload.blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
-          ...payload.blocks.flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id).filter(Boolean)),
-        ]);
         const warningDetails = collectPlacementWarningDetails(
           data,
           cleanSubjects,
@@ -5264,12 +5438,32 @@ export default function Home() {
         setPlacementWarningSummary("");
         setPlacementWarningDetails([]);
       }
+
+      const unplacedDetails = collectUnplacedStatusDetails(
+        data,
+        cleanSubjects,
+        timeslots,
+        blockLinkedSubjectIds,
+        enableAlternatingWeeks,
+        Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher.name])) as Record<string, string>,
+      );
+      setUnplacedStatusDetails(unplacedDetails);
+      if (unplacedDetails.length > 0) {
+        setUnplacedStatusSummary(
+          `${unplacedDetails.length} subject${unplacedDetails.length === 1 ? "" : "s"} have unplaced units.`,
+        );
+      } else {
+        setUnplacedStatusSummary("");
+      }
+
       setStatusText(formatGeneratedScheduleStatus(data, runId));
       setSchedule(data.schedule || []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       setPlacementWarningDetails([]);
       setPlacementWarningSummary("");
+      setUnplacedStatusDetails([]);
+      setUnplacedStatusSummary("");
       setStatusText(`Failed (run ${runId}): ${message}`);
     } finally {
       setLoading(false);
@@ -5280,6 +5474,8 @@ export default function Home() {
     setSchedule([]);
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
+    setUnplacedStatusDetails([]);
+    setUnplacedStatusSummary("");
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
 
@@ -8527,6 +8723,24 @@ export default function Home() {
               </div>
             </details>
           )}
+          {unplacedStatusDetails.length > 0 && (
+            <details className="status-unplaced-panel" open>
+              <summary>
+                <span>{unplacedStatusSummary || "Some subjects are not fully placed."}</span>
+                <span className="status-warning-summary-hint">Click to collapse</span>
+              </summary>
+              <div className="status-warning-content">
+                <p>Unplaced details by subject:</p>
+                <ul>
+                  {unplacedStatusDetails.map((detail) => (
+                    <li key={detail.subject_id}>
+                      {detail.subject_name} ({detail.subject_id}) | Teacher: {detail.teacher_label} | Required {detail.required_units}u, placed {detail.placed_units}u, missing {detail.missing_units}u. Reason: {detail.reason}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          )}
         </section>
 
         <section className="card">
@@ -8802,9 +9016,9 @@ export default function Home() {
                                   ...blockClassIds
                                     .filter((id) => selectedClassCompareIds.includes(id) && !item.class_ids.includes(id))
                                     .map((id) => `class:${id}`),
-                                  ...(selectedTeacherCompareIds.includes(item.teacher_id)
-                                    ? [`teacher:${item.teacher_id}`]
-                                    : []),
+                                  ...teacherIds
+                                    .filter((teacherId) => selectedTeacherCompareIds.includes(teacherId))
+                                    .map((teacherId) => `teacher:${teacherId}`),
                                   ...(item.room_id && selectedRoomCompareIds.includes(item.room_id)
                                     ? [`room:${item.room_id}`]
                                     : []),

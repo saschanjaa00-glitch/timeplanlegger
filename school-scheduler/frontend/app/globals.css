@@ -2272,7 +2272,15 @@ button.secondary {
   color: #5d3f10;
 }
 
-.status-warning-panel > summary {
+.status-unplaced-panel {
+  flex: 1 1 100%;
+  border: 1px solid #d38f8f;
+  background: #fff1f1;
+  color: #672626;
+}
+
+.status-warning-panel > summary,
+.status-unplaced-panel > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
@@ -2284,7 +2292,8 @@ button.secondary {
   font-weight: 600;
 }
 
-.status-warning-panel > summary::-webkit-details-marker {
+.status-warning-panel > summary::-webkit-details-marker,
+.status-unplaced-panel > summary::-webkit-details-marker {
   display: none;
 }
 
