@@ -2650,6 +2650,79 @@ export default function Home() {
 
   const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
 
+  const teacherFilterSubjectSummaryRows = useMemo(() => {
+    const subjectToBlockInfoLocal = new Map<string, { block_id: string; block_name: string; class_ids: string[] }>();
+    for (const block of blocks) {
+      for (const entry of block.subject_entries ?? []) {
+        subjectToBlockInfoLocal.set(entry.subject_id, {
+          block_id: block.id,
+          block_name: block.name,
+          class_ids: block.class_ids ?? [],
+        });
+      }
+      for (const subject_id of block.subject_ids ?? []) {
+        subjectToBlockInfoLocal.set(subject_id, {
+          block_id: block.id,
+          block_name: block.name,
+          class_ids: block.class_ids ?? [],
+        });
+      }
+    }
+
+    const sortedTeacherIds = [...selectedTeacherCompareIds].sort((a, b) => {
+      const aName = teacherNameById[a] ?? a;
+      const bName = teacherNameById[b] ?? b;
+      return aName.localeCompare(bName, "nb");
+    });
+
+    return sortedTeacherIds.map((teacherId) => {
+      type Entry = { kind: "Blokk" | "Class"; label: string; subject: string };
+      const entryByKey = new Map<string, Entry>();
+
+      for (const item of displaySchedule) {
+        const itemTeacherIds = Array.from(new Set([
+          ...(item.teacher_id ? [item.teacher_id] : []),
+          ...(item.teacher_ids ?? []),
+        ].filter(Boolean)));
+        if (!itemTeacherIds.includes(teacherId)) {
+          continue;
+        }
+
+        const blockInfo = subjectToBlockInfoLocal.get(item.subject_id);
+        if (blockInfo) {
+          const label = blockInfo.block_name || blockInfo.block_id;
+          const key = `B|${label}|${item.subject_name}`;
+          entryByKey.set(key, { kind: "Blokk", label, subject: item.subject_name });
+          continue;
+        }
+
+        const classIds = item.class_ids?.length ? item.class_ids : [""];
+        for (const classId of classIds) {
+          const label = classNameById[classId] ?? classId ?? "Unknown";
+          const key = `C|${label}|${item.subject_name}`;
+          entryByKey.set(key, { kind: "Class", label, subject: item.subject_name });
+        }
+      }
+
+      const entries = Array.from(entryByKey.values()).sort((a, b) => {
+        if (a.kind !== b.kind) {
+          return a.kind === "Blokk" ? -1 : 1;
+        }
+        const labelCmp = a.label.localeCompare(b.label, "nb");
+        if (labelCmp !== 0) {
+          return labelCmp;
+        }
+        return a.subject.localeCompare(b.subject, "nb");
+      });
+
+      return {
+        teacherId,
+        teacherName: teacherNameById[teacherId] ?? teacherId,
+        entries,
+      };
+    });
+  }, [selectedTeacherCompareIds, teacherNameById, displaySchedule, classNameById, blocks]);
+
   const overviewSubjectToBlockId = useMemo(() => {
     const map = new Map<string, string>();
     for (const block of blocks) {
@@ -8864,6 +8937,30 @@ export default function Home() {
               </button>
             </div>
           </div>
+          {selectedTeacherCompareIds.length > 0 && (
+            <div className="teacher-filter-summary" role="status" aria-live="polite">
+              <div className="teacher-filter-summary-title">Selected teacher subjects (Blokk/Class - Subject)</div>
+              <div className="teacher-filter-summary-grid">
+                {teacherFilterSubjectSummaryRows.map((row) => (
+                  <div key={row.teacherId} className="teacher-filter-summary-row">
+                    <div className="teacher-filter-summary-teacher">{row.teacherName}</div>
+                    <div className="teacher-filter-summary-items">
+                      {row.entries.length === 0
+                        ? "No subjects in generated schedule."
+                        : row.entries.map((entry, idx) => (
+                          <Fragment key={`${row.teacherId}_${entry.kind}_${entry.label}_${entry.subject}_${idx}`}>
+                            <span className={`teacher-filter-summary-item${idx % 2 === 0 ? " alt-emphasis" : ""}`}>
+                              <span className="teacher-filter-summary-item-index">{idx + 1}</span>
+                              {entry.kind}: {entry.label} - {entry.subject}
+                            </span>
+                          </Fragment>
+                        ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {compareEntities.length > 0 ? (
             <div className="compare-legend">
               {compareEntities.map((entity) => (
@@ -9309,7 +9406,7 @@ export default function Home() {
                         );
                         const isExpanded = canExpand && expandedTimelineEventKey === event.key;
 
-                        const eventClassName = `weekly-event${event.kind === "meeting" ? " meeting" : ""}${event.isBlockSubject ? " block-subject" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
+                        const eventClassName = `weekly-event${event.kind === "meeting" ? " meeting" : ""}${event.isBlockSubject ? " block-subject" : ""}${event.kind === "subject" && event.weekType === "A" ? " alternating-a" : ""}${event.kind === "subject" && event.weekType === "B" ? " alternating-b" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
 
                         const shouldShowClassLine =
                           !event.isBlockSummary &&

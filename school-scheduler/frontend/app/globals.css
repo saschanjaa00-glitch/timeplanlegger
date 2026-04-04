@@ -407,6 +407,99 @@ p {
 .compare-actions button {
   width: 100%;
 }
+.teacher-filter-summary {
+  margin: 0.55rem 0 0.4rem;
+  border: 1px solid #c7c6c0;
+  background: #f7f7f4;
+  padding: 0.45rem 0.55rem;
+}
+
+.teacher-filter-summary-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #3f3f3b;
+  margin-bottom: 0.35rem;
+}
+
+.teacher-filter-summary-grid {
+  display: grid;
+  gap: 0.28rem;
+}
+
+.teacher-filter-summary-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  padding: 0.2rem 0;
+  border-top: 1px dashed #d6d5cf;
+}
+
+.teacher-filter-summary-row:first-child {
+  border-top: none;
+}
+
+.teacher-filter-summary-teacher {
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: #2f2f2c;
+}
+
+.teacher-filter-summary-items {
+  font-size: 0.78rem;
+  color: #44433f;
+  line-height: 1.35;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.28rem;
+}
+
+.teacher-filter-summary-item {
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.33rem;
+  border: 1px solid #cfcfc9;
+  background: #ffffff;
+  border-radius: 999px;
+  padding: 0.11rem 0.5rem;
+  color: #32322f;
+}
+
+.teacher-filter-summary-item.alt-emphasis {
+  font-weight: 700;
+  background: #ece8df;
+  border-color: #b8a98f;
+  color: #2d2619;
+}
+
+.teacher-filter-summary-item-index {
+  min-width: 1.05rem;
+  height: 1.05rem;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.67rem;
+  font-weight: 700;
+  background: #d9d8d2;
+  color: #2f2f2c;
+}
+
+.teacher-filter-summary-item.alt-emphasis .teacher-filter-summary-item-index {
+  background: #af9c7f;
+  color: #fff;
+}
+
+@media (max-width: 920px) {
+  .teacher-filter-summary-row {
+    grid-template-columns: 1fr;
+    gap: 0.22rem;
+  }
+}
+
 .compare-week-view {
   display: grid;
   gap: 6px;
@@ -3031,6 +3124,16 @@ th {
   font-size: 0.8rem;
   line-height: 1.18;
   min-width: 0;
+}
+
+.weekly-event.alternating-a strong,
+.weekly-event.alternating-a .weekly-event-header-row strong {
+  font-weight: 700;
+}
+
+.weekly-event.alternating-b strong,
+.weekly-event.alternating-b .weekly-event-header-row strong {
+  font-weight: 500;
 }
 
 .weekly-event small {
