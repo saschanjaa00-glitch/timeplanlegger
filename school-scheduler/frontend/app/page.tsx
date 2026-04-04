@@ -8943,7 +8943,19 @@ export default function Home() {
               <div className="teacher-filter-summary-grid">
                 {teacherFilterSubjectSummaryRows.map((row) => (
                   <div key={row.teacherId} className="teacher-filter-summary-row">
-                    <div className="teacher-filter-summary-teacher">{row.teacherName}</div>
+                    <div className="teacher-filter-summary-teacher-wrap">
+                      <button
+                        type="button"
+                        className="teacher-filter-summary-remove"
+                        aria-label={`Remove teacher ${row.teacherName} from filter`}
+                        onClick={() => {
+                          setSelectedTeacherCompareIds((prev) => prev.filter((id) => id !== row.teacherId));
+                        }}
+                      >
+                        x
+                      </button>
+                      <div className="teacher-filter-summary-teacher">{row.teacherName}</div>
+                    </div>
                     <div className="teacher-filter-summary-items">
                       {row.entries.length === 0
                         ? "No subjects in generated schedule."
@@ -9411,10 +9423,12 @@ export default function Home() {
                         const isExpanded = canExpand && expandedTimelineEventKey === event.key;
 
                         const eventClassName = `weekly-event${event.kind === "meeting" ? " meeting" : ""}${event.isBlockSubject ? " block-subject" : ""}${event.kind === "subject" && event.weekType === "A" ? " alternating-a" : ""}${event.kind === "subject" && event.weekType === "B" ? " alternating-b" : ""}${isHovered ? " hovered" : ""}${isSubjectGroupHovered ? " subject-group-hovered" : ""}`;
+                        const isTeacherLaneView = compareEntities.length > 0 && event.laneEntityKind === "teacher";
 
                         const shouldShowClassLine =
                           !event.isBlockSummary &&
                           Boolean(event.classLabel) &&
+                          !(event.isBlockSubject && isTeacherLaneView) &&
                           (
                             compareEntities.length === 0 ||
                             event.laneEntityKind !== "class" ||
@@ -9436,7 +9450,7 @@ export default function Home() {
                                 {shouldShowClassLine ? (
                                   <small>{event.classLabel}</small>
                                 ) : null}
-                                {event.teacherLabel ? <small>{event.teacherLabel}</small> : null}
+                                {event.teacherLabel && !isTeacherLaneView ? <small>{event.teacherLabel}</small> : null}
                                 {event.roomLabel ? <small>Rom {event.roomLabel}</small> : null}
                               </>
                             ) : null}

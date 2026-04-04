@@ -447,6 +447,27 @@ p {
   color: #2f2f2c;
 }
 
+.teacher-filter-summary-teacher-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.36rem;
+}
+
+.teacher-filter-summary-remove {
+  width: auto;
+  min-width: 0;
+  border: 1px solid #b8c6cc;
+  background: #fffdf8;
+  color: #324147;
+  border-radius: 999px;
+  padding: 0 0.34rem;
+  font-size: 0.74rem;
+  line-height: 1.2;
+  text-transform: none;
+  letter-spacing: 0;
+  cursor: pointer;
+}
+
 .teacher-filter-summary-items {
   font-size: 0.78rem;
   color: #44433f;
