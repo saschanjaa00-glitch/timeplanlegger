@@ -9162,8 +9162,8 @@ export default function Home() {
                               }
 
                               const blockSummaryGroupKey = isClassView && blockInfo
-                                // In class view, show a single block-subject card per week.
-                                ? `${entityId}|${item.subject_id}`
+                                // In class view, show one solid block card per block slot/week.
+                                ? `${entityId}|${blockInfo.block_id}|${item.timeslot_id}|${item.day}|${item.period}|${item.start_time ?? ""}|${item.end_time ?? ""}`
                                 : undefined;
 
                               let blockWeekTypeFromDefinition: "A" | "B" | undefined = undefined;
@@ -9227,15 +9227,21 @@ export default function Home() {
                       const subjectEvents: RenderEvent[] = (() => {
                         const merged: RenderEvent[] = [];
                         const blockSummaryIndex = new Map<string, number>();
-                        const groupsWithSpecificWeeks = new Set<string>();
+                        const groupWeekPresence = new Map<string, { hasA: boolean; hasB: boolean; hasSpecific: boolean }>();
 
                         for (const event of subjectEventsRaw) {
                           if (!event.blockSummaryGroupKey) {
                             continue;
                           }
-                          if (event.weekType === "A" || event.weekType === "B") {
-                            groupsWithSpecificWeeks.add(event.blockSummaryGroupKey);
+                          const current = groupWeekPresence.get(event.blockSummaryGroupKey) ?? { hasA: false, hasB: false, hasSpecific: false };
+                          if (event.weekType === "A") {
+                            current.hasA = true;
+                            current.hasSpecific = true;
+                          } else if (event.weekType === "B") {
+                            current.hasB = true;
+                            current.hasSpecific = true;
                           }
+                          groupWeekPresence.set(event.blockSummaryGroupKey, current);
                         }
 
                         for (const event of subjectEventsRaw) {
@@ -9249,18 +9255,27 @@ export default function Home() {
                           if (
                             event.blockSummaryGroupKey
                             && !event.weekType
-                            && groupsWithSpecificWeeks.has(event.blockSummaryGroupKey)
+                            && (groupWeekPresence.get(event.blockSummaryGroupKey)?.hasSpecific ?? false)
                           ) {
                             continue;
                           }
 
-                          if (blockSummaryIndex.has(event.blockSummaryKey)) {
+                          const presence = event.blockSummaryGroupKey
+                            ? groupWeekPresence.get(event.blockSummaryGroupKey)
+                            : undefined;
+                          const collapseAcrossWeeks = Boolean(presence?.hasA && presence?.hasB);
+                          const dedupeKey = collapseAcrossWeeks && event.blockSummaryGroupKey
+                            ? `${event.blockSummaryGroupKey}|both`
+                            : event.blockSummaryKey;
+
+                          if (blockSummaryIndex.has(dedupeKey)) {
                             continue;
                           }
 
-                          blockSummaryIndex.set(event.blockSummaryKey, merged.length);
+                          blockSummaryIndex.set(dedupeKey, merged.length);
                           merged.push({
                             ...event,
+                            weekType: collapseAcrossWeeks ? undefined : event.weekType,
                             teacherLabel: "",
                             classLabel: "",
                             roomLabel: undefined,
