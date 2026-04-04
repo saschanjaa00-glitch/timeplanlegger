@@ -475,6 +475,14 @@ p {
   color: #2d2619;
 }
 
+.teacher-filter-summary-item.subject-hover-linked {
+  transform: translateY(-1px);
+  box-shadow: 0 0 0 2px rgba(36, 62, 91, 0.45), 0 6px 10px rgba(20, 33, 51, 0.18);
+  border-color: #3f668c;
+  background: #e7eef6;
+  color: #1d2f43;
+}
+
 .teacher-filter-summary-item-index {
   min-width: 1.05rem;
   height: 1.05rem;
@@ -3036,14 +3044,23 @@ button.secondary {
   transition: left 120ms ease, width 120ms ease, box-shadow 120ms ease;
 }
 
+.weekly-grid.subject-hover-active .weekly-event:not(.subject-group-hovered):not(.hovered):not(.weekly-event-popout) {
+  opacity: 0.42;
+  filter: saturate(0.55) brightness(0.94);
+}
+
 .weekly-event.hovered:not(.weekly-event-popout) {
-  filter: brightness(0.92);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.28);
+  transform: translateY(-1px) scale(1.01);
+  filter: brightness(1.02) saturate(1.12);
+  box-shadow: 0 0 0 2px rgba(20, 33, 51, 0.35), 0 8px 16px rgba(16, 24, 40, 0.2);
+  z-index: 7;
 }
 
 .weekly-event.subject-group-hovered:not(.weekly-event-popout):not(.hovered) {
-  filter: brightness(0.96);
-  box-shadow: inset 0 0 0 1px rgba(15, 23, 42, 0.2);
+  transform: translateY(-1px);
+  filter: brightness(1.01) saturate(1.08);
+  box-shadow: 0 0 0 2px rgba(26, 64, 97, 0.32), 0 6px 12px rgba(15, 23, 42, 0.16);
+  z-index: 6;
 }
 
 .weekly-event-popout {

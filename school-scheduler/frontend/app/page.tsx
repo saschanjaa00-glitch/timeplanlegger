@@ -2676,7 +2676,7 @@ export default function Home() {
     });
 
     return sortedTeacherIds.map((teacherId) => {
-      type Entry = { kind: "Blokk" | "Class"; label: string; subject: string };
+      type Entry = { kind: "Blokk" | "Class"; label: string; subject: string; subjectId: string };
       const entryByKey = new Map<string, Entry>();
 
       for (const item of displaySchedule) {
@@ -2691,16 +2691,16 @@ export default function Home() {
         const blockInfo = subjectToBlockInfoLocal.get(item.subject_id);
         if (blockInfo) {
           const label = blockInfo.block_name || blockInfo.block_id;
-          const key = `B|${label}|${item.subject_name}`;
-          entryByKey.set(key, { kind: "Blokk", label, subject: item.subject_name });
+          const key = `B|${label}|${item.subject_id}`;
+          entryByKey.set(key, { kind: "Blokk", label, subject: item.subject_name, subjectId: item.subject_id });
           continue;
         }
 
         const classIds = item.class_ids?.length ? item.class_ids : [""];
         for (const classId of classIds) {
           const label = classNameById[classId] ?? classId ?? "Unknown";
-          const key = `C|${label}|${item.subject_name}`;
-          entryByKey.set(key, { kind: "Class", label, subject: item.subject_name });
+          const key = `C|${label}|${item.subject_id}`;
+          entryByKey.set(key, { kind: "Class", label, subject: item.subject_name, subjectId: item.subject_id });
         }
       }
 
@@ -8949,7 +8949,11 @@ export default function Home() {
                         ? "No subjects in generated schedule."
                         : row.entries.map((entry, idx) => (
                           <Fragment key={`${row.teacherId}_${entry.kind}_${entry.label}_${entry.subject}_${idx}`}>
-                            <span className={`teacher-filter-summary-item${idx % 2 === 0 ? " alt-emphasis" : ""}`}>
+                            <span
+                              className={`teacher-filter-summary-item${idx % 2 === 0 ? " alt-emphasis" : ""}${hoveredTimelineSubjectId === entry.subjectId ? " subject-hover-linked" : ""}`}
+                              onMouseEnter={() => setHoveredTimelineSubjectId(entry.subjectId)}
+                              onMouseLeave={() => setHoveredTimelineSubjectId((current) => (current === entry.subjectId ? null : current))}
+                            >
                               <span className="teacher-filter-summary-item-index">{idx + 1}</span>
                               {entry.kind}: {entry.label} - {entry.subject}
                             </span>
@@ -9013,7 +9017,7 @@ export default function Home() {
                 })}
               </aside>
 
-              <div className="weekly-grid" style={{ gridTemplateColumns: `repeat(${calendarDays.length}, minmax(140px, 1fr))` }}>
+              <div className={`weekly-grid${hoveredTimelineSubjectId ? " subject-hover-active" : ""}`} style={{ gridTemplateColumns: `repeat(${calendarDays.length}, minmax(140px, 1fr))` }}>
                 {calendarDays.map((day) => (
                   <div key={day} className="weekly-day-track">
                     {timelineMarks.map((minutes) => {
