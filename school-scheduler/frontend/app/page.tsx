@@ -190,14 +190,6 @@ type UnplacedStatusDetail = {
   reason: string;
 };
 
-type TeacherSwapSuggestion = {
-  subject_name: string;
-  class_names: string;
-  current_teacher: string;
-  suggested_teacher: string;
-  reason: string;
-};
-
 type SavedJsonExport = {
   id: string;
   name: string;
@@ -483,81 +475,6 @@ function collectPlacementWarningDetails(
   });
 
   return details;
-}
-
-function computeTeacherSwapSuggestions(
-  unplacedDetails: UnplacedStatusDetail[],
-  allSubjects: Subject[],
-  allTeachers: Teacher[],
-  allClasses: SchoolClass[],
-  schedule: ScheduledItem[],
-): TeacherSwapSuggestion[] {
-  if (unplacedDetails.length === 0) return [];
-
-  // Build map: teacher id → total scheduled units
-  const teacherLoad: Record<string, number> = {};
-  for (const teacher of allTeachers) teacherLoad[teacher.id] = 0;
-  for (const item of schedule) {
-    const tids = Array.from(new Set([item.teacher_id, ...(item.teacher_ids || [])].filter(Boolean)));
-    for (const tid of tids) {
-      teacherLoad[tid] = (teacherLoad[tid] ?? 0) + 1;
-    }
-  }
-
-  const classById: Record<string, SchoolClass> = Object.fromEntries(allClasses.map((c) => [c.id, c]));
-  const teacherById: Record<string, Teacher> = Object.fromEntries(allTeachers.map((t) => [t.id, t]));
-
-  const suggestions: TeacherSwapSuggestion[] = [];
-
-  for (const detail of unplacedDetails) {
-    const unplacedSubj = allSubjects.find((s) => s.id === detail.subject_id);
-    if (!unplacedSubj) continue;
-
-    const currentTeacherIds = Array.from(new Set([
-      ...(unplacedSubj.teacher_id ? [unplacedSubj.teacher_id] : []),
-      ...(unplacedSubj.teacher_ids ?? []),
-    ].filter(Boolean)));
-
-    if (currentTeacherIds.length === 0) continue;
-
-    const classNames = (unplacedSubj.class_ids ?? [])
-      .map((cid) => classById[cid]?.name ?? cid).join(", ");
-
-    // Find other teachers who teach the same subject name for other classes
-    const sameNameSubjects = allSubjects.filter(
-      (s) => s.id !== unplacedSubj.id && s.name === unplacedSubj.name,
-    );
-    const candidateTeacherIds = Array.from(new Set(
-      sameNameSubjects.flatMap((s) => [
-        ...(s.teacher_id ? [s.teacher_id] : []),
-        ...(s.teacher_ids ?? []),
-      ].filter(Boolean)),
-    )).filter((tid) => !currentTeacherIds.includes(tid));
-
-    if (candidateTeacherIds.length === 0) continue;
-
-    // Find the least-loaded candidate
-    const bestCandidate = candidateTeacherIds.reduce((best, tid) =>
-      (teacherLoad[tid] ?? 0) < (teacherLoad[best] ?? 0) ? tid : best,
-    );
-
-    const currentMaxLoad = Math.max(...currentTeacherIds.map((tid) => teacherLoad[tid] ?? 0));
-    const candidateLoad = teacherLoad[bestCandidate] ?? 0;
-
-    if (candidateLoad < currentMaxLoad) {
-      const currentTeacherNames = currentTeacherIds.map((tid) => teacherById[tid]?.name ?? tid).join(", ");
-      const candidateName = teacherById[bestCandidate]?.name ?? bestCandidate;
-      suggestions.push({
-        subject_name: unplacedSubj.name,
-        class_names: classNames,
-        current_teacher: currentTeacherNames,
-        suggested_teacher: candidateName,
-        reason: `${candidateName} underviser samme fag og har ${candidateLoad} plasseringer mot ${currentMaxLoad} — kan ha mer ledig tid.`,
-      });
-    }
-  }
-
-  return suggestions;
 }
 
 function collectUnplacedStatusDetails(
@@ -1382,7 +1299,6 @@ export default function Home() {
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
   const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
-  const [teacherSwapSuggestions, setTeacherSwapSuggestions] = useState<TeacherSwapSuggestion[]>([]);
   const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [generationPopup, setGenerationPopup] = useState<{
@@ -1403,8 +1319,6 @@ export default function Home() {
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
-  const [solverEngine, setSolverEngine] = useState<"staged" | "cp_sat_experimental">("cp_sat_experimental");
-  const [showAdvancedSolverOptions, setShowAdvancedSolverOptions] = useState(false);
   const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
 
   const [subjectForm, setSubjectForm] = useState({
@@ -5886,7 +5800,6 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
-    setTeacherSwapSuggestions([]);
     setCautionsList([]);
     setLastRunMetadata(null);
     setSchedule([]);
@@ -5986,7 +5899,7 @@ export default function Home() {
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
         alternate_non_block_subjects: alternateNonBlockSubjects,
-        solver_engine: solverEngine,
+        solver_engine: "cp_sat_experimental",
         solver_timeout_seconds: Math.max(5, Math.min(600, Math.round(solverTimeoutSeconds))),
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
@@ -6095,18 +6008,8 @@ export default function Home() {
         setUnplacedStatusSummary(
           `${unplacedDetails.length} subject${unplacedDetails.length === 1 ? "" : "s"} have unplaced units.`,
         );
-        // Compute teacher swap suggestions for unplaced subjects
-        const swapSuggestions = computeTeacherSwapSuggestions(
-          unplacedDetails,
-          subjects,
-          teachers,
-          classes,
-          data.schedule || [],
-        );
-        setTeacherSwapSuggestions(swapSuggestions);
       } else {
         setUnplacedStatusSummary("");
-        setTeacherSwapSuggestions([]);
       }
 
       const successStatus = formatGeneratedScheduleStatus(data, runId);
@@ -6130,7 +6033,6 @@ export default function Home() {
       setPlacementWarningSummary("");
       setUnplacedStatusDetails([]);
       setUnplacedStatusSummary("");
-      setTeacherSwapSuggestions([]);
       setCautionsList([]);
       setLastRunMetadata(null);
       setStatusText(failStatus);
@@ -6147,7 +6049,6 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
-    setTeacherSwapSuggestions([]);
     setCautionsList([]);
     setLastRunMetadata(null);
     setStatusText("Generert timeplan slettet. Inndata og begrensninger er uendret.");
@@ -9586,51 +9487,7 @@ export default function Home() {
 
       {activeTab === "generate" && (
       <>
-        <section className="card week-strategy">
-          <h2>Planleggingsmodus</h2>
-          <div className="form-grid" style={{ marginTop: "10px" }}>
-            <div>
-              <div style={{ fontSize: "0.95em", color: "#444", marginBottom: "8px" }}>
-                Motor: <strong>CP-SAT (standard)</strong>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowAdvancedSolverOptions((prev) => !prev)}
-                disabled={loading}
-              >
-                {showAdvancedSolverOptions ? "Skjul avanserte alternativer" : "Vis avanserte alternativer"}
-              </button>
-            </div>
-            {showAdvancedSolverOptions && (
-              <label>
-                Løsermotor (avansert)
-                <select
-                  value={solverEngine}
-                  onChange={(e) => setSolverEngine(e.target.value as "staged" | "cp_sat_experimental")}
-                  disabled={loading}
-                >
-                  <option value="cp_sat_experimental">CP-SAT (anbefalt)</option>
-                  <option value="staged">Trinnvis (reserve)</option>
-                </select>
-              </label>
-            )}
-            <label>
-              Løsertidsavbrudd (sekunder)
-              <input
-                type="number"
-                min={5}
-                max={600}
-                step={5}
-                value={solverTimeoutSeconds}
-                onChange={(e) => setSolverTimeoutSeconds(Number.parseInt(e.target.value, 10) || 90)}
-                disabled={loading}
-              />
-            </label>
-          </div>
-          <p style={{ marginTop: "8px", fontSize: "0.9em", color: "#555" }}>
-            CP-SAT er standardmotoren. Bruk trinnvis kun ved reservefeilsøking.
-          </p>
-        </section>
+
 
         <section className="toolbar">
           <button type="button" onClick={generateSchedule} disabled={loading}>
@@ -9644,36 +9501,7 @@ export default function Home() {
             Slett generert timeplan
           </button>
           {/* ── Schedule snapshot save/restore ── */}
-          <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
-            <input
-              type="text"
-              value={snapshotName}
-              onChange={(e) => setSnapshotName(e.target.value)}
-              placeholder="Navn på lagring..."
-              style={{ fontSize: "0.85rem", padding: "4px 8px", width: "160px" }}
-              disabled={schedule.length === 0}
-            />
-            <button
-              type="button"
-              className="secondary"
-              disabled={schedule.length === 0}
-              onClick={() => {
-                const now = new Date();
-                const name = snapshotName.trim() ||
-                  `Timeplan ${now.toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
-                const snap: SavedScheduleSnapshot = {
-                  id: `${now.getTime()}_${Math.random().toString(16).slice(2, 6)}`,
-                  name,
-                  created_at: now.toISOString(),
-                  schedule: [...schedule],
-                };
-                setSavedScheduleSnapshots((prev) => [snap, ...prev].slice(0, 20));
-                setSnapshotName("");
-                setStatusText(`Lagret «${name}»`);
-              }}
-            >
-              Lagre timeplan
-            </button>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%" }}>
             {savedScheduleSnapshots.length > 0 && (
               <select
                 style={{ fontSize: "0.85rem", padding: "4px 6px" }}
@@ -9707,6 +9535,37 @@ export default function Home() {
                 Slett alle lagringer
               </button>
             )}
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "auto" }}>
+              <input
+                type="text"
+                value={snapshotName}
+                onChange={(e) => setSnapshotName(e.target.value)}
+                placeholder="Navn på lagring..."
+                style={{ fontSize: "0.85rem", padding: "4px 8px", width: "160px" }}
+                disabled={schedule.length === 0}
+              />
+              <button
+                type="button"
+                className="secondary"
+                disabled={schedule.length === 0}
+                onClick={() => {
+                  const now = new Date();
+                  const name = snapshotName.trim() ||
+                    `Timeplan ${now.toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+                  const snap: SavedScheduleSnapshot = {
+                    id: `${now.getTime()}_${Math.random().toString(16).slice(2, 6)}`,
+                    name,
+                    created_at: now.toISOString(),
+                    schedule: [...schedule],
+                  };
+                  setSavedScheduleSnapshots((prev) => [snap, ...prev].slice(0, 20));
+                  setSnapshotName("");
+                  setStatusText(`Lagret «${name}»`);
+                }}
+              >
+                Lagre timeplan
+              </button>
+            </div>
           </div>
           <div className="status">{statusText}</div>
           {lastRunMetadata && (
