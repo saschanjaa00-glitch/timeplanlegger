@@ -669,6 +669,18 @@ async function postGenerateWithFallback(
 
 const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 const calendarDays = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
+const DAY_LABELS_NO: Record<string, string> = {
+  Monday: "Mandag",
+  Tuesday: "Tirsdag",
+  Wednesday: "Onsdag",
+  Thursday: "Torsdag",
+  Friday: "Fredag",
+  Saturday: "Lørdag",
+  Sunday: "Søndag",
+};
+function toNorwegianDay(day: string): string {
+  return DAY_LABELS_NO[day] ?? day;
+}
 const DAY_START_MINUTES = 8 * 60;
 const DAY_END_MINUTES = 16 * 60;
 const TIMELINE_TOTAL_MINUTES = DAY_END_MINUTES - DAY_START_MINUTES;
@@ -886,12 +898,12 @@ function extractAvdeling(value: unknown): string {
 
 function normalizeSearchText(value: string): string {
   return value
+    .toLowerCase()
     .replace(/[æå]/g, "ae")
     .replace(/[øœ]/g, "o")
     .replace(/[áà]/g, "a")
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -1613,14 +1625,14 @@ export default function Home() {
       payload: payloadText,
     };
     setSavedJsonExports((prev) => [saved, ...prev].slice(0, 30));
-    setStatusText(`Exported ${fileName}`);
+    setStatusText(`Eksportert ${fileName}`);
   }
 
   async function importStateFromFile(file: File) {
     const text = await file.text();
     const parsed = JSON.parse(text) as Partial<PersistedState>;
     applyPersistedState(parsed);
-    setStatusText(`Imported ${file.name}`);
+    setStatusText(`Importert ${file.name}`);
     setActiveTab("files");
   }
 
@@ -1633,7 +1645,7 @@ export default function Home() {
       await importStateFromFile(file);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kunne ikke importere filen.";
-      setStatusText(`Import failed: ${message}`);
+      setStatusText(`Import feilet: ${message}`);
     } finally {
       event.target.value = "";
     }
@@ -1653,11 +1665,11 @@ export default function Home() {
     try {
       const parsed = JSON.parse(item.payload) as Partial<PersistedState>;
       applyPersistedState(parsed);
-      setStatusText(`Loaded ${item.name}`);
+      setStatusText(`Lastet inn ${item.name}`);
       setActiveTab("files");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Kunne ikke laste lagret eksport.";
-      setStatusText(`Load failed: ${message}`);
+      setStatusText(`Innlasting feilet: ${message}`);
     }
   }
 
@@ -2119,7 +2131,7 @@ export default function Home() {
   }
 
   function formatTimeslotLabel(slot: Timeslot): string {
-    return `${slot.day} P${slot.period}${slot.start_time && slot.end_time ? ` (${slot.start_time}-${slot.end_time})` : ""}`;
+    return `${toNorwegianDay(slot.day)} P${slot.period}${slot.start_time && slot.end_time ? ` (${slot.start_time}-${slot.end_time})` : ""}`;
   }
 
   function filterTimeslotsForQuery(query: string): Timeslot[] {
@@ -2218,14 +2230,14 @@ export default function Home() {
     });
 
     if (mode === "unavailable") {
-      setStatusText(`Marked ${filteredMeetingTeachers.length} visible teacher(s) as busy.`);
+      setStatusText(`Markerte ${filteredMeetingTeachers.length} synlig(e) lærer(e) som opptatt.`);
       return;
     }
     if (mode === "preferred") {
-      setStatusText(`Marked ${filteredMeetingTeachers.length} visible teacher(s) as prefer busy.`);
+      setStatusText(`Markerte ${filteredMeetingTeachers.length} synlig(e) lærer(e) som foretrekker opptatt.`);
       return;
     }
-    setStatusText(`Cleared meeting selection for ${filteredMeetingTeachers.length} visible teacher(s).`);
+    setStatusText(`Nullstilte møtevalg for ${filteredMeetingTeachers.length} synlig(e) lærer(e).`);
   }
 
   function loadMeetingIntoForm(meeting: Meeting) {
@@ -2237,7 +2249,7 @@ export default function Home() {
         meeting.teacher_assignments.map((assignment) => [assignment.teacher_id, assignment.mode])
       ) as Record<string, "preferred" | "unavailable">,
     });
-    setStatusText(`Editing meeting ${meeting.name}.`);
+    setStatusText(`Redigerer møte ${meeting.name}.`);
   }
 
   function upsertMeeting() {
@@ -2272,7 +2284,7 @@ export default function Home() {
             }
           : meeting
       )));
-      setStatusText(`Updated meeting ${name}.`);
+      setStatusText(`Oppdaterte møte ${name}.`);
       resetMeetingForm();
       return;
     }
@@ -2287,7 +2299,7 @@ export default function Home() {
         teacher_assignments: teacherAssignments,
       },
     ]);
-    setStatusText(`Added meeting ${name}.`);
+    setStatusText(`La til møte ${name}.`);
     resetMeetingForm();
   }
 
@@ -2297,7 +2309,7 @@ export default function Home() {
     if (editingMeetingId === meetingId) {
       resetMeetingForm();
     }
-    setStatusText(`Deleted meeting ${meetingName}.`);
+    setStatusText(`Slettet møte ${meetingName}.`);
   }
 
   function upsertRoom() {
@@ -2313,7 +2325,7 @@ export default function Home() {
           ? { ...room, name: input, prioritize_for_preferred_subjects: Boolean(room.prioritize_for_preferred_subjects) }
           : room
       )));
-      setStatusText(`Updated room ${input}.`);
+      setStatusText(`Oppdaterte rom ${input}.`);
       setRoomForm({ name: "" });
       setEditingRoomId(null);
       return;
@@ -2359,7 +2371,7 @@ export default function Home() {
       setRoomForm({ name: "" });
       setEditingRoomId(null);
     }
-    setStatusText(`Deleted room ${roomName}.`);
+    setStatusText(`Slettet rom ${roomName}.`);
   }
 
   function loadRoomIntoForm(room: Room) {
@@ -2400,7 +2412,7 @@ export default function Home() {
       setSportsHalls((prev) => prev.map((sh) => (
         sh.id === editingSportsHallId ? { ...sh, name: input } : sh
       )));
-      setStatusText(`Updated sports hall ${input}.`);
+      setStatusText(`Oppdaterte idrettshall ${input}.`);
       setSportsHallForm({ name: "" });
       setEditingSportsHallId(null);
       return;
@@ -2421,7 +2433,7 @@ export default function Home() {
     const autoInfo = autoAllowedSubjectIds.length > 0
       ? ` Auto-enabled preferences for ${autoAllowedSubjectIds.length} sports subject(s).`
       : "";
-    setStatusText((names.length === 1 ? `Added sports hall ${names[0]}.` : `Added ${names.length} sports halls.`) + autoInfo);
+    setStatusText((names.length === 1 ? `La til idrettshall ${names[0]}.` : `La til ${names.length} idrettshaller.`) + autoInfo);
     setSportsHallForm({ name: "" });
   }
 
@@ -2432,7 +2444,7 @@ export default function Home() {
       setSportsHallForm({ name: "" });
       setEditingSportsHallId(null);
     }
-    setStatusText(`Deleted sports hall ${hallName}.`);
+    setStatusText(`Slettet idrettshall ${hallName}.`);
   }
 
   function loadSportsHallIntoForm(hall: SportsHall) {
@@ -2646,10 +2658,10 @@ export default function Home() {
     });
 
     if (!nextBlockId) {
-      setStatusText(`Unassigned ${subject.name} from all blocks.`);
+      setStatusText(`Fjernet ${subject.name} fra alle blokker.`);
       return;
     }
-    setStatusText(`Assigned ${subject.name} to block ${targetBlock?.name ?? nextBlockId}.`);
+    setStatusText(`Tilordnet ${subject.name} til blokk ${targetBlock?.name ?? nextBlockId}.`);
   }
 
   function addSubjectToBlockFromPopup(blockId: string) {
@@ -2700,7 +2712,7 @@ export default function Home() {
 
     setBlockAddSubjectPopupBlockId(null);
     setBlockAddSubjectName("");
-    setStatusText(`Added blokkfag subject card ${name} to block ${targetBlock.name || targetBlock.id}.`);
+    setStatusText(`La til blokkfag ${name} i blokk ${targetBlock.name || targetBlock.id}.`);
   }
 
   function addTeachersToSubject(subject: Subject, teacherIdsToAdd: string[]) {
@@ -4210,7 +4222,7 @@ export default function Home() {
         if (excelFileRef.current) {
           excelFileRef.current.value = "";
         }
-        setStatusText(`Imported ${newTeachers.length} teachers from Excel.`);
+        setStatusText(`Importerte ${newTeachers.length} lærere fra Excel.`);
       } catch (error) {
         console.error("Error parsing Excel:", error);
         setStatusText("Feil ved lesing av Excel-fil.");
@@ -4366,7 +4378,7 @@ export default function Home() {
       setExpandedClassId(null);
     }
 
-    setStatusText(`Deleted class ${className}.`);
+    setStatusText(`Slettet klasse ${className}.`);
   }
 
   function bulkAddClasses() {
@@ -4427,9 +4439,9 @@ export default function Home() {
     }
 
     if (skipped.length) {
-      setStatusText(`Added ${toAdd.length} classes, skipped ${skipped.length} existing.`);
+      setStatusText(`La til ${toAdd.length} klasser, hoppet over ${skipped.length} eksisterende.`);
     } else {
-      setStatusText(`Added ${toAdd.length} classes.`);
+      setStatusText(`La til ${toAdd.length} klasser.`);
     }
   }
 
@@ -4457,7 +4469,7 @@ export default function Home() {
           timeslots: normalizedTimeslots,
         };
       }));
-      setStatusText(`Updated week setup ${activeWeekSetupId}.`);
+      setStatusText(`Oppdaterte ukeoppsett ${activeWeekSetupId}.`);
       return;
     }
 
@@ -4477,7 +4489,7 @@ export default function Home() {
     ]);
 
     setActiveWeekSetupId(setupId);
-    setStatusText(`Saved week setup ${setupId}.`);
+    setStatusText(`Lagret ukeoppsett ${setupId}.`);
   }
 
   function applyWeekSetup(setupId: string) {
@@ -4505,7 +4517,7 @@ export default function Home() {
       name: setup.name,
     });
 
-    setStatusText(`Applied week setup ${setup.name}.`);
+    setStatusText(`Brukte ukeoppsett ${setup.name}.`);
   }
 
   function deleteWeekSetup(setupId: string) {
@@ -4542,7 +4554,7 @@ export default function Home() {
       setRenamingWeekSetupId(null);
       setRenameDraft("");
     }
-    setStatusText(`Deleted week setup ${setupId}.`);
+    setStatusText(`Slettet ukeoppsett ${setupId}.`);
   }
 
   function getSetupIdForClass(classId: string): string {
@@ -4561,7 +4573,7 @@ export default function Home() {
     assignClassesToSetup([classId], resolvedSetupId);
 
     const target = weekCalendarSetups.find((setup) => setup.id === resolvedSetupId);
-    setStatusText(`Assigned class ${className} to ${target?.name ?? resolvedSetupId}.`);
+    setStatusText(`Tilordnet klasse ${className} til ${target?.name ?? resolvedSetupId}.`);
   }
 
   function addFellesfagToClass(classId: string, subjectId: string) {
@@ -4583,7 +4595,7 @@ export default function Home() {
         s.class_ids[0] === classId
     );
     if (alreadyExists) {
-      setStatusText(`${template.name} is already assigned to ${className}.`);
+      setStatusText(`${template.name} er allerede tilordnet ${className}.`);
       return;
     }
 
@@ -4599,7 +4611,7 @@ export default function Home() {
     };
 
     setSubjects((prev) => [...prev, copy]);
-    setStatusText(`Added fellesfag ${template.name} to ${className} (independent lesson).`);
+    setStatusText(`La til fellesfag ${template.name} for ${className} (selvstendig time).`);
   }
 
   function addOrCreateFellesfagForClass(classId: string) {
@@ -4675,7 +4687,7 @@ export default function Home() {
     });
 
     if (action === "already-in-class") {
-      setStatusText(`${requestedName} is already assigned to ${className}.`);
+      setStatusText(`${requestedName} er allerede tilordnet ${className}.`);
       return;
     }
 
@@ -4685,11 +4697,11 @@ export default function Home() {
     }));
 
     if (action === "created-and-added") {
-      setStatusText(`Created new fellesfag ${requestedName} and added it to ${className}.`);
+      setStatusText(`Opprettet nytt fellesfag ${requestedName} og la det til ${className}.`);
       return;
     }
 
-    setStatusText(`Added fellesfag ${requestedName} to ${className} from existing templates.`);
+    setStatusText(`La til fellesfag ${requestedName} for ${className} fra eksisterende maler.`);
   }
 
   function removeFellesfagFromClass(classId: string, subjectId: string) {
@@ -4705,7 +4717,7 @@ export default function Home() {
       subject_entries: (block.subject_entries ?? []).filter((se) => se.subject_id !== subjectId),
     })));
 
-    setStatusText(`Removed fellesfag ${subjectName} from ${className}.`);
+    setStatusText(`Fjernet fellesfag ${subjectName} fra ${className}.`);
   }
 
   function duplicateFellesfagToClasses(sourceClassId: string, targetClassIds: string[]) {
@@ -4766,7 +4778,7 @@ export default function Home() {
     const targetNames = targetClassIds
       .map((id) => classes.find((c) => c.id === id)?.name ?? id)
       .join(", ");
-    setStatusText(`Duplicated fellesfag from ${sourceClassName} to: ${targetNames}.`);
+    setStatusText(`Kopierte fellesfag fra ${sourceClassName} til: ${targetNames}.`);
 
     // Clear the selection after duplicating
     setDuplicateTargetsByClass((prev) => ({ ...prev, [sourceClassId]: [] }));
@@ -4820,7 +4832,7 @@ export default function Home() {
       return;
     }
 
-    setStatusText(`Cleared ${clearedCount} teacher assignment(s) across all fellesfag subjects.`);
+    setStatusText(`Fjernet ${clearedCount} lærerilordning(er) på tvers av alle fellesfag.`);
   }
 
   function addSubjectToClass(subject: Subject, classId: string, currentClassIds: string[]) {
@@ -4839,7 +4851,7 @@ export default function Home() {
 
     updateSubjectCard(subject.id, { class_ids: [...currentClassIds, classId] });
     const className = classNameById[classId] ?? classId;
-    setStatusText(`Added ${subject.name} to ${className}.`);
+    setStatusText(`La til ${subject.name} for ${className}.`);
   }
 
   function removeSubjectFromClass(subject: Subject, classId: string) {
@@ -4862,7 +4874,7 @@ export default function Home() {
       class_ids: subject.class_ids.filter((id) => id !== classId),
     });
     const className = classNameById[classId] ?? classId;
-    setStatusText(`Removed ${subject.name} from ${className}.`);
+    setStatusText(`Fjernet ${subject.name} fra ${className}.`);
   }
 
   function cloneWeekSetup(setupId: string) {
@@ -4895,7 +4907,7 @@ export default function Home() {
 
     const { normalizedTimeslots } = normalizeTimeslotIds(clonedTimeslots);
     setTimeslots(normalizedTimeslots);
-    setStatusText(`Cloned setup ${source.id} to ${cloneId}.`);
+    setStatusText(`Kopierte oppsett ${source.id} til ${cloneId}.`);
   }
 
   function startInlineRename(setupId: string) {
@@ -4941,7 +4953,7 @@ export default function Home() {
 
     setRenamingWeekSetupId(null);
     setRenameDraft("");
-    setStatusText(`Renamed setup ${setupId}.`);
+    setStatusText(`Omdøpte oppsett ${setupId}.`);
   }
 
   function addTimeslot(targetDay?: string) {
@@ -4979,7 +4991,7 @@ export default function Home() {
     ];
     const normalizedId = applyNormalizedTimeslotState(nextTimeslots, id) ?? id;
     setTimeslotForm((s) => ({ ...s, start_time: start24, end_time: end24 }));
-    setStatusText(`Added timeslot ${normalizedId}.`);
+    setStatusText(`La til tidsluke ${normalizedId}.`);
   }
 
   function startEditTimeslot(slot: Timeslot) {
@@ -4992,7 +5004,7 @@ export default function Home() {
       excluded_from_generation: Boolean(slot.excluded_from_generation),
       generation_allowed_class_ids: slot.generation_allowed_class_ids ?? [],
     });
-    setStatusText(`Editing timeslot ${slot.id}.`);
+    setStatusText(`Redigerer tidsluke ${slot.id}.`);
   }
 
   function cancelEditTimeslot() {
@@ -5050,7 +5062,7 @@ export default function Home() {
     setTimeslotForm((s) => ({ ...s, day, start_time: start24, end_time: end24 }));
     setActiveCalendarDay(day);
     setEditingTimeslotId(null);
-    setStatusText(`Updated timeslot ${normalizedId}.`);
+    setStatusText(`Oppdaterte tidsluke ${normalizedId}.`);
   }
 
   function resetBlockForm() {
@@ -5251,7 +5263,7 @@ export default function Home() {
       setDraggingTimeslotId(remapId(draggingTimeslotId));
     }
 
-    setStatusText(`Deleted timeslot ${timeslotId}.`);
+    setStatusText(`Slettet tidsluke ${timeslotId}.`);
   }
 
   function startResizeFromHandle(
@@ -5391,7 +5403,7 @@ export default function Home() {
       );
       return;
     }
-    setStatusText(`Added fellesfag subject card ${name}.`);
+    setStatusText(`La til fellesfag-kort ${name}.`);
   }
 
   function updateSubjectCard(subjectId: string, patch: Partial<Subject>) {
@@ -5582,7 +5594,7 @@ export default function Home() {
       subject_ids: (block.subject_ids ?? []).filter((id) => !toRemove.has(id)),
       subject_entries: (block.subject_entries ?? []).filter((se) => !toRemove.has(se.subject_id)),
     })));
-    setStatusText(`Deleted subject and ${toRemove.size - 1} class assignment(s).`);
+    setStatusText(`Slettet fag og ${toRemove.size - 1} klasseilordning(er).`);
   }
 
   async function generateSchedule() {
@@ -6631,7 +6643,7 @@ export default function Home() {
             >
               {calendarDays.map((day) => (
                 <option key={day} value={day}>
-                  {day}
+                  {toNorwegianDay(day)}
                 </option>
               ))}
             </select>
@@ -6787,7 +6799,7 @@ export default function Home() {
               }}
             >
               <header>
-                <h3>{day}</h3>
+                <h3>{toNorwegianDay(day)}</h3>
                 <button
                   type="button"
                   className="secondary"
@@ -7403,10 +7415,10 @@ export default function Home() {
                 !Object.keys(teacherSearchBySubjectEntity).some((key) => key.startsWith("faggrupper_"))
               }
             >
-              Clear Teachers
+              Fjern alle lærere
             </button>
           </div>
-          <p>Velg en klasse for � se fagene og angi l�rere.</p>
+          <p>Velg en klasse for å se fagene og angi lærere.</p>
 
           <div className="faggrupper-layout">
             <aside className="faggrupper-classes list">
@@ -7505,7 +7517,7 @@ export default function Home() {
                               <div className="faggrupper-teacher-inline-row">
                                 <div className="faggrupper-teacher-selected">
                                   {assignedTeacherIds.length === 0 ? (
-                                    <span className="faggrupper-teacher-empty">Ingen l\u00e6rere</span>
+                                    <span className="faggrupper-teacher-empty">Ingen lærere</span>
                                   ) : (
                                     assignedTeacherIds.map((teacherId) => (
                                       <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
@@ -7799,7 +7811,7 @@ export default function Home() {
                   style={{ fontSize: "0.86em" }}
                 >
                   {calendarDays.map((day) => (
-                    <option key={day} value={day}>{day}</option>
+                    <option key={day} value={day}>{toNorwegianDay(day)}</option>
                   ))}
                 </select>
               </div>
@@ -8141,7 +8153,7 @@ export default function Home() {
               >
                 {sortedTimeslots.map((slot) => (
                   <option key={slot.id} value={slot.id}>
-                    {slot.day} {slot.start_time}-{slot.end_time} ({slot.id})
+                    {toNorwegianDay(slot.day)} {slot.start_time}-{slot.end_time} ({slot.id})
                   </option>
                 ))}
               </select>
@@ -8251,7 +8263,7 @@ export default function Home() {
                       <div>
                         <strong>{meeting.name}</strong>
                         <p>
-                          {slot ? `${slot.day} ${slot.start_time}-${slot.end_time}` : meeting.timeslot_id}
+                          {slot ? `${toNorwegianDay(slot.day)} ${slot.start_time}-${slot.end_time}` : meeting.timeslot_id}
                         </p>
                       </div>
                       <div className="meeting-item-actions">
@@ -8973,7 +8985,7 @@ export default function Home() {
                                       background: "#e7e6e1",
                                     }}
                                   >
-                                    {day.toUpperCase()}
+                                    {toNorwegianDay(day).toUpperCase()}
                                   </div>
                                 ))}
                               </div>
@@ -9386,7 +9398,7 @@ export default function Home() {
             <div className="weekly-head">
               <div className="weekly-corner" />
               {calendarDays.map((day) => (
-                <div key={day} className="weekly-day-head">{day.toUpperCase()}</div>
+                <div key={day} className="weekly-day-head">{toNorwegianDay(day).toUpperCase()}</div>
               ))}
             </div>
 
@@ -10536,7 +10548,7 @@ export default function Home() {
                           const toneClass = dayIndex % 2 === 0 ? "overview-day-even" : "overview-day-odd";
                           return (
                           <th key={`day_${group.day}`} colSpan={group.slots.length} className={`overview-day-head ${toneClass}`}>
-                            {group.day}
+                            {toNorwegianDay(group.day)}
                           </th>
                           );
                         })}
