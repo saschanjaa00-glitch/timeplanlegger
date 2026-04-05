@@ -2269,6 +2269,21 @@ def _generate_schedule_staged(
                     ts = timeslots_by_id[ts_id]
                     if enforce_unique_day and ts.day in subject_days_used:
                         continue
+                    if is_norsk_vg3 and ts.day in subject_days_used:
+                        # Hard rules for Norsk vg3 same-day placement:
+                        # 1) At most 2 sessions per day.
+                        # 2) If one session already exists on this day, the new
+                        #    session must be exactly the adjacent partner period
+                        #    (pair {1,2} or {3,4} only — no cross-break pairings).
+                        _norsk_day_periods = subject_periods_by_day.get(ts.day, set())
+                        if len(_norsk_day_periods) >= 2:
+                            continue  # Already at max 2 sessions for this day
+                        if len(_norsk_day_periods) == 1:
+                            _existing_period = next(iter(_norsk_day_periods))
+                            _adjacent_map = {1: 2, 2: 1, 3: 4, 4: 3}
+                            _required_adj = _adjacent_map.get(_existing_period)
+                            if _required_adj is None or ts.period != _required_adj:
+                                continue  # Non-adjacent — not allowed
                     if is_norsk_vg3:
                         same_day_repeat_penalty = 1 if ts.day in subject_days_used else 0
                         if not _has_norsk_target_pair():
@@ -5678,6 +5693,51 @@ def _generate_schedule_cp_sat_experimental(
             schedule=[],
             metadata={"timed_out": 0.0},
         )
+
+    # ── Norsk vg3 adjacency and daily-cap constraints ────────────────────────
+    # For Norsk vg3 subjects:
+    #   (a) At most 2 sessions per day per week.
+    #   (b) If 2 sessions land on the same day, their periods must form an adjacent
+    #       pair: {1,2} or {3,4}.  Non-adjacent same-day combinations are forbidden.
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue
+        if not _is_norsk_vg3_subject(subject):
+            continue
+        # Group timeslots by day.
+        ts_by_day: Dict[str, List[str]] = defaultdict(list)
+        for week_key in week_labels:
+            for ts_id in allowed_by_subject_week.get((subject.id, week_key), []):
+                day = (timeslots_by_id[ts_id].day or "").lower()
+                ts_by_day[day].append(ts_id)
+        for day_name, day_ts_ids in ts_by_day.items():
+            # Collect unique ts_ids for this day across all weeks (variables keyed by ts_id).
+            unique_ts_ids = list(dict.fromkeys(day_ts_ids))
+            # (a) Max 2 sessions per day per week.
+            for week_key in week_labels:
+                day_vars_w = [
+                    x[(subject.id, ts_id, week_key)]
+                    for ts_id in unique_ts_ids
+                    if (subject.id, ts_id, week_key) in x
+                ]
+                if day_vars_w:
+                    model.Add(sum(day_vars_w) <= 2)
+            # (b) Non-adjacent period pairs on the same day are forbidden.
+            _adjacent_pairs: Set[Tuple[int, int]] = {(1, 2), (2, 1), (3, 4), (4, 3)}
+            for i in range(len(unique_ts_ids)):
+                for j in range(i + 1, len(unique_ts_ids)):
+                    ts_i = timeslots_by_id.get(unique_ts_ids[i])
+                    ts_j = timeslots_by_id.get(unique_ts_ids[j])
+                    if ts_i is None or ts_j is None:
+                        continue
+                    if (ts_i.period, ts_j.period) in _adjacent_pairs:
+                        continue  # Valid adjacent pair — allowed
+                    # Non-adjacent: forbid both being placed in the same week
+                    for week_key in week_labels:
+                        key_i = (subject.id, unique_ts_ids[i], week_key)
+                        key_j = (subject.id, unique_ts_ids[j], week_key)
+                        if key_i in x and key_j in x:
+                            model.Add(x[key_i] + x[key_j] <= 1)
 
     # ── Link group constraints (fellesfag synchronization) ───────────────────
     # All fellesfag subjects sharing the same link_group_id must be placed at
