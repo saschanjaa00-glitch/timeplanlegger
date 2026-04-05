@@ -8254,9 +8254,16 @@ export default function Home() {
                     </div>
                     {(block.occurrences ?? []).length > 0 && (
                       <div style={{ fontSize: "0.82em", color: "#555", display: "flex", flexWrap: "wrap", gap: "6px" }}>
-                        {block.occurrences.map((occ) => (
+                        {[...block.occurrences]
+                          .sort((a, b) => {
+                            const dayOrd: Record<string, number> = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
+                            const dd = (dayOrd[a.day] ?? 9) - (dayOrd[b.day] ?? 9);
+                            if (dd !== 0) return dd;
+                            return a.start_time.localeCompare(b.start_time);
+                          })
+                          .map((occ) => (
                           <span key={occ.id} style={{ background: "#e8f4f8", padding: "1px 6px", borderRadius: "3px" }}>
-                            {occ.day} {occ.start_time}–{occ.end_time} ({occ.week_type === "both" ? "A+B" : occ.week_type})
+                            {toNorwegianDay(occ.day)} {occ.start_time}–{occ.end_time} ({occ.week_type === "both" ? "A+B" : occ.week_type})
                           </span>
                         ))}
                       </div>
