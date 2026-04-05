@@ -211,7 +211,7 @@ REPAIR_RELOCATION_DEPTH = 4
 REPAIR_BLOCK_LOCK_SWEEPS = 4
 REPAIR_FINAL_CLEANUP_RELOCATION_DEPTH = 4
 ALT_DETERMINISTIC_SEEDS_PER_BATCH = 2
-ALT_DETERMINISTIC_SEED_BATCHES = 1
+ALT_DETERMINISTIC_SEED_BATCHES = 3
 
 
 def _subject_link_group_id(subject: Subject) -> str:
@@ -1128,6 +1128,7 @@ def _generate_schedule_staged(
     subject_priority_rank: Dict[str, int] | None = None,
     target_week_units_by_class: Dict[str, int] | None = None,
     deadline_monotonic: float | None = None,
+    cp_solver_seed: int = 0,
 ) -> ScheduleResponse:
     _solver_log(
         f"[RUN] generate_schedule_staged week={week_label or 'single'}",
@@ -8607,6 +8608,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             subject_priority_rank=subject_rank,
             target_week_units_by_class=nominal_target_units_by_class,
             deadline_monotonic=deadline_monotonic,
+            cp_solver_seed=seed_variant,
         )
         if _timed_out():
             generation_timed_out = True
@@ -8642,6 +8644,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         partial_subject_priority=partial_priority,
                         subject_priority_rank=subject_rank,
                         target_week_units_by_class=nominal_target_units_by_class,
+                        cp_solver_seed=seed_variant,
                         deadline_monotonic=deadline_monotonic,
                     )
                     if response_primary_relaxed.status == "success":
@@ -8834,6 +8837,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             subject_priority_rank=subject_rank,
             target_week_units_by_class=nominal_target_units_by_class,
             deadline_monotonic=deadline_monotonic,
+            cp_solver_seed=seed_variant,
         )
         if _timed_out():
             generation_timed_out = True
@@ -8875,6 +8879,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     subject_priority_rank=subject_rank,
                     target_week_units_by_class=nominal_target_units_by_class,
                     deadline_monotonic=deadline_monotonic,
+                    cp_solver_seed=seed_variant,
                 )
                 if response_secondary_retry.status == "success":
                     response_secondary = response_secondary_retry
@@ -8918,6 +8923,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     subject_priority_rank=subject_rank,
                     target_week_units_by_class=nominal_target_units_by_class,
                     deadline_monotonic=deadline_monotonic,
+                    cp_solver_seed=seed_variant,
                 )
                 if response_secondary_partial.status == "success":
                     response_secondary = response_secondary_partial
@@ -11047,6 +11053,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     solver.parameters.max_time_in_seconds = 90.0 if data.alternating_weeks_enabled else 180.0
     solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
     solver.parameters.search_branching = cp_model.FIXED_SEARCH
+    solver.parameters.random_seed = cp_solver_seed
 
     status = solver.Solve(model)
     status_line = f"[SOLVER] status={status} (OPTIMAL={cp_model.OPTIMAL}, FEASIBLE={cp_model.FEASIBLE}, INFEASIBLE={cp_model.INFEASIBLE}, UNKNOWN={cp_model.UNKNOWN})"
