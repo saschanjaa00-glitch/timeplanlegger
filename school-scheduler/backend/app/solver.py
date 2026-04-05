@@ -5679,6 +5679,56 @@ def _generate_schedule_cp_sat_experimental(
             metadata={"timed_out": 0.0},
         )
 
+    # ── Link group constraints (fellesfag synchronization) ───────────────────
+    # All fellesfag subjects sharing the same link_group_id must be placed at
+    # exactly the same timeslots (same-slot across different classes).
+    cp_sat_link_members_by_group: Dict[str, List[str]] = defaultdict(list)
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue
+        group_id = _subject_link_group_id(subject)
+        if not group_id:
+            continue
+        if subject.subject_type != "fellesfag" or len(subject.class_ids or []) != 1:
+            continue
+        cp_sat_link_members_by_group[group_id].append(subject.id)
+
+    for group_id in list(cp_sat_link_members_by_group.keys()):
+        unique_ids = list(dict.fromkeys(cp_sat_link_members_by_group[group_id]))
+        if len(unique_ids) < 2:
+            del cp_sat_link_members_by_group[group_id]
+        else:
+            cp_sat_link_members_by_group[group_id] = unique_ids
+
+    for group_id, member_ids in cp_sat_link_members_by_group.items():
+        leader_id = member_ids[0]
+        for follower_id in member_ids[1:]:
+            for week_key in week_labels:
+                for ts_id in all_timeslot_ids:
+                    leader_key = (leader_id, ts_id, week_key)
+                    follower_key = (follower_id, ts_id, week_key)
+                    leader_in_x = leader_key in x
+                    follower_in_x = follower_key in x
+                    if leader_in_x and follower_in_x:
+                        model.Add(x[leader_key] == x[follower_key])
+                    elif leader_in_x:
+                        # Follower can't use this slot → leader can't either
+                        model.Add(x[leader_key] == 0)
+                    elif follower_in_x:
+                        # Leader can't use this slot → follower can't either
+                        model.Add(x[follower_key] == 0)
+                    # Tail slots
+                    leader_tail_key = (leader_id, ts_id, week_key)
+                    follower_tail_key = (follower_id, ts_id, week_key)
+                    leader_in_tail = leader_tail_key in x_tail
+                    follower_in_tail = follower_tail_key in x_tail
+                    if leader_in_tail and follower_in_tail:
+                        model.Add(x_tail[leader_tail_key] == x_tail[follower_tail_key])
+                    elif leader_in_tail:
+                        model.Add(x_tail[leader_tail_key] == 0)
+                    elif follower_in_tail:
+                        model.Add(x_tail[follower_tail_key] == 0)
+
     # ── Odd-unit extra slot constraints ──────────────────────────────────────
     # For subjects with an odd total weekly-unit count (sessions_per_week is the
     # two-week total when alternating weeks are enabled), the "extra" 1 unit may be
