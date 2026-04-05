@@ -11238,14 +11238,6 @@ export default function Home() {
 
         const dayOrder: Record<string, number> = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
 
-        function slotLabel(tsId: string, weekType?: string | null): string {
-          const ts = timeslotById[tsId];
-          const base = ts ? formatTimeslotLabel(ts) : tsId;
-          if (weekType === "A") return `${base} (A-uke)`;
-          if (weekType === "B") return `${base} (B-uke)`;
-          return base;
-        }
-
         function teacherName(tid: string): string {
           return teacherById[tid]?.name || tid;
         }
