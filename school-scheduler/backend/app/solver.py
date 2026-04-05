@@ -5859,9 +5859,15 @@ def _generate_schedule_cp_sat_experimental(
 
     # ── Same-day spread penalty ───────────────────────────────────────────────
     same_day_penalties: List[cp_model.IntVar] = []
+    # Norsk vg3 pair bonus: reward placing both sessions of an adjacent pair on the
+    # same day.  We use a negative-cost variable (subtracted from objective) so the
+    # solver actively prefers the paired layout.
+    norsk_pair_bonus_vars: List[cp_model.IntVar] = []
+    _norsk_adjacent_pairs: Set[Tuple[int, int]] = {(1, 2), (2, 1), (3, 4), (4, 3)}
     for subject in data.subjects:
         if subject.id in block_subject_ids or subject.id in forced_subject_ids:
             continue
+        is_norsk = _is_norsk_vg3_subject(subject)
         for week_key in week_labels:
             for day_name in DAY_ORDER_INDEX.keys():
                 day_slots = [
@@ -5880,9 +5886,32 @@ def _generate_schedule_cp_sat_experimental(
                             day_vars.append(x_tail[key_t])
                 if not day_vars:
                     continue
-                excess = model.NewIntVar(0, len(day_vars), f"same_day_excess_{subject.id}_{week_key}_{day_name}")
-                model.Add(excess >= sum(day_vars) - 1)
-                same_day_penalties.append(excess)
+                if is_norsk:
+                    # Norsk vg3: skip the spread penalty (pairing on same day is desired).
+                    # Instead add a bonus for each completed adjacent pair on this day.
+                    for i, ts_id_i in enumerate(day_slots):
+                        ts_i = timeslots_by_id.get(ts_id_i)
+                        for ts_id_j in day_slots[i + 1:]:
+                            ts_j = timeslots_by_id.get(ts_id_j)
+                            if ts_i is None or ts_j is None:
+                                continue
+                            if (ts_i.period, ts_j.period) not in _norsk_adjacent_pairs:
+                                continue
+                            key_i = (subject.id, ts_id_i, week_key)
+                            key_j = (subject.id, ts_id_j, week_key)
+                            if key_i not in x or key_j not in x:
+                                continue
+                            # pair_placed = 1 when both slots are placed
+                            pair_placed = model.NewBoolVar(
+                                f"norsk_pair_{subject.id}_{ts_id_i}_{ts_id_j}_{week_key}"
+                            )
+                            model.AddBoolAnd([x[key_i], x[key_j]]).OnlyEnforceIf(pair_placed)
+                            model.AddBoolOr([x[key_i].Not(), x[key_j].Not()]).OnlyEnforceIf(pair_placed.Not())
+                            norsk_pair_bonus_vars.append(pair_placed)
+                else:
+                    excess = model.NewIntVar(0, len(day_vars), f"same_day_excess_{subject.id}_{week_key}_{day_name}")
+                    model.Add(excess >= sum(day_vars) - 1)
+                    same_day_penalties.append(excess)
 
     # ── Odd-extra A/B pairing soft objective ─────────────────────────────────
     # When two odd-unit subjects both pick the same regular ts_id as their one-week
@@ -5947,6 +5976,7 @@ def _generate_schedule_cp_sat_experimental(
         1000 * sum(shortfall_vars)
         + 10 * sum(same_day_penalties)
         + 5 * sum(odd_pair_penalties)
+        - 15 * sum(norsk_pair_bonus_vars)
     )
 
     solver = cp_model.CpSolver()
