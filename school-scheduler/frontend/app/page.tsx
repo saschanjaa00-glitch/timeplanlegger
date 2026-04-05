@@ -297,15 +297,15 @@ function formatGeneratedScheduleStatus(data: GenerateResponse, runId: number): s
   const mergedCount = mergeScheduleForDisplay(schedule).length;
 
   if (countA === 0 && countB === 0) {
-    return `${data.message} ${schedule.length} item(s) generated (run ${runId}).`;
+    return `${data.message} ${schedule.length} element(er) generert (kjøring ${runId}).`;
   }
 
   const hasWeekSpecificPlacements = mergedCount !== schedule.length;
   const filterHint = hasWeekSpecificPlacements
-    ? " Switch week filter to A or B to inspect week-specific placements."
+    ? " Bytt ukefilter til A eller B for å se uke-spesifikke plasseringer."
     : "";
 
-  return `${data.message} ${schedule.length} raw item(s): ${countShared} shared, ${countA} A, ${countB} B; combined view shows ${mergedCount} item(s) (run ${runId}).${filterHint}`;
+  return `${data.message} ${schedule.length} råelementer: ${countShared} delt, ${countA} A, ${countB} B; kombinert visning viser ${mergedCount} element(er) (kjøring ${runId}).${filterHint}`;
 }
 
 function formatGenerationAttemptDetails(metadata?: Record<string, number>): string {
@@ -330,13 +330,13 @@ function formatGenerationAttemptDetails(metadata?: Record<string, number>): stri
 
   const parts: string[] = [];
   parts.push(
-    `Attempts ${executed}${planned > 0 ? `/${planned}` : ""}` +
-      `${seeds > 0 ? `, seeds ${seeds}` : ""}` +
-      `${workers > 0 ? `, workers ${workers}` : ""}.`,
+    `Forsøk ${executed}${planned > 0 ? `/${planned}` : ""}` +
+      `${seeds > 0 ? `, seeder ${seeds}` : ""}` +
+      `${workers > 0 ? `, arbeidere ${workers}` : ""}.`,
   );
-  parts.push(`Valid ${valid}, rejected ${rejected}, failed ${failed}.`);
+  parts.push(`Gyldige ${valid}, avvist ${rejected}, mislyktes ${failed}.`);
   if (requiredUnits > 0) {
-    parts.push(`Placed ${placedUnits}/${requiredUnits} non-block units, shortage ${shortage}.`);
+    parts.push(`Plassert ${placedUnits}/${requiredUnits} ikke-blokk-enheter, mangler ${shortage}.`);
   }
   return parts.join(" ");
 }
@@ -543,29 +543,29 @@ function collectUnplacedStatusDetails(
     const diagSamples = (subjectDiag?.samples ?? []).filter(Boolean);
     if (isBlockLinked) {
       if (placedTotalUnits === 0) {
-        reasonParts.push("No feasible placement was found inside the configured block windows/weeks for this run.");
+        reasonParts.push("Ingen gjennomførbar plassering ble funnet innenfor konfigurerte blokkvinduer/uker for denne kjøringen.");
       } else {
-        reasonParts.push("Subject is partially placed in configured block windows/weeks; remaining units did not fit.");
+        reasonParts.push("Faget er delvis plassert i konfigurerte blokkvinduer/uker; gjenstående enheter fikk ikke plass.");
       }
       if (response.status !== "success") {
-        reasonParts.push("Overall schedule run is infeasible under current hard constraints.");
+        reasonParts.push("Den overordnede timeplankjøringen er umulig med gjeldende harde begrensninger.");
       }
     } else if (response.status !== "success") {
       if (subjectDiag) {
-        reasonParts.push(`Blockers sampled for this subject: ${blockerSummary}.`);
+        reasonParts.push(`Blokkere samlet for dette faget: ${blockerSummary}.`);
         if (diagSamples.length > 0) {
-          reasonParts.push(`Examples: ${diagSamples.join(" | ")}.`);
+          reasonParts.push(`Eksempler: ${diagSamples.join(" | ")}.`);
         }
       } else {
         const msg = (response.message || "").toLowerCase();
         if (msg.includes("required x45 totals are not exact")) {
-          reasonParts.push("Required x45 totals were not met for this run; this subject still has missing units.");
+          reasonParts.push("Påkrevde x45-totaler ble ikke nådd for denne kjøringen; dette faget har fortsatt manglende enheter.");
         } else {
-          reasonParts.push("Solver reported an infeasible run under current hard constraints.");
+          reasonParts.push("Løseren rapporterte en umulig kjøring med gjeldende harde begrensninger.");
         }
       }
     } else {
-      reasonParts.push("Could not place all required units with current constraints.");
+      reasonParts.push("Kunne ikke plassere alle påkrevde enheter med gjeldende begrensninger.");
     }
 
     if (alternatingWeeksEnabled && failedWeeks.length > 0) {
@@ -576,7 +576,7 @@ function collectUnplacedStatusDetails(
         return placedWeekUnits < Math.floor(perWeekUnits / 2);
       });
       if (weekShortfalls.length > 0) {
-        reasonParts.push(`Shortfall detected in week ${weekShortfalls.join("+")}.`);
+        reasonParts.push(`Underskudd oppdaget i uke ${weekShortfalls.join("+")}.`);
       }
     }
 
@@ -657,13 +657,13 @@ async function postGenerateWithFallback(
   if (timedOutBase) {
     throw new Error(
       `Backend request timed out after ${Math.round(requestTimeoutMs / 1000)}s on ${timedOutBase} (run ${runId}). `
-      + "Backend may be overloaded or still solving.",
+      + "Backend kan være overbelastet eller holder på å løse.",
     );
   }
 
   throw new Error(
     `Could not reach backend API on ${API_BASE_CANDIDATES.join(" or ")} (run ${runId}). ` +
-      "Start backend server and try again.",
+      "Start backend-server og prøv igjen.",
   );
 }
 
@@ -688,16 +688,16 @@ const COMPARE_PALETTE = [
 ];
 
 const workflowTabs: Array<{ id: TabKey; label: string }> = [
-  { id: "files", label: "Files" },
-  { id: "calendar", label: "Week Calendar" },
-  { id: "classes", label: "Classes" },
-  { id: "subjects", label: "Subjects" },
+  { id: "files", label: "Filer" },
+  { id: "calendar", label: "Ukekalender" },
+  { id: "classes", label: "Klasser" },
+  { id: "subjects", label: "Fag" },
   { id: "faggrupper", label: "Fellesfag" },
-  { id: "blocks", label: "Blocks" },
+  { id: "blocks", label: "Blokker" },
   { id: "meetings", label: "Møter" },
   { id: "rom", label: "Rom" },
-  { id: "teachers", label: "Teachers" },
-  { id: "generate", label: "Generate" },
+  { id: "teachers", label: "Lærere" },
+  { id: "generate", label: "Generer" },
   { id: "overview", label: "Oversikt" },
 ];
 
@@ -1267,7 +1267,7 @@ export default function Home() {
   const [weekCalendarSetups, setWeekCalendarSetups] = useState<WeekCalendarSetup[]>([]);
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [schedule, setSchedule] = useState<ScheduledItem[]>([]);
-  const [statusText, setStatusText] = useState("Ready");
+  const [statusText, setStatusText] = useState("Klar");
   const [lastRunMetadata, setLastRunMetadata] = useState<Record<string, number> | null>(null);
   const [placementWarningDetails, setPlacementWarningDetails] = useState<PlacementWarningDetail[]>([]);
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
@@ -1454,7 +1454,7 @@ export default function Home() {
       }
       return {
         ...prev,
-        details: `${phase} Elapsed ${generationElapsedLabel()}.`,
+        details: `${phase} Pågått ${generationElapsedLabel()}.`,
       };
     });
   }
@@ -1468,7 +1468,7 @@ export default function Home() {
         }
         return {
           ...prev,
-          details: `${generationPhaseRef.current || "Working..."} Elapsed ${generationElapsedLabel()}.`,
+          details: `${generationPhaseRef.current || "Jobber..."} Sp\u00e5rt ${generationElapsedLabel()}.`,
         };
       });
     }, 1000);
@@ -1632,7 +1632,7 @@ export default function Home() {
     try {
       await importStateFromFile(file);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not import file.";
+      const message = error instanceof Error ? error.message : "Kunne ikke importere filen.";
       setStatusText(`Import failed: ${message}`);
     } finally {
       event.target.value = "";
@@ -1645,7 +1645,7 @@ export default function Home() {
       return;
     }
 
-    const saveBefore = window.confirm("Do you want to export your current data to a new JSON before loading this file?");
+    const saveBefore = window.confirm("Vil du eksportere gjeldende data til en ny JSON før du laster inn denne filen?");
     if (saveBefore) {
       exportCurrentState(`before-restore-${formatExportTimestamp()}`);
     }
@@ -1656,7 +1656,7 @@ export default function Home() {
       setStatusText(`Loaded ${item.name}`);
       setActiveTab("files");
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Could not load saved export.";
+      const message = error instanceof Error ? error.message : "Kunne ikke laste lagret eksport.";
       setStatusText(`Load failed: ${message}`);
     }
   }
@@ -2249,15 +2249,15 @@ export default function Home() {
       .map(([teacher_id, mode]) => ({ teacher_id, mode }));
 
     if (!name) {
-      setStatusText("Meeting name is required.");
+      setStatusText("M\u00f8tenavn er p\u00e5krevd.");
       return;
     }
     if (!timeslotId || !timeslots.some((slot) => slot.id === timeslotId)) {
-      setStatusText("Select a valid timeslot for the meeting.");
+      setStatusText("Velg en gyldig time for m\u00f8tet.");
       return;
     }
     if (teacherAssignments.length === 0) {
-      setStatusText("Pick at least one teacher as preferred or blocked for the meeting.");
+      setStatusText("Velg minst \u00e9n l\u00e6rer som foretrukket eller blokkert for m\u00f8tet.");
       return;
     }
 
@@ -2303,7 +2303,7 @@ export default function Home() {
   function upsertRoom() {
     const input = roomForm.name.trim();
     if (!input) {
-      setStatusText("Room name is required.");
+      setStatusText("Romnavn er p\u00e5krevd.");
       return;
     }
 
@@ -2326,7 +2326,7 @@ export default function Home() {
       .filter((name) => name.length > 0);
 
     if (roomNames.length === 0) {
-      setStatusText("Please enter at least one room name.");
+      setStatusText("Skriv inn minst ett romnavn.");
       return;
     }
 
@@ -2393,7 +2393,7 @@ export default function Home() {
   function upsertSportsHall() {
     const input = sportsHallForm.name.trim();
     if (!input) {
-      setStatusText("Sports hall name is required.");
+      setStatusText("Idrettshallnavn er p\u00e5krevd.");
       return;
     }
     if (editingSportsHallId) {
@@ -2655,13 +2655,13 @@ export default function Home() {
   function addSubjectToBlockFromPopup(blockId: string) {
     const name = blockAddSubjectName.trim();
     if (!name) {
-      setStatusText("Enter a subject name before adding it to the block.");
+      setStatusText("Skriv inn et fagnavn f\u00f8r du legger det til i blokken.");
       return;
     }
 
     const targetBlock = blocks.find((block) => block.id === blockId);
     if (!targetBlock) {
-      setStatusText("Could not find selected block.");
+      setStatusText("Kunne ikke finne valgt blokk.");
       return;
     }
 
@@ -2943,7 +2943,7 @@ export default function Home() {
 
         const classIds = item.class_ids?.length ? item.class_ids : [""];
         for (const classId of classIds) {
-          const label = classNameById[classId] ?? classId ?? "Unknown";
+          const label = classNameById[classId] ?? classId ?? "Ukjent";
           const key = `C|${label}|${item.subject_id}`;
           entryByKey.set(key, { kind: "Class", label, subject: item.subject_name, subjectId: item.subject_id });
         }
@@ -4075,7 +4075,7 @@ export default function Home() {
     function handleMouseUp() {
       applyNormalizedTimeslotState(timeslotsRef.current, activeResize.timeslotId);
       setResizeState(null);
-      setStatusText("Timeslot duration updated.");
+      setStatusText("Tidslukevarighet oppdatert.");
     }
 
     window.addEventListener("mousemove", handleMouseMove);
@@ -4213,7 +4213,7 @@ export default function Home() {
         setStatusText(`Imported ${newTeachers.length} teachers from Excel.`);
       } catch (error) {
         console.error("Error parsing Excel:", error);
-        setStatusText("Error parsing Excel file.");
+        setStatusText("Feil ved lesing av Excel-fil.");
       }
     };
     reader.readAsArrayBuffer(file);
@@ -4234,7 +4234,7 @@ export default function Home() {
       if (file.name.endsWith(".xlsx") || file.name.endsWith(".xls") || file.name.endsWith(".csv")) {
         processExcelFile(file);
       } else {
-        setStatusText("Please drop a .xlsx, .xls, or .csv file");
+        setStatusText("Slipp en .xlsx-, .xls- eller .csv-fil her");
       }
     }
   }
@@ -4375,15 +4375,15 @@ export default function Home() {
     const abbreviation = bulkClassForm.abbreviation.trim().toUpperCase();
 
     if (!Number.isInteger(years) || years <= 0) {
-      setStatusText("Trinn must be a positive whole number.");
+      setStatusText("Trinn m\u00e5 v\u00e6re et positivt heltall.");
       return;
     }
     if (!Number.isInteger(classesPerYear) || classesPerYear <= 0) {
-      setStatusText("Classes per trinn must be a positive whole number.");
+      setStatusText("Klasser per trinn m\u00e5 v\u00e6re et positivt heltall.");
       return;
     }
     if (!abbreviation) {
-      setStatusText("Forkortelse is required.");
+      setStatusText("Forkortelse er p\u00e5krevd.");
       return;
     }
 
@@ -4412,7 +4412,7 @@ export default function Home() {
     }
 
     if (!toAdd.length) {
-      setStatusText("No new classes were added (all generated names already exist).");
+      setStatusText("Ingen nye klasser ble lagt til (alle genererte navn finnes allerede).");
       return;
     }
 
@@ -4435,11 +4435,11 @@ export default function Home() {
 
   function saveCurrentWeekSetup() {
     if (!weekSetupForm.name.trim()) {
-      setStatusText("Provide a setup name before saving.");
+      setStatusText("Skriv inn et oppsettsnavn f\u00f8r du lagrer.");
       return;
     }
     if (!timeslots.length) {
-      setStatusText("Add at least one timeslot before saving a setup.");
+      setStatusText("Legg til minst \u00e9n time f\u00f8r du lagrer et oppsett.");
       return;
     }
 
@@ -4510,7 +4510,7 @@ export default function Home() {
 
   function deleteWeekSetup(setupId: string) {
     if (weekCalendarSetups.length <= 1) {
-      setStatusText("At least one setup is required. You cannot delete the last setup.");
+      setStatusText("Minst ett oppsett er p\u00e5krevd. Du kan ikke slette det siste oppsettet.");
       return;
     }
 
@@ -4520,7 +4520,7 @@ export default function Home() {
       weekCalendarSetups.find((setup) => setup.id !== setupId);
 
     if (!fallbackSetup) {
-      setStatusText("Could not find a replacement setup.");
+      setStatusText("Kunne ikke finne et erstatningsoppsett.");
       return;
     }
 
@@ -4553,7 +4553,7 @@ export default function Home() {
   function assignClassToSetup(classId: string, setupId: string) {
     const resolvedSetupId = setupId || getDefaultSetupId();
     if (!resolvedSetupId) {
-      setStatusText("Create a week setup first.");
+      setStatusText("Opprett et ukeoppsett f\u00f8rst.");
       return;
     }
 
@@ -4607,7 +4607,7 @@ export default function Home() {
     const rawName = newFellesfagNameByClass[classId] ?? "";
     const requestedName = rawName.trim();
     if (!requestedName) {
-      setStatusText("Enter a fellesfag name first.");
+      setStatusText("Skriv inn et fellesfagnavn f\u00f8rst.");
       return;
     }
 
@@ -4719,7 +4719,7 @@ export default function Home() {
     );
 
     if (!sourceCopies.length) {
-      setStatusText("No fellesfag assigned to this class to duplicate.");
+      setStatusText("Ingen fellesfag tilordnet denne klassen som kan dupliseres.");
       return;
     }
 
@@ -4780,7 +4780,7 @@ export default function Home() {
     );
 
     if (fellesfagIds.size === 0) {
-      setStatusText("No fellesfag subjects found.");
+      setStatusText("Ingen fellesfag funnet.");
       return;
     }
 
@@ -4816,7 +4816,7 @@ export default function Home() {
     });
 
     if (clearedCount === 0) {
-      setStatusText("No teacher assignments to clear in fellesfag.");
+      setStatusText("Ingen l\u00e6rertilordninger \u00e5 fjerne i fellesfag.");
       return;
     }
 
@@ -4921,7 +4921,7 @@ export default function Home() {
 
     const nextName = renameDraft.trim();
     if (!nextName) {
-      setStatusText("Setup name cannot be empty.");
+      setStatusText("Oppsettsnavn kan ikke v\u00e6re tomt.");
       return;
     }
 
@@ -4955,11 +4955,11 @@ export default function Home() {
     const startMinutes = toMinutes(start24);
     const endMinutes = toMinutes(end24);
     if (startMinutes === Number.MAX_SAFE_INTEGER || endMinutes === Number.MAX_SAFE_INTEGER) {
-      setStatusText("Invalid time format. Use 24-hour format HH:MM (example: 13:30).");
+      setStatusText("Ugyldig tidsformat. Bruk 24-timers format TT:MM (eksempel: 13:30).");
       return;
     }
     if (startMinutes >= endMinutes) {
-      setStatusText("Invalid timeslot: finish time must be later than start time.");
+      setStatusText("Ugyldig time: sluttid m\u00e5 v\u00e6re etter starttid.");
       return;
     }
 
@@ -5005,7 +5005,7 @@ export default function Home() {
       excluded_from_generation: false,
       generation_allowed_class_ids: [],
     }));
-    setStatusText("Timeslot editing cancelled.");
+    setStatusText("Timeredigering avbrutt.");
   }
 
   function updateTimeslot(timeslotId: string, targetDay?: string) {
@@ -5020,11 +5020,11 @@ export default function Home() {
     const startMinutes = toMinutes(start24);
     const endMinutes = toMinutes(end24);
     if (startMinutes === Number.MAX_SAFE_INTEGER || endMinutes === Number.MAX_SAFE_INTEGER) {
-      setStatusText("Invalid time format. Use 24-hour format HH:MM (example: 13:30).");
+      setStatusText("Ugyldig tidsformat. Bruk 24-timers format TT:MM (eksempel: 13:30).");
       return;
     }
     if (startMinutes >= endMinutes) {
-      setStatusText("Invalid timeslot: finish time must be later than start time.");
+      setStatusText("Ugyldig time: sluttid m\u00e5 v\u00e6re etter starttid.");
       return;
     }
 
@@ -5277,7 +5277,7 @@ export default function Home() {
   function addSubjectCard() {
     const name = subjectForm.name.trim();
     if (!name) {
-      setStatusText("Enter a subject name first.");
+      setStatusText("Skriv inn et fagnavn f\u00f8rst.");
       return;
     }
 
@@ -5287,7 +5287,7 @@ export default function Home() {
       ? Array.from(new Set(subjectForm.class_ids))
       : [];
     if (isBlokkfag && sortedBlocksByName.length > 0 && !selectedBlockId) {
-      setStatusText("Select a block for the blokkfag subject.");
+      setStatusText("Velg en blokk for blokkfag-faget.");
       return;
     }
 
@@ -5504,7 +5504,7 @@ export default function Home() {
       });
     });
 
-    setStatusText(enabled ? "Linked matching fellesfag copies to the same timeslots." : "Removed fellesfag link for matching copies.");
+    setStatusText(enabled ? "Koblet samsvarende fellesfag-kopier til de samme timene." : "Fjernet fellesfag-kobling for samsvarende kopier.");
   }
 
   function getExcludedTimeslotsForSubject(subject: Subject): string[] {
@@ -5593,7 +5593,7 @@ export default function Home() {
     const startStatus = `Generating schedule (run ${runId})...`;
     setStatusText(startStatus);
     openGenerationPopup("running", startStatus, runId);
-    setGenerationPhase("Phase 1/4: Preparing input...");
+    setGenerationPhase("Fase 1/4: Forbereder inndata...");
     startGenerationProgressTicker();
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
@@ -5719,10 +5719,10 @@ export default function Home() {
         throw new Error(`Could not serialize payload: ${err instanceof Error ? err.message : String(err)}`);
       }
 
-      setGenerationPhase("Phase 2/4: Connecting to backend...");
+      setGenerationPhase("Fase 2/4: Kobler til backend...");
       // fetch resolves only when backend responds, which includes solver time.
       // Show this explicitly so long waits are not misread as request upload time.
-      setGenerationPhase("Phase 3/4: Backend solving schedule...");
+      setGenerationPhase("Fase 3/4: Backend l\u00f8ser timeplan...");
       const res = await postGenerateWithFallback(bodyStr, runId, requestTimeoutMs);
 
       if (!res.ok) {
@@ -5735,7 +5735,7 @@ export default function Home() {
       }
 
       const data: GenerateResponse = await res.json();
-      setGenerationPhase("Phase 4/4: Processing response...");
+      setGenerationPhase("Fase 4/4: Behandler svar...");
       const canShowPlacementWarnings = data.status === "success" && (data.schedule?.length ?? 0) > 0;
       const blockLinkedSubjectIds = new Set<string>([
         ...payload.blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
@@ -5781,7 +5781,7 @@ export default function Home() {
 
       const successStatus = formatGeneratedScheduleStatus(data, runId);
       const attemptDetails = formatGenerationAttemptDetails(data.metadata);
-      const successWithElapsed = `${successStatus} Total time ${generationElapsedLabel()}.`;
+      const successWithElapsed = `${successStatus} Total tid ${generationElapsedLabel()}.`;
       setStatusText(successStatus);
       setLastRunMetadata(data.metadata ?? null);
       openGenerationPopup(
@@ -5794,8 +5794,8 @@ export default function Home() {
       setSchedule(data.schedule || []);
       setCautionsList(data.cautions ?? []);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      const failStatus = `Failed (run ${runId}): ${message}. Total time ${generationElapsedLabel()}.`;
+      const message = error instanceof Error ? error.message : "Ukjent feil";
+      const failStatus = `Mislyktes (kjøring ${runId}): ${message}. Total tid ${generationElapsedLabel()}.`;
       setPlacementWarningDetails([]);
       setPlacementWarningSummary("");
       setUnplacedStatusDetails([]);
@@ -5818,7 +5818,7 @@ export default function Home() {
     setUnplacedStatusSummary("");
     setCautionsList([]);
     setLastRunMetadata(null);
-    setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
+    setStatusText("Generert timeplan slettet. Inndata og begrensninger er uendret.");
   }
 
   const renderSubjectCards = (
@@ -5839,7 +5839,7 @@ export default function Home() {
         : getSubjectTeacherIds(subject);
       const assignedTeacherNames = assignedTeacherIds.map((teacherId) => teacherNameById[teacherId] ?? teacherId);
       const blokkfagTeacherSummary = assignedTeacherNames.length === 0
-        ? "No teacher assigned"
+        ? "Ingen lærer tilordnet"
         : assignedTeacherNames.length <= 2
           ? assignedTeacherNames.join(", ")
           : `${assignedTeacherNames.slice(0, 2).join(", ")} +${assignedTeacherNames.length - 2}`;
@@ -5887,7 +5887,7 @@ export default function Home() {
             )}
             {options?.showProgramfagBlockNames && subject.subject_type === "programfag" && (
               <span className="subject-expand-meta">
-                Blocks: {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Unassigned"}
+                Blokker: {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Ikke tilordnet"}
               </span>
             )}
           </span>
@@ -5898,15 +5898,15 @@ export default function Home() {
           <div className="subject-expand-panel">
             {options?.showProgramfagBlockNames && subject.subject_type === "programfag" && (
               <div className="subject-block-assignment-row">
-                <span className="subject-teacher-section-title">Blocks</span>
+                <span className="subject-teacher-section-title">Blokker</span>
                 <span className="subject-block-assignment-text">
-                  {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Unassigned"}
+                  {programfagBlockNames.length > 0 ? programfagBlockNames.join(", ") : "Ikke tilordnet"}
                 </span>
               </div>
             )}
             <div className="subject-card-grid">
               <div className="calendar-field subject-name-field">
-                <label>Subject Name</label>
+                <label>Fagnavn</label>
                 <input
                   type="text"
                   value={subject.name}
@@ -5915,13 +5915,13 @@ export default function Home() {
                       name: e.target.value,
                     })
                   }
-                  placeholder="Subject name"
+                  placeholder="Fagnavn"
                 />
               </div>
 
               {subject.subject_type === "fellesfag" && (
                 <div className="calendar-field subject-sessions-field">
-                  <label>Sessions Per Week (x45m)</label>
+                  <label>Timer per uke (x45min)</label>
                   <input
                     type="number"
                     min={1}
@@ -5937,7 +5937,7 @@ export default function Home() {
 
               <div className={`subject-type-stack${subject.subject_type === "fellesfag" ? " with-sessions" : ""}`}>
                 <div className="calendar-field">
-                  <label>Subject Type</label>
+                  <label>Type fag</label>
                   <select
                     value={subject.subject_type}
                     onChange={(e) =>
@@ -5954,13 +5954,13 @@ export default function Home() {
 
               {subject.subject_type === "programfag" && (
                 <div className="calendar-field subject-block-field">
-                  <label>Assigned Block</label>
+                  <label>Tilordnet blokk</label>
                   <select
                     value={assignedBlockId}
                     onChange={(e) => assignProgramfagToBlock(subject.id, e.target.value)}
                     disabled={sortedBlocksByName.length === 0}
                   >
-                    <option value="">Unassigned</option>
+                    <option value="">Ikke tilordnet</option>
                     {sortedBlocksByName.map((block) => (
                       <option key={block.id} value={block.id}>
                         {block.name}
@@ -5972,7 +5972,7 @@ export default function Home() {
 
               {subject.subject_type === "fellesfag" && (
                 <details className="calendar-field excluded-session-field excluded-session-row subject-collapsible">
-                  <summary className="subject-collapsible-summary">Excluded Sessions</summary>
+                  <summary className="subject-collapsible-summary">Ekskluderte timer</summary>
                   <div className="subject-collapsible-body">
                     <div className="faggrupper-teacher-add-row">
                       <input
@@ -6004,7 +6004,7 @@ export default function Home() {
                           e.preventDefault();
                           const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
                           if (resolvedTimeslotIds === null) {
-                            setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                            setStatusText("Kunne ikke løse en eller flere timer. Bruk eksakte betegnelser fra listen.");
                             return;
                           }
                           if (resolvedTimeslotIds.length === 0) {
@@ -6020,12 +6020,12 @@ export default function Home() {
                             [excludedSearchKey]: "",
                           }));
                         }}
-                        placeholder="Search session(s), comma-separated"
+                        placeholder="Søk time(r), kommaseparert"
                       />
                     </div>
                     <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "118px", overflowY: "auto", alignContent: "flex-start" }}>
                       {excludedTimeslots.length === 0 ? (
-                        <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                        <span className="faggrupper-teacher-empty">Ingen ekskluderte timer</span>
                       ) : (
                         excludedTimeslots.map((slotId) => {
                           const slot = timeslotById[slotId];
@@ -6054,25 +6054,25 @@ export default function Home() {
                         <option key={slot.id} value={formatTimeslotLabel(slot)} />
                       ))}
                     </datalist>
-                    <small>Force in Fellesfag tab can still place this subject in an excluded session.</small>
+                    <small>Tvang i Fellesfag-fanen kan fortsatt plassere dette faget i et ekskludert slott.</small>
                   </div>
                 </details>
               )}
 
               <details className="calendar-field excluded-session-field excluded-session-row subject-collapsible">
-                <summary className="subject-collapsible-summary">Room Requirements</summary>
+                <summary className="subject-collapsible-summary">Romkrav</summary>
                 <div className="subject-collapsible-body">
                   <div className="room-requirements-top-row">
                     <div className="faggrupper-force-field" style={{ minWidth: 0 }}>
-                      <label className="faggrupper-force-label">Mode</label>
+                      <label className="faggrupper-force-label">Modus</label>
                       <select
                         value={subject.room_requirement_mode ?? "always"}
                         onChange={(e) => updateSubjectCard(subject.id, {
                           room_requirement_mode: e.target.value === "once_per_week" ? "once_per_week" : "always",
                         })}
                       >
-                        <option value="always">Always in selected rooms</option>
-                        <option value="once_per_week">At least once per week</option>
+                        <option value="always">Alltid i valgte rom</option>
+                        <option value="once_per_week">Minst én gang per uke</option>
                       </select>
                     </div>
                     <div className="faggrupper-teacher-add-row room-requirements-search-row">
@@ -6107,7 +6107,7 @@ export default function Home() {
                           e.preventDefault();
                           const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
                           if (resolvedRoomIds === null) {
-                            setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                            setStatusText("Kunne ikke løse ett eller flere romnavn. Bruk eksakte navn fra listen.");
                             return;
                           }
                           if (resolvedRoomIds.length === 0) {
@@ -6125,13 +6125,13 @@ export default function Home() {
                             [roomSearchKey]: "",
                           }));
                         }}
-                        placeholder="Search room(s), comma-separated"
+                        placeholder="Søk rom (kommaseparert)"
                       />
                     </div>
                   </div>
                   <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "98px", overflowY: "auto", alignContent: "flex-start" }}>
                     {preferredRoomIds.length === 0 ? (
-                      <span className="faggrupper-teacher-empty">No preferred rooms selected</span>
+                      <span className="faggrupper-teacher-empty">Ingen foretrukne rom valgt</span>
                     ) : (
                       preferredRoomIds.map((roomId) => {
                         const roomLabel = roomNameById[roomId] ?? roomId;
@@ -6146,7 +6146,7 @@ export default function Home() {
                                   preferred_room_ids: preferredRoomIds.filter((id) => id !== roomId),
                                 });
                               }}
-                              aria-label={`Remove preferred room ${roomLabel}`}
+                              aria-label={`Fjern foretrukket rom ${roomLabel}`}
                             >
                               x
                             </button>
@@ -6164,12 +6164,12 @@ export default function Home() {
               </details>
 
               <div className="calendar-field" style={{ display: "none" }}>
-                <label>A/B Week Split (DISABLED - Auto-balancing is used)</label>
+                <label>A/B-ukesplit (DEAKTIVERT - Auto-balansering brukes)</label>
                 <input
                   type="text"
                   value=""
                   disabled
-                  placeholder="e.g. 4/6"
+                  placeholder="f.eks. 4/6"
                 />
               </div>
 
@@ -6177,11 +6177,11 @@ export default function Home() {
 
             {subject.subject_type === "fellesfag" && (
               <div className="subject-class-manager">
-                <span className="subject-teacher-section-title">Classes With Subject</span>
+                <span className="subject-teacher-section-title">Klasser med fag</span>
 
                 <div className="class-toggle-grid-rows">
                   {classRowsByYear.every((row) => row.classes.length === 0) ? (
-                    <span className="subject-class-empty">No classes available</span>
+                    <span className="subject-class-empty">Ingen klasser tilgjengelig</span>
                   ) : (
                     classRowsByYear.map((row) => (
                       <div key={`${subject.id}_${row.yearPrefix}`} className="class-toggle-row">
@@ -6207,7 +6207,7 @@ export default function Home() {
                           </button>
                         <div className="class-toggle-row-buttons">
                           {row.classes.length === 0 ? (
-                            <span className="subject-class-empty">No classes</span>
+                            <span className="subject-class-empty">Ingen klasser</span>
                           ) : (
                             row.classes.map((schoolClass) => {
                               const isSelected = derivedClassIds.includes(schoolClass.id);
@@ -6239,11 +6239,11 @@ export default function Home() {
 
             {subject.subject_type === "programfag" && (
               <div className="subject-teacher-section">
-                <span className="subject-teacher-section-title">Assigned Teachers</span>
+                <span className="subject-teacher-section-title">Tilordnede lærere</span>
 
                 <div className="faggrupper-teacher-selected">
                   {assignedTeacherIds.length === 0 ? (
-                    <span className="subject-class-empty">No teachers assigned</span>
+                    <span className="subject-class-empty">Ingen lærere tilordnet</span>
                   ) : (
                     assignedTeacherIds.map((teacherId) => (
                       <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
@@ -6252,7 +6252,7 @@ export default function Home() {
                           type="button"
                           className="subject-class-chip-remove"
                           onClick={() => removeTeacherFromSubject(subject, teacherId)}
-                          aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                          aria-label={`Fjern lærer ${teacherNameById[teacherId] ?? teacherId}`}
                         >
                           x
                         </button>
@@ -6290,7 +6290,7 @@ export default function Home() {
                         e.preventDefault();
                         const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
                         if (resolvedTeacherIds === null) {
-                          setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                          setStatusText("Kunne ikke løse ett eller flere lærernavn. Bruk eksakte navn fra listen.");
                           return;
                         }
                         if (resolvedTeacherIds.length === 0) {
@@ -6302,7 +6302,7 @@ export default function Home() {
                           [searchKey]: "",
                         }));
                       }}
-                      placeholder="Search teacher(s), comma-separated"
+                      placeholder="Søk lærer(e), kommaseparert"
                     />
                   </div>
                   <datalist id={`subjects-teacher-options-${subject.id}`}>
@@ -6320,7 +6320,7 @@ export default function Home() {
                 className="secondary"
                 onClick={() => deleteSubjectCard(subject.id)}
               >
-                Delete Subject
+                Slett fag
               </button>
             </div>
 
@@ -6339,10 +6339,10 @@ export default function Home() {
             <div className="generation-popup-header">
               <strong>
                 {generationPopup.tone === "running"
-                  ? `Generating run ${generationPopup.runId ?? ""}`
+                  ? `Genererer kjøring ${generationPopup.runId ?? ""}`
                   : generationPopup.tone === "success"
-                    ? `Run ${generationPopup.runId ?? ""} completed`
-                    : `Run ${generationPopup.runId ?? ""} failed`}
+                    ? `Kjøring ${generationPopup.runId ?? ""} fullført`
+                    : `Kjøring ${generationPopup.runId ?? ""} mislyktes`}
               </strong>
               {generationPopup.tone !== "running" && (
                 <button
@@ -6350,7 +6350,7 @@ export default function Home() {
                   className="generation-popup-close"
                   onClick={() => setGenerationPopup((prev) => ({ ...prev, visible: false }))}
                 >
-                  Close
+                  Lukk
                 </button>
               )}
             </div>
@@ -6359,7 +6359,7 @@ export default function Home() {
             {generationPopup.tone === "running" && (
               <div className="generation-popup-progress">
                 <span className="generation-popup-spinner" aria-hidden="true" />
-                Solver is working. This may take a while for complex inputs.
+                Løseren jobber. Dette kan ta en stund for komplekse inndata.
               </div>
             )}
           </div>
@@ -6368,13 +6368,13 @@ export default function Home() {
 
       <section className="hero">
         <div className="hero-title-row">
-          <h1>School Scheduling Studio</h1>
+          <h1>Timeplanleggingsstudio</h1>
           <button
             type="button"
             className="secondary hero-ultrawide-toggle"
             onClick={() => setShowUltrawideTimeline((prev) => !prev)}
           >
-            {showUltrawideTimeline ? "Exit Ultrawide" : "Show Ultrawide"}
+            {showUltrawideTimeline ? "Avslutt Ultrawide" : "Vis Ultrawide"}
           </button>
         </div>
       </section>
@@ -6396,19 +6396,19 @@ export default function Home() {
       {activeTab === "files" && (
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Files</h2>
-          <p>Export current workspace state to JSON, import a JSON file, and restore earlier exports from this menu.</p>
+          <h2>Filer</h2>
+          <p>Eksporter gjeldende arbeidsområdestatus til JSON, importer en JSON-fil og gjenopprett tidligere eksporter fra denne menyen.</p>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
             <button type="button" onClick={() => exportCurrentState()}>
-              Export JSON
+              Eksporter JSON
             </button>
             <button
               type="button"
               className="secondary"
               onClick={() => jsonFileRef.current?.click()}
             >
-              Import JSON
+              Importer JSON
             </button>
             <input
               ref={jsonFileRef}
@@ -6419,10 +6419,10 @@ export default function Home() {
             />
           </div>
 
-          <h3>Saved Exports</h3>
+          <h3>Lagrede eksporter</h3>
           <div className="list">
             {savedJsonExports.length === 0 ? (
-              <div className="item">No saved exports yet.</div>
+              <div className="item">Ingen lagrede eksporter ennå.</div>
             ) : (
               savedJsonExports.map((item) => (
                 <div key={item.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
@@ -6434,17 +6434,17 @@ export default function Home() {
                   </div>
                   <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
                     <button type="button" className="secondary" onClick={() => restoreSavedExport(item)}>
-                      Load
+                      Last inn
                     </button>
                     <button type="button" className="secondary" onClick={() => downloadJsonFile(item.name, item.payload)}>
-                      Download
+                      Last ned
                     </button>
                     <button
                       type="button"
                       className="secondary"
                       onClick={() => setSavedJsonExports((prev) => prev.filter((entry) => entry.id !== item.id))}
                     >
-                      Remove
+                      Fjern
                     </button>
                   </div>
                 </div>
@@ -6457,12 +6457,12 @@ export default function Home() {
 
       {activeTab === "calendar" && (
       <section className="card week-calendar">
-        <h2>Week Calendar (Monday-Friday)</h2>
-        <p>Click a day column to select it, set start and finish, then press Enter or Add Timeslot.</p>
+        <h2>Ukekalender (mandag–fredag)</h2>
+        <p>Klikk på en dagkolonne for å velge den, angi start og slutt, og trykk Enter eller Legg til tidsluke.</p>
 
         <section className="week-setup-manager">
-          <h3>Week Calendar Setups</h3>
-          <p>Save multiple weekly variations and assign them to classes.</p>
+          <h3>Ukekalender-oppsett</h3>
+          <p>Lagre flere ukevarianter og tilordne dem til klasser.</p>
           <form
             className="week-setup-form"
             onSubmit={(e) => {
@@ -6471,16 +6471,16 @@ export default function Home() {
             }}
           >
             <div className="calendar-field">
-              <label>Setup Name</label>
+              <label>Oppsettsnavn</label>
               <input
                 value={weekSetupForm.name}
                 onChange={(e) => setWeekSetupForm((s) => ({ ...s, name: e.target.value }))}
-                placeholder="Example: Science-heavy week"
+                placeholder="Eks: Naturfag-tung uke"
               />
             </div>
 
             <button type="submit" className="calendar-submit">
-              {activeWeekSetupId ? "Save Changes To Active Setup" : "Save Current Week As Setup"}
+              {activeWeekSetupId ? "Lagre endringer til aktivt oppsett" : "Lagre gjeldende uke som oppsett"}
             </button>
           </form>
 
@@ -6491,10 +6491,10 @@ export default function Home() {
               onClick={() => {
                 setActiveWeekSetupId(null);
                 setWeekSetupForm({ name: "" });
-                setStatusText("Ready to create a new week setup.");
+                setStatusText("Klar til å opprette et nytt ukeoppsett.");
               }}
             >
-              New Setup
+              Nytt oppsett
             </button>
             {activeWeekSetupId ? <div className="status">Active setup: {activeWeekSetupId}</div> : null}
           </div>
@@ -6547,7 +6547,7 @@ export default function Home() {
                           submitInlineRename(setup.id);
                         }}
                       >
-                        Save
+                        Lagre
                       </button>
                       <button
                         type="button"
@@ -6557,19 +6557,19 @@ export default function Home() {
                           cancelInlineRename();
                         }}
                       >
-                        Cancel
+                        Avbryt
                       </button>
                     </div>
                   ) : (
                     <strong>{setup.name}</strong>
                   )} ({setup.id})
                   <div>
-                    Slots: {setup.timeslots.length} | Classes: {setup.class_ids.length
+                    Slots: {setup.timeslots.length} | Klasser: {setup.class_ids.length
                       ? setup.class_ids
                         .map((id) => classNameById[id] ?? id)
                         .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }))
                         .join(", ")
-                      : "none assigned"}
+                      : "ingen tilordnet"}
                   </div>
                 </div>
                 <div className="week-setup-actions">
@@ -6581,7 +6581,7 @@ export default function Home() {
                       cloneWeekSetup(setup.id);
                     }}
                   >
-                    Clone
+                    Klon
                   </button>
                   <button
                     type="button"
@@ -6591,7 +6591,7 @@ export default function Home() {
                       startInlineRename(setup.id);
                     }}
                   >
-                    Rename
+                    Gi nytt navn
                   </button>
                   <button
                     type="button"
@@ -6601,7 +6601,7 @@ export default function Home() {
                       deleteWeekSetup(setup.id);
                     }}
                   >
-                    Delete
+                    Slett
                   </button>
                 </div>
               </div>
@@ -6621,7 +6621,7 @@ export default function Home() {
           }}
         >
           <div className="calendar-field day-field">
-            <label>Selected Day</label>
+            <label>Valgt dag</label>
             <select
               value={activeCalendarDay}
               onChange={(e) => {
@@ -6644,21 +6644,7 @@ export default function Home() {
               inputMode="numeric"
               placeholder="08:00"
               pattern="^([01]?\d|2[0-3]):[0-5]\d$"
-              title="Use 24-hour format HH:MM"
-              value={timeslotForm.start_time}
-              onChange={(e) => setTimeslotForm((s) => ({ ...s, start_time: e.target.value }))}
-              onBlur={(e) => setTimeslotForm((s) => ({ ...s, start_time: normalizeTime24(e.target.value) }))}
-            />
-          </div>
-
-          <div className="calendar-field time-field">
-            <label>Finish</label>
-            <input
-              type="text"
-              inputMode="numeric"
-              placeholder="08:45"
-              pattern="^([01]?\d|2[0-3]):[0-5]\d$"
-              title="Use 24-hour format HH:MM"
+              title="Bruk 24-timersformat HH:MM"
               value={timeslotForm.end_time}
               onChange={(e) => setTimeslotForm((s) => ({ ...s, end_time: e.target.value }))}
               onBlur={(e) => setTimeslotForm((s) => ({ ...s, end_time: normalizeTime24(e.target.value) }))}
@@ -6675,15 +6661,15 @@ export default function Home() {
                 generation_allowed_class_ids: e.target.checked ? s.generation_allowed_class_ids : [],
               }))}
             />
-            Exclude from generation
+            Ekskluder fra generering
           </label>
 
           {timeslotForm.excluded_from_generation ? (
             <div className="calendar-field" style={{ gridColumn: "1 / -1" }}>
-              <label>Not Excluded For Classes</label>
+              <label>Ikke ekskludert for klasser</label>
               <div className="class-toggle-grid-rows">
                 {classRowsByYear.every((row) => row.classes.length === 0) ? (
-                  <span className="meeting-empty">No classes available</span>
+                  <span className="meeting-empty">Ingen klasser tilgjengelig</span>
                 ) : (
                   classRowsByYear.map((row) => (
                     <div key={row.yearPrefix} className="class-toggle-row">
@@ -6713,7 +6699,7 @@ export default function Home() {
                       </button>
                       <div className="class-toggle-row-buttons">
                         {row.classes.length === 0 ? (
-                          <span className="meeting-empty">No classes</span>
+                          <span className="meeting-empty">Ingen klasser</span>
                         ) : (
                           row.classes.map((schoolClass) => {
                             const isSelected = timeslotForm.generation_allowed_class_ids.includes(schoolClass.id);
@@ -6740,21 +6726,21 @@ export default function Home() {
                 )}
               </div>
               <p style={{ marginTop: "4px", fontSize: "0.78rem" }}>
-                This slot stays excluded for all other classes.
+                Dette tidslukeet er ekskludert for alle andre klasser.
               </p>
             </div>
           ) : null}
 
           <button className="calendar-submit" type="submit">
-            {editingTimeslotId ? "Save Changes" : "Add Timeslot"}
+            {editingTimeslotId ? "Lagre endringer" : "Legg til tidsluke"}
           </button>
         </form>
 
         {editingTimeslotId && (
           <div className="calendar-editing-row">
-            <div className="calendar-editing-note">Editing slot: {editingTimeslotId}</div>
+            <div className="calendar-editing-note">Redigerer slott: {editingTimeslotId}</div>
             <button type="button" className="secondary calendar-cancel-edit" onClick={cancelEditTimeslot}>
-              Cancel Edit
+              Avbryt redigering
             </button>
           </div>
         )}
@@ -6779,7 +6765,7 @@ export default function Home() {
             setIsDeleteZoneActive(false);
           }}
         >
-          Drag a timeslot here to delete it
+          Dra et tidsluke hit for å slette det
         </div>
 
         <div className="week-grid">
@@ -6814,7 +6800,7 @@ export default function Home() {
                     addTimeslot(day);
                   }}
                 >
-                  {editingTimeslotId ? "Save" : "Add"}
+                  {editingTimeslotId ? "Lagre" : "Legg til"}
                 </button>
               </header>
               <div className="day-slots">
@@ -6889,9 +6875,9 @@ export default function Home() {
                         <div>{slot.start_time} - {slot.end_time}</div>
                         {slot.excluded_from_generation ? (
                           <small>
-                            Excluded from generation
+                            Ekskludert fra generering
                             {(slot.generation_allowed_class_ids?.length ?? 0) > 0
-                              ? ` except ${slot.generation_allowed_class_ids?.map((id) => classNameById[id] ?? id).join(", ")}`
+                              ? ` unntatt ${slot.generation_allowed_class_ids?.map((id) => classNameById[id] ?? id).join(", ")}`
                               : ""}
                           </small>
                         ) : null}
@@ -6910,12 +6896,12 @@ export default function Home() {
       {activeTab === "classes" && (
       <section className="grid">
         <article className="card">
-          <h2>Classes</h2>
-          <p>Add teaching groups like 1STA, 1STB, 1STC and choose which week setup each class follows.</p>
+          <h2>Klasser</h2>
+          <p>Legg til undervisningsgrupper som 1STA, 1STB, 1STC og velg hvilket ukeoppsett hver klasse følger.</p>
           <form onSubmit={(e) => { e.preventDefault(); addClass(); }}>
-            <label>Name</label>
+            <label>Navn</label>
             <input value={classForm.name} onChange={(e) => setClassForm((s) => ({ ...s, name: e.target.value }))} />
-            <label>Calendar Setup</label>
+            <label>Kalenderoppsett</label>
             <select
               value={classForm.setupId || getDefaultSetupId()}
               onChange={(e) => setClassForm((s) => ({ ...s, setupId: e.target.value }))}
@@ -6926,7 +6912,7 @@ export default function Home() {
                 </option>
               ))}
             </select>
-            <button type="submit">Add Class</button>
+            <button type="submit">Legg til klasse</button>
           </form>
 
           <form
@@ -6954,7 +6940,7 @@ export default function Home() {
               />
             </div>
             <div className="calendar-field">
-              <label>Classes Per Trinn</label>
+              <label>Klasser per trinn</label>
               <input
                 type="number"
                 min={1}
@@ -6963,7 +6949,7 @@ export default function Home() {
               />
             </div>
             <div className="calendar-field">
-              <label>Calendar Setup</label>
+              <label>Kalenderoppsett</label>
               <select
                 value={bulkClassForm.setupId || getDefaultSetupId()}
                 onChange={(e) => setBulkClassForm((s) => ({ ...s, setupId: e.target.value }))}
@@ -6975,7 +6961,7 @@ export default function Home() {
                 ))}
               </select>
             </div>
-            <button type="submit">Mass Add Classes</button>
+            <button type="submit">Masselegg til klasser</button>
           </form>
 
           <div className="list classes-setup-list">
@@ -6992,7 +6978,7 @@ export default function Home() {
                 >
                   <span className="class-expand-title">
                     {c.name}
-                    {expandedClassId === c.id ? " (selected)" : ""}
+                    {expandedClassId === c.id ? " (valgt)" : ""}
                   </span>
                   <span className="class-expand-symbol">{expandedClassId === c.id ? "-" : "+"}</span>
                 </button>
@@ -7000,7 +6986,7 @@ export default function Home() {
                 {expandedClassId === c.id && (
                   <div className="class-expand-panel">
                     <div className="calendar-field">
-                      <label>Calendar Setup</label>
+                      <label>Kalenderoppsett</label>
                       <select
                         value={getSetupIdForClass(c.id)}
                         onChange={(e) => assignClassToSetup(c.id, e.target.value)}
@@ -7014,7 +7000,7 @@ export default function Home() {
                     </div>
 
                     <div className="calendar-field">
-                      <label>Add Fellesfag</label>
+                      <label>Legg til fellesfag</label>
                       <div className="class-setup-controls">
                         <select
                           value={fellesfagSelectionByClass[c.id] ?? ""}
@@ -7026,7 +7012,7 @@ export default function Home() {
                             }));
                           }}
                         >
-                          <option value="">Choose fellesfag</option>
+                          <option value="">Velg fellesfag</option>
                           {fellesfagTemplates.map((subject) => (
                             <option key={subject.id} value={subject.id}>
                               {subject.name}
@@ -7038,7 +7024,7 @@ export default function Home() {
                           onClick={() => addFellesfagToClass(c.id, fellesfagSelectionByClass[c.id] ?? "")}
                           disabled={!fellesfagSelectionByClass[c.id]}
                         >
-                          Add
+                          Legg til
                         </button>
                       </div>
                     </div>
@@ -7054,7 +7040,7 @@ export default function Home() {
                               className="secondary"
                               onClick={() => removeFellesfagFromClass(c.id, subject.id)}
                             >
-                              Remove
+                              Fjern
                             </button>
                           </div>
                         ))}
@@ -7064,7 +7050,7 @@ export default function Home() {
                       (s) => s.class_ids.length === 1 && s.class_ids[0] === c.id,
                     ) && (
                       <div className="calendar-field">
-                        <label>Duplicate Fellesfag To Other Classes</label>
+                        <label>Dupliser fellesfag til andre klasser</label>
                         <select
                           multiple
                           size={Math.min(Math.max(sortedClasses.filter((cl) => cl.id !== c.id).length, 3), 8)}
@@ -7087,7 +7073,7 @@ export default function Home() {
                           disabled={!(duplicateTargetsByClass[c.id] ?? []).length}
                           onClick={() => duplicateFellesfagToClasses(c.id, duplicateTargetsByClass[c.id] ?? [])}
                         >
-                          Duplicate to Selected Classes
+                          Dupliser til valgte klasser
                         </button>
                       </div>
                     )}
@@ -7097,7 +7083,7 @@ export default function Home() {
                       className="secondary"
                       onClick={() => removeClass(c.id)}
                     >
-                      Delete Class
+                      Slett klasse
                     </button>
                   </div>
                 )}
@@ -7111,13 +7097,13 @@ export default function Home() {
       {activeTab === "subjects" && (
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Subjects</h2>
+          <h2>Fag</h2>
           <section className="subject-add-panel">
-            <h3 className="subject-add-panel-title">Add Subject Card</h3>
+            <h3 className="subject-add-panel-title">Legg til fagkort</h3>
             <form onSubmit={(e) => { e.preventDefault(); addSubjectCard(); }}>
               <div className="subject-add-inline-row">
                 <div className="calendar-field">
-                  <label>Subject Name</label>
+                  <label>Fagnavn</label>
                   <input
                     value={subjectForm.name}
                     onChange={(e) => setSubjectForm((s) => ({ ...s, name: e.target.value }))}
@@ -7147,10 +7133,10 @@ export default function Home() {
 
               {subjectForm.subject_type === "fellesfag" && (
                 <div className="subject-add-conditional-slot">
-                  <label>Classes With Subject</label>
+                  <label>Klasser med faget</label>
                   <div className="subject-class-toggle-line">
                     {classRowsByYear.every((row) => row.classes.length === 0) ? (
-                      <span className="subject-class-empty">No classes available</span>
+                      <span className="subject-class-empty">Ingen klasser tilgjengelig</span>
                     ) : (
                       classRowsByYear.map((row, rowIndex) => (
                         <Fragment key={`add_subject_${row.yearPrefix}`}>
@@ -7181,7 +7167,7 @@ export default function Home() {
                               {row.yearPrefix}. trinn
                             </button>
                             {row.classes.length === 0 ? (
-                              <span className="subject-class-empty">No classes</span>
+                              <span className="subject-class-empty">Ingen klasser</span>
                             ) : (
                               row.classes.map((schoolClass) => {
                                 const isSelected = subjectForm.class_ids.includes(schoolClass.id);
@@ -7212,12 +7198,12 @@ export default function Home() {
 
               {subjectForm.subject_type === "programfag" && (
                   <div className="subject-add-conditional-slot">
-                  <label>Block</label>
+                  <label>Blokk</label>
                   <select
                     value={subjectForm.block_id}
                     onChange={(e) => setSubjectForm((s) => ({ ...s, block_id: e.target.value }))}
                   >
-                    <option value="">Select block</option>
+                    <option value="">Velg blokk</option>
                     {sortedBlocksByName.map((block) => (
                       <option key={block.id} value={block.id}>
                         {block.name}
@@ -7226,7 +7212,7 @@ export default function Home() {
                   </select>
                   </div>
               )}
-              <button type="submit">Add Subject Card</button>
+              <button type="submit">Legg til fagkort</button>
             </form>
           </section>
 
@@ -7234,7 +7220,7 @@ export default function Home() {
             <section className="subject-column subject-column-fellesfag">
               <h3 className="subject-column-title">Fellesfag</h3>
               <div className="list subject-card-list subject-card-list-column">
-                {renderSubjectCards(fellesfagSubjectTabEntries, "No fellesfag subjects yet.")}
+                {renderSubjectCards(fellesfagSubjectTabEntries, "Ingen fellesfag ennå.")}
               </div>
             </section>
 
@@ -7257,7 +7243,7 @@ export default function Home() {
                       color: blokkfagSortMode === "block" ? "#2a9d8f" : undefined,
                     }}
                   >
-                    By Block
+                    Etter blokk
                   </button>
                   <button
                     type="button"
@@ -7280,7 +7266,7 @@ export default function Home() {
               </div>
               <div className="list subject-card-list subject-card-list-column">
                 {blokkfagDisplayedGroups.length === 0 ? (
-                  <p className="subject-column-empty">No blokkfag subjects yet.</p>
+                  <p className="subject-column-empty">Ingen blokkfag ennå.</p>
                 ) : (
                   blokkfagDisplayedGroups.map((group, groupIndex) => {
                     const isSubjectMode = blokkfagSortMode === "subject";
@@ -7315,7 +7301,7 @@ export default function Home() {
                             {isExpanded ? "▼" : "▶"} {group.title} ({group.entries.length})
                             {isSubjectMode && (
                               <span className="subject-group-blocks-inline">
-                                {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
+                                {' '}| Blokker: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Ikke tilordnet"}
                               </span>
                             )}
                           </button>
@@ -7325,7 +7311,7 @@ export default function Home() {
                               {group.title}
                               {isSubjectMode && (
                                 <span className="subject-group-blocks-inline">
-                                  {' '}| Blocks: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Unassigned"}
+                                  {' '}| Blokker: {group.blockNames && group.blockNames.length > 0 ? group.blockNames.join(", ") : "Ikke tilordnet"}
                                 </span>
                               )}
                             </h4>
@@ -7344,15 +7330,15 @@ export default function Home() {
                                     setBlockAddSubjectName("");
                                   }}
                                 >
-                                  Add Subject
+                                  Legg til fag
                                 </button>
                               </div>
                             ) : null}
                           </div>
                         )}
                         {isAddPopupOpen ? (
-                          <div className="subject-block-add-popup" role="dialog" aria-label={`Add subject to ${group.title}`}>
-                            <label>New subject name for {group.title}</label>
+                          <div className="subject-block-add-popup" role="dialog" aria-label={`Legg til fag i ${group.title}`}>
+                            <label>Nytt fagnavn for {group.title}</label>
                             <input
                               type="text"
                               value={blockAddSubjectName}
@@ -7363,7 +7349,7 @@ export default function Home() {
                                   addSubjectToBlockFromPopup(group.key);
                                 }
                               }}
-                              placeholder="Write subject name"
+                              placeholder="Skriv fagnavn"
                               autoFocus
                             />
                             <div className="subject-block-add-popup-actions">
@@ -7375,21 +7361,21 @@ export default function Home() {
                                   setBlockAddSubjectName("");
                                 }}
                               >
-                                Cancel
+                                Avbryt
                               </button>
                               <button
                                 type="button"
                                 onClick={() => addSubjectToBlockFromPopup(group.key)}
                                 disabled={!blockAddSubjectName.trim()}
                               >
-                                Add
+                                Legg til
                               </button>
                             </div>
                           </div>
                         ) : null}
                         {isExpanded && renderSubjectCards(
                           group.entries,
-                          isSubjectMode ? "No subjects with this name." : "No subjects in this block.",
+                          isSubjectMode ? "Ingen fag med dette navnet." : "Ingen fag i denne blokken.",
                           { showProgramfagBlockNames: isSubjectMode }
                         )}
                       </section>
@@ -7420,14 +7406,14 @@ export default function Home() {
               Clear Teachers
             </button>
           </div>
-          <p>Select a class to view its subjects and set teachers.</p>
+          <p>Velg en klasse for � se fagene og angi l�rere.</p>
 
           <div className="faggrupper-layout">
             <aside className="faggrupper-classes list">
               <input
                 value={faggrupperClassSearchQuery}
                 onChange={(e) => setFaggrupperClassSearchQuery(e.target.value)}
-                placeholder="Search classes"
+                placeholder="Søk klasser"
                 style={{ marginBottom: "6px" }}
               />
               <div className="faggrupper-class-columns">
@@ -7450,7 +7436,7 @@ export default function Home() {
                 ))}
               </div>
               {filteredFaggrupperClasses.length === 0 ? (
-                <p style={{ margin: "4px 0", color: "#777", fontSize: "0.78rem" }}>No class matches.</p>
+                <p style={{ margin: "4px 0", color: "#777", fontSize: "0.78rem" }}>Ingen klasse samsvarer.</p>
               ) : null}
             </aside>
 
@@ -7462,7 +7448,7 @@ export default function Home() {
                   </h3>
                   <div className="faggrupper-subject-list">
                     {(classSubjectsById[activeFaggruppeClassId] ?? []).length === 0 ? (
-                      <p>No subjects assigned to this class yet.</p>
+                      <p>Ingen fag tilordnet denne klassen ennå.</p>
                     ) : (
                       (classSubjectsById[activeFaggruppeClassId] ?? []).map((subject) => {
                         const searchKey = `faggrupper_${subject.id}`;
@@ -7478,7 +7464,7 @@ export default function Home() {
                           <div key={`${activeFaggruppeClassId}_${subject.id}`} className="subject-teacher-row faggrupper-subject-row">
                             <div className="faggrupper-subject-main">
                               <span className="subject-teacher-classname">{subject.name}</span>
-                              <div className="faggrupper-units-field" title={isClassCopy ? "Edit weekly units for this class copy." : "Only class-specific copies can be edited here."}>
+                              <div className="faggrupper-units-field" title={isClassCopy ? "Rediger ukentlige enheter for denne klassekopien." : "Kun klassesspesifikke kopier kan redigeres her."}>
                                 <label>45m</label>
                                 <input
                                   type="number"
@@ -7497,8 +7483,8 @@ export default function Home() {
                                 className="faggrupper-units-field"
                                 title={
                                   isClassCopy && subject.subject_type === "fellesfag"
-                                    ? "Linked copies with the same name are scheduled in the same sessions."
-                                    : "Only class-specific fellesfag copies can be linked here."
+                                    ? "Koblede kopier med samme navn planlegges i de samme timene."
+                                    : "Kun klassesspesifikke fellesfag-kopier kan kobles her."
                                 }
                               >
                                 <label className="faggrupper-force-label">
@@ -7519,7 +7505,7 @@ export default function Home() {
                               <div className="faggrupper-teacher-inline-row">
                                 <div className="faggrupper-teacher-selected">
                                   {assignedTeacherIds.length === 0 ? (
-                                    <span className="faggrupper-teacher-empty">No teachers</span>
+                                    <span className="faggrupper-teacher-empty">Ingen l\u00e6rere</span>
                                   ) : (
                                     assignedTeacherIds.map((teacherId) => (
                                       <span key={`${subject.id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
@@ -7528,7 +7514,7 @@ export default function Home() {
                                           type="button"
                                           className="subject-class-chip-remove"
                                           onClick={() => removeTeacherFromSubject(subject, teacherId)}
-                                          aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                                          aria-label={`Fjern lærer ${teacherNameById[teacherId] ?? teacherId}`}
                                         >
                                           x
                                         </button>
@@ -7564,7 +7550,7 @@ export default function Home() {
                                       e.preventDefault();
                                       const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
                                       if (resolvedTeacherIds === null) {
-                                        setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                                        setStatusText("Kunne ikke løse ett eller flere lærernavn. Bruk eksakte navn fra listen.");
                                         return;
                                       }
                                       if (resolvedTeacherIds.length === 0) {
@@ -7576,21 +7562,21 @@ export default function Home() {
                                         [searchKey]: "",
                                       }));
                                     }}
-                                    placeholder="Search teacher(s), comma-separated"
+                                    placeholder="Søk lærer(e), kommaseparert"
                                   />
                                 </div>
                               </div>
                             </div>
 
                             <details className="faggrupper-advanced-settings">
-                              <summary>Force and Excluded</summary>
+                              <summary>Tvang og ekskludering</summary>
                               <div className="faggrupper-advanced-grid">
                                 <div
                                   className="faggrupper-units-field faggrupper-force-field"
                                   title={
                                     isClassCopy && subject.subject_type === "fellesfag"
-                                      ? "Force one weekly placement into a specific slot (can overlap with blocks)."
-                                      : "Only class-specific fellesfag can be force-placed here."
+                                      ? "Tving én ukentlig plassering i et bestemt slott (kan overlappe med blokker)."
+                                      : "Kun klassesspesifikke fellesfag kan tvangslplasseres her."
                                   }
                                 >
                                   <label className="faggrupper-force-label">
@@ -7606,7 +7592,7 @@ export default function Home() {
                                         });
                                       }}
                                     />
-                                    Force
+                                    Tvang
                                   </label>
                                   <select
                                     value={subject.force_timeslot_id ?? ""}
@@ -7619,7 +7605,7 @@ export default function Home() {
                                       });
                                     }}
                                   >
-                                    <option value="">Select slot</option>
+                                    <option value="">Velg slott</option>
                                     {sortedTimeslots.map((ts) => (
                                       <option key={ts.id} value={ts.id}>
                                         {ts.day} P{ts.period}
@@ -7633,11 +7619,11 @@ export default function Home() {
                                   className="faggrupper-units-field excluded-session-field"
                                   title={
                                     isClassCopy && subject.subject_type === "fellesfag"
-                                      ? "Exclude slots from feasible placement for this class copy."
-                                      : "Only class-specific fellesfag copies can be edited here."
+                                      ? "Ekskluder slotter fra gjennomførbar plassering for denne klassekopien."
+                                      : "Kun klassesspesifikke fellesfag-kopier kan redigeres her."
                                   }
                                 >
-                                  <label>Excluded</label>
+                                  <label>Ekskludert</label>
                                   <div className="faggrupper-teacher-add-row">
                                     <input
                                       list={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}
@@ -7669,7 +7655,7 @@ export default function Home() {
                                         e.preventDefault();
                                         const resolvedTimeslotIds = resolveTimeslotIdsFromInput(excludedDraft);
                                         if (resolvedTimeslotIds === null) {
-                                          setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                                          setStatusText("Kunne ikke løse en eller flere timer. Bruk eksakte betegnelser fra listen.");
                                           return;
                                         }
                                         if (resolvedTimeslotIds.length === 0) {
@@ -7685,12 +7671,12 @@ export default function Home() {
                                           [excludedSearchKey]: "",
                                         }));
                                       }}
-                                      placeholder="Search session(s), comma-separated"
+                                      placeholder="Søk time(r), kommaseparert"
                                     />
                                   </div>
                                   <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.18rem" }}>
                                     {excludedTimeslots.length === 0 ? (
-                                      <span className="faggrupper-teacher-empty">No excluded sessions</span>
+                                      <span className="faggrupper-teacher-empty">Ingen ekskluderte timer</span>
                                     ) : (
                                       excludedTimeslots.map((slotId) => {
                                         const slot = timeslotById[slotId];
@@ -7706,7 +7692,7 @@ export default function Home() {
                                                 const next = excludedTimeslots.filter((id) => id !== slotId);
                                                 updateFellesfagExcludedTimeslots(subject.id, next, false);
                                               }}
-                                              aria-label={`Remove excluded slot ${label}`}
+                                              aria-label={`Fjern ekskludert slott ${label}`}
                                             >
                                               x
                                             </button>
@@ -7735,7 +7721,7 @@ export default function Home() {
                     )}
                   </div>
                   <div className="calendar-field" style={{ marginTop: "0.55rem" }}>
-                    <label>Add Fellesfag To This Class</label>
+                    <label>Legg til fellesfag i denne klassen</label>
                     <div className="class-setup-controls" style={{ marginBottom: "0.38rem" }}>
                       <select
                         value={fellesfagSelectionByClass[activeFaggruppeClassId] ?? ""}
@@ -7747,7 +7733,7 @@ export default function Home() {
                           }));
                         }}
                       >
-                        <option value="">Choose fellesfag</option>
+                        <option value="">Velg fellesfag</option>
                         {fellesfagTemplates.map((subject) => (
                           <option key={subject.id} value={subject.id}>
                             {subject.name}
@@ -7759,7 +7745,7 @@ export default function Home() {
                         onClick={() => addFellesfagToClass(activeFaggruppeClassId, fellesfagSelectionByClass[activeFaggruppeClassId] ?? "")}
                         disabled={!fellesfagSelectionByClass[activeFaggruppeClassId]}
                       >
-                        Add Existing
+                        Legg til eksisterende
                       </button>
                     </div>
                     <div className="class-setup-controls">
@@ -7769,20 +7755,20 @@ export default function Home() {
                           ...prev,
                           [activeFaggruppeClassId]: e.target.value,
                         }))}
-                        placeholder="Or create new fellesfag"
+                        placeholder="Eller lag nytt fellesfag"
                       />
                       <button
                         type="button"
                         onClick={() => addOrCreateFellesfagForClass(activeFaggruppeClassId)}
                         disabled={!(newFellesfagNameByClass[activeFaggruppeClassId] ?? "").trim()}
                       >
-                        Add New
+                        Legg til ny
                       </button>
                     </div>
                   </div>
                 </>
               ) : (
-                <p>Select a class to manage subject teachers.</p>
+                <p>Velg en klasse for å administrere faglærere.</p>
               )}
             </section>
           </div>
@@ -7794,7 +7780,7 @@ export default function Home() {
       <section className="grid blocks-layout">
         <article className="card">
           <h2>Blokker</h2>
-          <p>Define program blocks (e.g. Blokk 1, 2, 3) with their scheduled times, participating classes, and subjects.</p>
+          <p>Definer programblokker (f.eks. Blokk 1, 2, 3) med planlagte tider, deltakende klasser og fag.</p>
           <form noValidate onSubmit={(e) => { e.preventDefault(); upsertBlock(); }}>
             <label>Block Name</label>
             <input
@@ -7803,10 +7789,10 @@ export default function Home() {
               placeholder="Blokk 1"
             />
 
-            <label style={{ marginTop: "12px" }}>Times</label>
+            <label style={{ marginTop: "12px" }}>Tider</label>
             <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", alignItems: "flex-end", marginBottom: "6px" }}>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "0.75em", color: "#666" }}>Day</span>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Dag</span>
                 <select
                   value={blockOccForm.day}
                   onChange={(e) => setBlockOccForm((s) => ({ ...s, day: e.target.value }))}
@@ -7831,7 +7817,7 @@ export default function Home() {
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "0.75em", color: "#666" }}>End</span>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Slutt</span>
                 <input
                   type="text"
                   value={blockOccForm.end_time}
@@ -7844,15 +7830,15 @@ export default function Home() {
                 />
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
-                <span style={{ fontSize: "0.75em", color: "#666" }}>Week</span>
+                <span style={{ fontSize: "0.75em", color: "#666" }}>Uke</span>
                 <select
                   value={blockOccForm.week_type}
                   onChange={(e) => setBlockOccForm((s) => ({ ...s, week_type: parseWeekView(e.target.value) }))}
                   style={{ fontSize: "0.86em" }}
                 >
-                  <option value="both">Both</option>
-                  <option value="A">A week</option>
-                  <option value="B">B week</option>
+                  <option value="both">Begge uker</option>
+                  <option value="A">Uke A</option>
+                  <option value="B">Uke B</option>
                 </select>
               </div>
               <button
@@ -7861,24 +7847,24 @@ export default function Home() {
                 disabled={!isValidTime24(blockOccForm.start_time) || !isValidTime24(blockOccForm.end_time)}
                 style={{ padding: "4px 10px", fontSize: "0.85em", whiteSpace: "nowrap" }}
               >
-                + Add Time
+                + Legg til tid
               </button>
             </div>
             {blockForm.occurrences.length > 0 && (
               <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginBottom: "8px" }}>
                 {blockForm.occurrences.map((occ) => (
                   <div key={occ.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", background: "#f5f5f5", padding: "4px 8px", borderRadius: "4px", fontSize: "0.85em" }}>
-                    <span>{occ.day} {occ.start_time}–{occ.end_time} · {occ.week_type === "both" ? "Both weeks" : occ.week_type + " week"}</span>
+                    <span>{occ.day} {occ.start_time}–{occ.end_time} · {occ.week_type === "both" ? "Begge uker" : occ.week_type + " uke"}</span>
                     <button type="button" className="secondary" onClick={() => removeOccurrenceFromBlockForm(occ.id)} style={{ padding: "2px 6px", fontSize: "0.78em", color: "#c53" }}>✕</button>
                   </div>
                 ))}
               </div>
             )}
 
-            <label style={{ marginTop: "8px" }}>Classes (who can pick subjects from this block)</label>
+            <label style={{ marginTop: "8px" }}>Klasser (som kan velge fag fra denne blokken)</label>
             <div className="block-class-grid">
               {sortedClasses.length === 0 ? (
-                <span style={{ fontSize: "0.85em", color: "#999" }}>No classes added yet.</span>
+                <span style={{ fontSize: "0.85em", color: "#999" }}>Ingen klasser lagt til ennå.</span>
               ) : (
                 (["1", "2", "3"] as const).map((yearPrefix) => (
                   <div key={yearPrefix} className="block-class-col">
@@ -7909,18 +7895,18 @@ export default function Home() {
             </div>
 
             <div style={{ display: "flex", gap: "8px", marginTop: "8px" }}>
-              <button type="submit">{editingBlockId ? "Update Block" : "Add Block"}</button>
+              <button type="submit">{editingBlockId ? "Oppdater blokk" : "Legg til blokk"}</button>
               {editingBlockId && (
-                <button type="button" className="secondary" onClick={resetBlockForm}>Cancel</button>
+                <button type="button" className="secondary" onClick={resetBlockForm}>Avbryt</button>
               )}
             </div>
           </form>
         </article>
 
         <article className="card blocks-right-column">
-          <h2>Block List</h2>
+          <h2>Blokkliste</h2>
           {blocks.length === 0 ? (
-            <p style={{ color: "#999" }}>No blocks added yet.</p>
+            <p style={{ color: "#999" }}>Ingen blokker lagt til ennå.</p>
           ) : (
             <div className="list" style={{ maxHeight: "600px" }}>
               {sortedBlocksByName.map((block) => {
@@ -7938,8 +7924,8 @@ export default function Home() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <strong>{block.name}</strong>
                       <div style={{ display: "flex", gap: "6px" }}>
-                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); loadBlockIntoForm(block); }} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Edit</button>
-                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); deleteBlock(block.id); }} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Delete</button>
+                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); loadBlockIntoForm(block); }} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Rediger</button>
+                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); deleteBlock(block.id); }} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Slett</button>
                       </div>
                     </div>
                     {(block.occurrences ?? []).length > 0 && (
@@ -7951,7 +7937,7 @@ export default function Home() {
                         ))}
                       </div>
                     )}
-                    {classNames && <div style={{ fontSize: "0.82em", color: "#666" }}>Classes: {classNames}</div>}
+                    {classNames && <div style={{ fontSize: "0.82em", color: "#666" }}>Klasser: {classNames}</div>}
                     <div>
                       <button
                         type="button"
@@ -7962,7 +7948,7 @@ export default function Home() {
                         }}
                         style={{ fontSize: "0.8em", padding: "2px 8px", width: "100%", textAlign: "left" }}
                       >
-                        {isExpanded ? "▲ Hide" : `▼ Subjects (${subjectEntries.length})`}
+                        {isExpanded ? "▲ Skjul" : `▼ Fag (${subjectEntries.length})`}
                       </button>
                       {isExpanded && (
                         <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "6px" }}>
@@ -7982,7 +7968,7 @@ export default function Home() {
                                 <div className="block-subject-row-controls">
                                   <div className="faggrupper-teacher-selected" style={{ marginBottom: "0.25rem" }}>
                                     {assignedTeacherIds.length === 0 ? (
-                                      <span className="faggrupper-teacher-empty">No teachers</span>
+                                      <span className="faggrupper-teacher-empty">Ingen lærere</span>
                                     ) : (
                                       assignedTeacherIds.map((teacherId) => (
                                         <span key={`${se.subject_id}_${teacherId}`} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip">
@@ -8001,7 +7987,7 @@ export default function Home() {
                                                 teacher_ids: nextTeacherIds,
                                               });
                                             }}
-                                            aria-label={`Remove teacher ${teacherNameById[teacherId] ?? teacherId}`}
+                                            aria-label={`Fjern lærer ${teacherNameById[teacherId] ?? teacherId}`}
                                           >
                                             x
                                           </button>
@@ -8049,7 +8035,7 @@ export default function Home() {
                                         e.preventDefault();
                                         const resolvedTeacherIds = resolveTeacherIdsFromInput(teacherDraft);
                                         if (resolvedTeacherIds === null) {
-                                          setStatusText("Could not resolve one or more teacher names. Use exact names from the list.");
+                                          setStatusText("Kunne ikke løse ett eller flere lærernavn. Bruk eksakte navn fra listen.");
                                           return;
                                         }
                                         if (resolvedTeacherIds.length === 0) {
@@ -8074,7 +8060,7 @@ export default function Home() {
                                           [searchKey]: "",
                                         }));
                                       }}
-                                      placeholder="Assign teacher(s), comma separated"
+                                      placeholder="Tildel lærer(e), kommaseparert"
                                       style={{ fontSize: "0.85em" }}
                                     />
                                     <datalist id={`block-teacher-opts-${block.id}-${se.subject_id}`}>
@@ -8101,7 +8087,7 @@ export default function Home() {
                             <input
                               className="block-subject-add-input"
                               type="text"
-                              placeholder="New subject name"
+                              placeholder="Nytt fagnavn"
                               value={blockInlineSubjNames[block.id] ?? ""}
                               onChange={(e) => setBlockInlineSubjNames((prev) => ({ ...prev, [block.id]: e.target.value }))}
                               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); createAndAddSubjectToSavedBlock(block.id); } }}
@@ -8114,7 +8100,7 @@ export default function Home() {
                               disabled={!(blockInlineSubjNames[block.id] ?? "").trim()}
                               style={{ whiteSpace: "nowrap" }}
                             >
-                              + Add
+                              + Legg til
                             </button>
                           </div>
                         </div>
@@ -8133,22 +8119,22 @@ export default function Home() {
       <section className="grid">
         <article className="card">
           <h2>Møter</h2>
-          <p>Add permanent meetings that reserve teacher time. Cycle teachers between available, preferred busy, and blocked.</p>
+          <p>Legg til faste møter som reserverer lærertid. Veksle lærere mellom tilgjengelig, fortrinnsvis opptatt og opptatt.</p>
 
           {!timeslots.length ? (
-            <p>Add timeslots in Week Calendar before creating meetings.</p>
+            <p>Legg til tidsluker i Ukekalender før du oppretter møter.</p>
           ) : !teachers.length ? (
-            <p>Add teachers before assigning them to a meeting.</p>
+            <p>Legg til lærere før du tilordner dem til et møte.</p>
           ) : (
             <form onSubmit={(e) => { e.preventDefault(); upsertMeeting(); }}>
-              <label>Meeting Name</label>
+              <label>Møtenavn</label>
               <input
                 value={meetingForm.name}
                 onChange={(e) => setMeetingForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Team meeting, mentor hour, department meeting"
+                placeholder="Tetmmøte, mentortime, avdelingsmøte"
               />
 
-              <label>Timeslot</label>
+              <label>Tidsluke</label>
               <select
                 value={meetingForm.timeslot_id}
                 onChange={(e) => setMeetingForm((prev) => ({ ...prev, timeslot_id: e.target.value }))}
@@ -8161,23 +8147,23 @@ export default function Home() {
               </select>
 
               <div className="meeting-legend">
-                <span className="meeting-badge available">Available</span>
-                <span className="meeting-badge preferred">Prefer busy</span>
-                <span className="meeting-badge unavailable">Busy</span>
+                <span className="meeting-badge available">Tilgjengelig</span>
+                <span className="meeting-badge preferred">Foretrekker opptatt</span>
+                <span className="meeting-badge unavailable">Opptatt</span>
               </div>
 
-              <label>Teachers</label>
+              <label>Lærere</label>
               <div className="meeting-filter-row">
                 <input
                   value={meetingTeacherSearchQuery}
                   onChange={(e) => setMeetingTeacherSearchQuery(e.target.value)}
-                  placeholder="Search teachers"
+                  placeholder="Søk lærere"
                 />
                 <select
                   value={meetingAvdelingFilter}
                   onChange={(e) => setMeetingAvdelingFilter(e.target.value)}
                 >
-                  <option value="all">All avdelinger</option>
+                  <option value="all">Alle avdelinger</option>
                   {availableAvdelinger.map((avdeling) => (
                     <option key={avdeling} value={avdeling}>{avdeling}</option>
                   ))}
@@ -8191,7 +8177,7 @@ export default function Home() {
                   onClick={() => applyMeetingTeacherModeToVisible("unavailable")}
                   disabled={filteredMeetingTeachers.length === 0}
                 >
-                  Select All Busy
+                  Velg alle opptatte
                 </button>
                 <button
                   type="button"
@@ -8199,7 +8185,7 @@ export default function Home() {
                   onClick={() => applyMeetingTeacherModeToVisible("preferred")}
                   disabled={filteredMeetingTeachers.length === 0}
                 >
-                  Select All Prefer Busy
+                  Velg alle foretrekker opptatt
                 </button>
                 <button
                   type="button"
@@ -8207,7 +8193,7 @@ export default function Home() {
                   onClick={() => applyMeetingTeacherModeToVisible(null)}
                   disabled={filteredMeetingTeachers.length === 0}
                 >
-                  Clear Visible
+                  Nullstill synlige
                 </button>
               </div>
 
@@ -8226,14 +8212,14 @@ export default function Home() {
                   );
                 })}
                 {filteredMeetingTeachers.length === 0 ? (
-                  <p className="meeting-empty">No teachers match the current search.</p>
+                  <p className="meeting-empty">Ingen lærere samsvarer med søket.</p>
                 ) : null}
               </div>
 
               <div className="meeting-actions-row">
-                <button type="submit">{editingMeetingId ? "Update Meeting" : "Add Meeting"}</button>
+                <button type="submit">{editingMeetingId ? "Oppdater møte" : "Legg til møte"}</button>
                 <button type="button" className="secondary" onClick={resetMeetingForm}>
-                  {editingMeetingId ? "Cancel Edit" : "Reset"}
+                  {editingMeetingId ? "Avbryt redigering" : "Nullstill"}
                 </button>
               </div>
             </form>
@@ -8241,12 +8227,12 @@ export default function Home() {
         </article>
 
         <article className="card">
-          <h2>Permanent Meeting List</h2>
-          <p>These meetings are always rendered on the schedule and are sent to the solver as hard or soft teacher constraints.</p>
+          <h2>Liste over faste møter</h2>
+          <p>Disse møtene vises alltid i timeplanen og sendes til løseren som harde eller myke lærerbegrensninger.</p>
 
           <div className="list meeting-list">
             {sortedMeetings.length === 0 ? (
-              <p className="meeting-empty">No meetings created yet.</p>
+              <p className="meeting-empty">Ingen møter opprettet ennå.</p>
             ) : (
               sortedMeetings.map((meeting) => {
                 const slot = timeslotById[meeting.timeslot_id];
@@ -8278,13 +8264,13 @@ export default function Home() {
                             return next;
                           })}
                         >
-                          {isExpanded ? "▲ Hide" : `▼ Show (${totalAssigned})`}
+                          {isExpanded ? "▲ Skjul" : `▼ Vis (${totalAssigned})`}
                         </button>
                         <button type="button" className="secondary" onClick={() => loadMeetingIntoForm(meeting)}>
-                          Edit
+                          Rediger
                         </button>
                         <button type="button" className="secondary" onClick={() => deleteMeeting(meeting.id)}>
-                          Delete
+                          Slett
                         </button>
                       </div>
                     </div>
@@ -8292,19 +8278,19 @@ export default function Home() {
                     {isExpanded && (
                     <div className="meeting-summary-grid">
                       <div>
-                        <span className="meeting-summary-label">Busy</span>
+                        <span className="meeting-summary-label">Opptatt</span>
                         <div className="meeting-chip-row">
                           {unavailableTeachers.length ? unavailableTeachers.map((name) => (
                             <span key={`${meeting.id}_${name}_busy`} className="meeting-chip unavailable">{name}</span>
-                          )) : <span className="meeting-chip neutral">None</span>}
+                          )) : <span className="meeting-chip neutral">Ingen</span>}
                         </div>
                       </div>
                       <div>
-                        <span className="meeting-summary-label">Prefer Busy</span>
+                        <span className="meeting-summary-label">Foretrekker opptatt</span>
                         <div className="meeting-chip-row">
                           {preferredTeachers.length ? preferredTeachers.map((name) => (
                             <span key={`${meeting.id}_${name}_pref`} className="meeting-chip preferred">{name}</span>
-                          )) : <span className="meeting-chip neutral">None</span>}
+                          )) : <span className="meeting-chip neutral">Ingen</span>}
                         </div>
                       </div>
                     </div>
@@ -8321,14 +8307,14 @@ export default function Home() {
       {activeTab === "rom" && (
       <section className="grid">
         <article className="card">
-          <h2>Rooms (Rom)</h2>
+          <h2>Rom</h2>
 
           <section className="room-add-panel">
             <div className="room-add-controls">
               <input
                 type="text"
                 className="room-add-input"
-                placeholder="Room name(s) - separate multiple with commas (e.g., R202, R203, R204)"
+                placeholder="Romnavn - separer flere med komma (f.eks. R202, R203, R204)"
                 value={roomForm.name}
                 onChange={(e) => setRoomForm({ name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") upsertRoom(); }}
@@ -8340,7 +8326,7 @@ export default function Home() {
                   upsertRoom();
                 }}
               >
-                {editingRoomId ? "Update Room" : "Add Room"}
+                {editingRoomId ? "Oppdater rom" : "Legg til rom"}
               </button>
               {editingRoomId && (
                 <button
@@ -8351,13 +8337,13 @@ export default function Home() {
                   }}
                   className="secondary room-add-cancel"
                 >
-                  Cancel
+                  Avbryt
                 </button>
               )}
             </div>
             <div className="list room-list" style={{ maxHeight: "288px" }}>
               {sortedRooms.length === 0 ? (
-                <p className="meeting-empty">No rooms added yet.</p>
+                <p className="meeting-empty">Ingen rom lagt til ennå.</p>
               ) : (
                 sortedRooms.map((room) => (
                   <div key={room.id} className="room-list-item">
@@ -8375,7 +8361,7 @@ export default function Home() {
                           color: room.prioritize_for_preferred_subjects ? "#fff" : undefined,
                         }}
                       >
-                        Preferences
+                        Innstillinger
                       </button>
                       <button
                         type="button"
@@ -8383,7 +8369,7 @@ export default function Home() {
                         onClick={() => loadRoomIntoForm(room)}
                         style={{ padding: "4px 8px", fontSize: "0.72em" }}
                       >
-                        Edit
+                        Rediger
                       </button>
                       <button
                         type="button"
@@ -8391,7 +8377,7 @@ export default function Home() {
                         onClick={() => deleteRoom(room.id)}
                         style={{ padding: "4px 8px", fontSize: "0.72em", color: "#c53" }}
                       >
-                        Delete
+                        Slett
                       </button>
                     </div>
                   </div>
@@ -8426,9 +8412,9 @@ export default function Home() {
                 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Room Preferences</h3>
+                <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Rominnstillinger</h3>
                 <p style={{ margin: 0, fontSize: "0.82rem", color: "#555" }}>
-                  Set whether this room should primarily be used by subjects that explicitly list it in Room Requirements.
+                  Angi om dette rommet primært skal brukes av fag som eksplisitt lister det opp under Romkrav.
                 </p>
                 <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "#222" }}>
                   <input
@@ -8436,26 +8422,26 @@ export default function Home() {
                     checked={preferencesRoomPriorityOnly}
                     onChange={(e) => setPreferencesRoomPriorityOnly(e.target.checked)}
                   />
-                  Prioritize this room for subjects that marked it as preferred (others use it only as last resort)
+                  Prioriter dette rommet for fag som har merket det som foretrukket (andre bruker det kun som siste utvei)
                 </label>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                   <button type="button" className="secondary" onClick={() => setPreferencesRoomId(null)}>
-                    Cancel
+                    Avbryt
                   </button>
                   <button type="button" onClick={saveRoomPreferences}>
-                    Save
+                    Lagre
                   </button>
                 </div>
               </div>
             </div>
           )}
 
-          <h3 style={{ marginTop: "16px" }}>Base Room per Class</h3>
+          <h3 style={{ marginTop: "16px" }}>Basisrom per klasse</h3>
           <div className="room-base-by-trinn-grid">
             {classRowsByYear.map((row) => (
               <section key={row.yearPrefix} className="room-base-trinn-column">
                 {row.classes.length === 0 ? (
-                  <p className="room-base-empty">No classes found.</p>
+                  <p className="room-base-empty">Ingen klasser funnet.</p>
                 ) : (
                   <div className="room-base-class-list">
                     {row.classes.map((cls) => (
@@ -8469,7 +8455,7 @@ export default function Home() {
                               // Check if room is already assigned to another class
                               const isAssignedElsewhere = classes.some((c) => c.id !== cls.id && c.base_room_id === newRoomId);
                               if (isAssignedElsewhere) {
-                                setStatusText("This room is already assigned to another class.");
+                                setStatusText("Dette rommet er allerede tilordnet en annen klasse.");
                                 return;
                               }
                             }
@@ -8481,13 +8467,13 @@ export default function Home() {
                           }}
                           className={`room-base-select${cls.base_room_id ? "" : " room-base-select-unset"}`}
                         >
-                          <option value="">— No room assigned —</option>
+                          <option value="">— Ingen rom tilordnet —</option>
                           {sortedRooms.map((room) => {
                             const isCurrentlyAssigned = cls.base_room_id === room.id;
                             const isAssignedElsewhere = roomsAssignedToClasses.has(room.id) && !isCurrentlyAssigned;
                             return (
                               <option key={room.id} value={room.id} disabled={isAssignedElsewhere}>
-                                {room.name}{isAssignedElsewhere ? " (assigned)" : ""}
+                                {room.name}{isAssignedElsewhere ? " (tilordnet)" : ""}
                               </option>
                             );
                           })}
@@ -8502,7 +8488,7 @@ export default function Home() {
 
           <h3 style={{ marginTop: "24px" }}>Idrettshaller</h3>
           <p style={{ margin: "0 0 10px", fontSize: "0.82rem", color: "#555" }}>
-            Add sports halls here. In Preferences you can specify which subjects are allowed to use each hall — those subjects will <strong>only</strong> be scheduled in sports halls.
+            Legg til idrettshaller her. Under Innstillinger kan du angi hvilke fag som får bruke hallen — disse fagene vil <strong>kun</strong> planlegges i idrettshaller.
           </p>
 
           <section className="room-add-panel">
@@ -8510,7 +8496,7 @@ export default function Home() {
               <input
                 type="text"
                 className="room-add-input"
-                placeholder="Sports hall name(s) — separate multiple with commas"
+                placeholder="Idrettshallnavn — separer flere med komma"
                 value={sportsHallForm.name}
                 onChange={(e) => setSportsHallForm({ name: e.target.value })}
                 onKeyDown={(e) => { if (e.key === "Enter") upsertSportsHall(); }}
@@ -8520,7 +8506,7 @@ export default function Home() {
                 className="room-add-button"
                 onClick={() => upsertSportsHall()}
               >
-                {editingSportsHallId ? "Update Hall" : "Add Hall"}
+                {editingSportsHallId ? "Oppdater hall" : "Legg til hall"}
               </button>
               {editingSportsHallId && (
                 <button
@@ -8528,13 +8514,13 @@ export default function Home() {
                   onClick={() => { setSportsHallForm({ name: "" }); setEditingSportsHallId(null); }}
                   className="secondary room-add-cancel"
                 >
-                  Cancel
+                  Avbryt
                 </button>
               )}
             </div>
             <div className="list room-list" style={{ maxHeight: "288px" }}>
               {sportsHalls.length === 0 ? (
-                <p className="meeting-empty">No sports halls added yet.</p>
+                <p className="meeting-empty">Ingen idrettshaller lagt til ennå.</p>
               ) : (
                 sportsHalls.map((hall) => {
                   const allowedCount = hall.allowed_subject_ids.length;
@@ -8543,7 +8529,7 @@ export default function Home() {
                       <span>
                         {hall.name}
                         {allowedCount > 0 && (
-                          <span className="sh-subject-badge">{allowedCount} subject{allowedCount !== 1 ? "s" : ""}</span>
+                          <span className="sh-subject-badge">{allowedCount} fag{allowedCount !== 1 ? "" : ""}</span>
                         )}
                       </span>
                       <div style={{ display: "flex", gap: "6px" }}>
@@ -8559,7 +8545,7 @@ export default function Home() {
                             color: allowedCount > 0 ? "#fff" : undefined,
                           }}
                         >
-                          Preferences
+                          Innstillinger
                         </button>
                         <button
                           type="button"
@@ -8567,7 +8553,7 @@ export default function Home() {
                           onClick={() => loadSportsHallIntoForm(hall)}
                           style={{ padding: "4px 8px", fontSize: "0.72em" }}
                         >
-                          Edit
+                          Rediger
                         </button>
                         <button
                           type="button"
@@ -8575,7 +8561,7 @@ export default function Home() {
                           onClick={() => deleteSportsHall(hall.id)}
                           style={{ padding: "4px 8px", fontSize: "0.72em", color: "#c53" }}
                         >
-                          Delete
+                          Slett
                         </button>
                       </div>
                     </div>
@@ -8627,20 +8613,20 @@ export default function Home() {
                   }}
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Idrettshall Preferences — {hall.name}</h3>
+                  <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Idrettshall innstillinger — {hall.name}</h3>
                   <p style={{ margin: 0, fontSize: "0.82rem", color: "#555" }}>
-                    Select which subjects are allowed to use this sports hall. Selected subjects will <strong>only</strong> be scheduled in sports halls.
+                    Velg hvilke fag som får bruke denne idrettshallen. Valgte fag vil <strong>kun</strong> planlegges i idrettshaller.
                   </p>
                   <input
                     type="text"
-                    placeholder="Search subjects…"
+                    placeholder="Søk fag…"
                     value={sportsHallSubjectSearch}
                     onChange={(e) => setSportsHallSubjectSearch(e.target.value)}
                     style={{ padding: "6px 8px", fontSize: "0.85rem", border: "1px solid #ccc", borderRadius: "4px" }}
                   />
                   <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: "1px" }}>
                     {sortedGroupNames.length === 0 ? (
-                      <p style={{ fontSize: "0.82rem", color: "#888", margin: 0 }}>No subjects found.</p>
+                      <p style={{ fontSize: "0.82rem", color: "#888", margin: 0 }}>Ingen fag funnet.</p>
                     ) : (
                       sortedGroupNames.map((groupName) => {
                         const groupIds = nameGroupsMap[groupName];
@@ -8669,7 +8655,7 @@ export default function Home() {
                   </div>
                   <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
                     <button type="button" onClick={() => setSportsHallPreferencesId(null)}>
-                      Done
+                      Ferdig
                     </button>
                   </div>
                 </div>
@@ -8684,11 +8670,11 @@ export default function Home() {
       {activeTab === "teachers" && (
       <section className="grid">
         <article className="card">
-          <h2>Teachers</h2>
-          <p>Add teachers here so they can be assigned to subjects.</p>
+          <h2>Lærere</h2>
+          <p>Legg til lærere her slik at de kan tilordnes fag.</p>
 
           <div style={{ marginBottom: "15px" }}>
-            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9em" }}>Import Teachers from Excel</label>
+            <label style={{ display: "block", marginBottom: "8px", fontSize: "0.9em" }}>Importer lærere fra Excel</label>
             <div
               onDragOver={handleDragOver}
               onDrop={handleDrop}
@@ -8711,13 +8697,13 @@ export default function Home() {
                 style={{ display: "none" }}
               />
               <div style={{ fontSize: "0.95em", fontWeight: "bold", color: "#0066cc", marginBottom: "4px" }}>
-                📁 Drag and drop your Excel file here
+                📁 Dra og slipp Excel-filen din her
               </div>
               <div style={{ fontSize: "0.8em", color: "#666" }}>
-                or <span style={{ textDecoration: "underline", cursor: "pointer" }}>click to browse</span>
+                eller <span style={{ textDecoration: "underline", cursor: "pointer" }}>klikk for å bla</span>
               </div>
               <p style={{ fontSize: "0.75em", color: "#666", marginTop: "4px" }}>
-                Supports Fornavn/Etternavn or Name/Teacher columns (.xlsx, .xls, .csv)
+                Støtter Fornavn/Etternavn- eller Navn/Lærer-kolonner (.xlsx, .xls, .csv)
               </p>
             </div>
           </div>
@@ -8725,9 +8711,9 @@ export default function Home() {
           <hr style={{ margin: "12px 0" }} />
 
           <form onSubmit={(e) => { e.preventDefault(); addTeacher(); }} style={{ marginBottom: "12px" }}>
-            <label>Add Teacher Manually</label>
-            <input value={teacherForm.name} onChange={(e) => setTeacherForm((s) => ({ ...s, name: e.target.value }))} placeholder="Teacher name" />
-            <label>Workload (%)</label>
+            <label>Legg til lærer manuelt</label>
+            <input value={teacherForm.name} onChange={(e) => setTeacherForm((s) => ({ ...s, name: e.target.value }))} placeholder="Lærernavn" />
+            <label>Arbeidsbelastning (%)</label>
             <input
               type="number"
               min={1}
@@ -8736,25 +8722,25 @@ export default function Home() {
               onChange={(e) => setTeacherForm((s) => ({ ...s, workload_percent: e.target.value }))}
               placeholder="100"
             />
-            <button type="submit">Add Teacher</button>
+            <button type="submit">Legg til lærer</button>
           </form>
 
           <div style={{ marginTop: "12px", height: "600px", display: "flex", flexDirection: "column" }}>
-            <h3 style={{ margin: "0 0 8px 0", fontSize: "1em" }}>Teachers List</h3>
+            <h3 style={{ margin: "0 0 8px 0", fontSize: "1em" }}>Lærerliste</h3>
             {teachers.length === 0 ? (
-              <p style={{ color: "#999", fontSize: "0.9em" }}>No teachers added yet.</p>
+              <p style={{ color: "#999", fontSize: "0.9em" }}>Ingen lærere lagt til ennå.</p>
             ) : (
               <>
                 <input
                   value={teacherSearchQuery}
                   onChange={(e) => setTeacherSearchQuery(e.target.value)}
-                  placeholder="Search teachers (any order)"
+                  placeholder="Søk lærere (hvilken som helst rekkefølge)"
                   style={{ marginBottom: "8px", fontSize: "0.86em" }}
                 />
                 <div className="list" style={{ flex: 1, overflowY: "auto", border: "1px solid #ddd", borderRadius: "4px", maxHeight: "none", marginTop: 0, paddingTop: 0, borderTop: "none" }}>
                 {filteredTeachers.length === 0 ? (
-                  <p style={{ color: "#999", fontSize: "0.86em", padding: "8px" }}>
-                    No matches for &quot;{teacherSearchQuery}&quot;.
+                    <p style={{ color: "#999", fontSize: "0.86em", padding: "8px" }}>
+                    Ingen treff for &quot;{teacherSearchQuery}&quot;.
                   </p>
                 ) : (
                 filteredTeachers.map((t) => (
@@ -8774,7 +8760,7 @@ export default function Home() {
                       <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
                       <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
                         <span style={{ fontSize: "0.85em", color: "#666" }}>
-                          {t.workload_percent}% workload, {t.preferred_room_ids.length} room pref, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blocked
+                          {t.workload_percent}% arbeidsbelastning, {t.preferred_room_ids.length} rompreferanse, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blokkert
                         </span>
                         <button
                           type="button"
@@ -8792,7 +8778,7 @@ export default function Home() {
                             fontSize: "0.7em",
                           }}
                         >
-                          Delete
+                          Slett
                         </button>
                         <span style={{ fontSize: "0.9em" }}>
                           {expandedTeacherId === t.id ? "▼" : "▶"}
@@ -8808,10 +8794,10 @@ export default function Home() {
 
                           return (
                             <div style={{ marginBottom: "8px" }}>
-                              <label style={{ display: "block", fontSize: "0.85em", fontWeight: 600, marginBottom: "4px" }}>Room requirements</label>
+                              <label style={{ display: "block", fontSize: "0.85em", fontWeight: 600, marginBottom: "4px" }}>Romkrav</label>
                               <div className="room-requirements-top-row">
                                 <div className="faggrupper-force-field" style={{ minWidth: 0 }}>
-                                  <label className="faggrupper-force-label">Mode</label>
+                                  <label className="faggrupper-force-label">Modus</label>
                                   <select
                                     value={t.room_requirement_mode ?? "always"}
                                     onClick={(e) => e.stopPropagation()}
@@ -8824,8 +8810,8 @@ export default function Home() {
                                       )));
                                     }}
                                   >
-                                    <option value="always">Always in selected rooms</option>
-                                    <option value="once_per_week">At least once per week</option>
+                                    <option value="always">Alltid i valgte rom</option>
+                                    <option value="once_per_week">Minst én gang per uke</option>
                                   </select>
                                 </div>
                                 <div className="faggrupper-teacher-add-row room-requirements-search-row">
@@ -8863,7 +8849,7 @@ export default function Home() {
                                       e.preventDefault();
                                       const resolvedRoomIds = resolveRoomIdsFromInput(teacherRoomDraft);
                                       if (resolvedRoomIds === null) {
-                                        setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                        setStatusText("Kunne ikke finne ett eller flere romnavn. Bruk eksakte navn fra listen.");
                                         return;
                                       }
                                       if (resolvedRoomIds.length === 0) {
@@ -8883,13 +8869,13 @@ export default function Home() {
                                         [t.id]: "",
                                       }));
                                     }}
-                                    placeholder="Search room(s), comma-separated"
+                                    placeholder="Søk rom, kommaseparert"
                                   />
                                 </div>
                               </div>
                               <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.35rem", maxHeight: "90px", overflowY: "auto", alignContent: "flex-start" }}>
                                 {teacherPreferredRoomIds.length === 0 ? (
-                                  <span className="faggrupper-teacher-empty">No preferred rooms selected</span>
+                                  <span className="faggrupper-teacher-empty">Ingen foretrukne rom valgt</span>
                                 ) : (
                                   teacherPreferredRoomIds.map((roomId) => {
                                     const roomLabel = roomNameById[roomId] ?? roomId;
@@ -8910,7 +8896,7 @@ export default function Home() {
                                                 : teacher
                                             )));
                                           }}
-                                          aria-label={`Remove preferred room ${roomLabel}`}
+                                          aria-label={`Fjern foretrukket rom ${roomLabel}`}
                                         >
                                           x
                                         </button>
@@ -8929,7 +8915,7 @@ export default function Home() {
                         })()}
 
                         <div style={{ marginBottom: "8px", display: "grid", gridTemplateColumns: "1fr auto", gap: "8px", alignItems: "center" }}>
-                          <label style={{ fontSize: "0.85em", fontWeight: 600 }}>Workload percentage</label>
+                          <label style={{ fontSize: "0.85em", fontWeight: 600 }}>Arbeidsbelastningsprosent</label>
                           <input
                             type="number"
                             min={1}
@@ -8948,7 +8934,7 @@ export default function Home() {
                             aria-label={`${t.name} workload percent`}
                           />
                         </div>
-                        <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Click to cycle: Available -&gt; Preferred (orange) -&gt; Blocked (red)</h4>
+                        <h4 style={{ margin: "0 0 6px 0", fontSize: "0.85em" }}>Klikk for å sykle: Tilgjengelig -&gt; Foretrekker å unngå (oransje) -&gt; Opptatt (rød)</h4>
                         {(() => {
                           const slotsByDay: Record<string, Timeslot[]> = Object.fromEntries(
                             calendarDays.map((day) => [
@@ -9016,7 +9002,7 @@ export default function Home() {
                                       const isPreferred = t.preferred_avoid_timeslots.includes(ts.id);
                                       const timeLabel = ts.start_time && ts.end_time
                                         ? `${ts.start_time} - ${ts.end_time}`
-                                        : `Period ${ts.period}`;
+                                        : `Periode ${ts.period}`;
 
                                       return (
                                         <button
@@ -9037,7 +9023,7 @@ export default function Home() {
                                             borderRight: "1px solid #c9c9c4",
                                             transition: "all 0.2s",
                                           }}
-                                          title={`${isUnavailable ? "Blocked" : isPreferred ? "Preferred to avoid" : "Available"} - Period ${ts.period}${ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}`}
+                                          title={`${isUnavailable ? "Opptatt" : isPreferred ? "Foretrekker å unngå" : "Tilgjengelig"} - Periode ${ts.period}${ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}`}
                                         >
                                           {timeLabel}
                                         </button>
@@ -9065,35 +9051,35 @@ export default function Home() {
       {activeTab === "generate" && (
       <>
         <section className="card week-strategy">
-          <h2>Scheduling Mode</h2>
+          <h2>Planleggingsmodus</h2>
           <div className="form-grid" style={{ marginTop: "10px" }}>
             <div>
               <div style={{ fontSize: "0.95em", color: "#444", marginBottom: "8px" }}>
-                Engine: <strong>CP-SAT (default)</strong>
+                Motor: <strong>CP-SAT (standard)</strong>
               </div>
               <button
                 type="button"
                 onClick={() => setShowAdvancedSolverOptions((prev) => !prev)}
                 disabled={loading}
               >
-                {showAdvancedSolverOptions ? "Hide advanced options" : "Show advanced options"}
+                {showAdvancedSolverOptions ? "Skjul avanserte alternativer" : "Vis avanserte alternativer"}
               </button>
             </div>
             {showAdvancedSolverOptions && (
               <label>
-                Solver engine (advanced)
+                Løsermotor (avansert)
                 <select
                   value={solverEngine}
                   onChange={(e) => setSolverEngine(e.target.value as "staged" | "cp_sat_experimental")}
                   disabled={loading}
                 >
-                  <option value="cp_sat_experimental">CP-SAT (recommended)</option>
-                  <option value="staged">Staged (fallback)</option>
+                  <option value="cp_sat_experimental">CP-SAT (anbefalt)</option>
+                  <option value="staged">Trinnvis (reserve)</option>
                 </select>
               </label>
             )}
             <label>
-              Solver timeout (seconds)
+              Løsertidsavbrudd (sekunder)
               <input
                 type="number"
                 min={5}
@@ -9106,48 +9092,48 @@ export default function Home() {
             </label>
           </div>
           <p style={{ marginTop: "8px", fontSize: "0.9em", color: "#555" }}>
-            CP-SAT is the default engine. Use staged only for fallback troubleshooting.
+            CP-SAT er standardmotoren. Bruk trinnvis kun ved reservefeilsøking.
           </p>
         </section>
 
         <section className="toolbar">
           <button type="button" onClick={generateSchedule} disabled={loading}>
-            {loading ? "Generating..." : "Generate Schedule"}
+            {loading ? "Genererer..." : "Generer timeplan"}
           </button>
           <button
             type="button"
             onClick={clearGeneratedSchedule}
             disabled={loading || schedule.length === 0}
           >
-            Clear Generated Schedule
+            Slett generert timeplan
           </button>
           <div className="status">{statusText}</div>
           {lastRunMetadata && (
             <details className="status-warning-panel">
               <summary>
-                <span>Last Run Summary</span>
-                <span className="status-warning-summary-hint">Click to expand</span>
+                <span>Siste kjøringssammendrag</span>
+                <span className="status-warning-summary-hint">Klikk for å utvide</span>
               </summary>
               <div className="status-warning-content">
                 <p>
-                  Engine: {
+                  Motor: {
                     (lastRunMetadata.solver_engine_effective_cp_sat ?? 0) > 0
-                      ? "CP-SAT experimental"
-                      : "Staged"
+                      ? "CP-SAT eksperimentell"
+                      : "Trinnvis"
                   }
                   {((lastRunMetadata.solver_engine_cp_sat_requested ?? 0) > 0
                     && (lastRunMetadata.solver_engine_effective_staged ?? 0) > 0)
-                    ? " (fallback to staged)"
+                    ? " (reserve til trinnvis)"
                     : ""}
                 </p>
                 <ul>
-                  <li>Timeout requested: {Math.round(lastRunMetadata.solver_timeout_seconds ?? 0)}s</li>
-                  <li>Timed out: {(lastRunMetadata.timed_out ?? 0) > 0 ? "yes" : "no"}</li>
-                  <li>Attempts executed: {Math.round(lastRunMetadata.attempt_total_executed ?? 0)}</li>
-                  <li>Valid/rejected/failed: {Math.round(lastRunMetadata.attempt_success_valid ?? 0)} / {Math.round(lastRunMetadata.attempt_success_rejected ?? 0)} / {Math.round(lastRunMetadata.attempt_failed ?? 0)}</li>
-                  <li>Placed non-block units: {Math.round(lastRunMetadata.placed_units_non_block ?? 0)} / {Math.round(lastRunMetadata.required_units_non_block ?? 0)}</li>
-                  <li>Selected shortage units: {Math.round(lastRunMetadata.selected_shortage_units ?? 0)}</li>
-                  <li>Post-process skipped (timeout safety): {(lastRunMetadata.postprocess_skipped_timeout ?? 0) > 0 ? "yes" : "no"}</li>
+                  <li>Tidsavbrudd forespørt: {Math.round(lastRunMetadata.solver_timeout_seconds ?? 0)}s</li>
+                  <li>Tidsavbrudd inntrådt: {(lastRunMetadata.timed_out ?? 0) > 0 ? "ja" : "nei"}</li>
+                  <li>Forsøk utført: {Math.round(lastRunMetadata.attempt_total_executed ?? 0)}</li>
+                  <li>Gyldige/avvist/mislyktes: {Math.round(lastRunMetadata.attempt_success_valid ?? 0)} / {Math.round(lastRunMetadata.attempt_success_rejected ?? 0)} / {Math.round(lastRunMetadata.attempt_failed ?? 0)}</li>
+                  <li>Plasserte ikke-blokk-enheter: {Math.round(lastRunMetadata.placed_units_non_block ?? 0)} / {Math.round(lastRunMetadata.required_units_non_block ?? 0)}</li>
+                  <li>Valgte mangelenheter: {Math.round(lastRunMetadata.selected_shortage_units ?? 0)}</li>
+                  <li>Etterbehandling hoppet over (tidsavbruddssikring): {(lastRunMetadata.postprocess_skipped_timeout ?? 0) > 0 ? "ja" : "nei"}</li>
                 </ul>
               </div>
             </details>
@@ -9155,15 +9141,15 @@ export default function Home() {
           {placementWarningDetails.length > 0 && (
             <details className="status-warning-panel">
               <summary>
-                <span>{placementWarningSummary || "Some preferred units were not placed."}</span>
-                <span className="status-warning-summary-hint">Click to expand</span>
+                <span>{placementWarningSummary || "Noen foretrukne enheter ble ikke plassert."}</span>
+                <span className="status-warning-summary-hint">Klikk for å utvide</span>
               </summary>
               <div className="status-warning-content">
-                <p>Details for subjects placed below preferred weekly units:</p>
+                <p>Detaljer for fag plassert under foretrukne ukentlige enheter:</p>
                 <ul>
                   {placementWarningDetails.map((detail) => (
                     <li key={`${detail.subject_id}_${detail.week}`}>
-                      {detail.week}-week: {detail.subject_name} ({detail.subject_id}) required {detail.required_units}u, placed {detail.placed_units}u, missing {detail.missing_units}u.
+                      {detail.week}-uke: {detail.subject_name} ({detail.subject_id}) krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e.
                     </li>
                   ))}
                 </ul>
@@ -9173,15 +9159,15 @@ export default function Home() {
           {unplacedStatusDetails.length > 0 && (
             <details className="status-unplaced-panel" open>
               <summary>
-                <span>{unplacedStatusSummary || "Some subjects are not fully placed."}</span>
-                <span className="status-warning-summary-hint">Click to collapse</span>
+                <span>{unplacedStatusSummary || "Noen fag er ikke fullt plassert."}</span>
+                <span className="status-warning-summary-hint">Klikk for å skjule</span>
               </summary>
               <div className="status-warning-content">
-                <p>Unplaced details by subject:</p>
+                <p>Ufullstendig plasserte fag:</p>
                 <ul>
                   {unplacedStatusDetails.map((detail) => (
                     <li key={detail.subject_id}>
-                      {detail.subject_name} ({detail.subject_id}) | Teacher: {detail.teacher_label} | Required {detail.required_units}u, placed {detail.placed_units}u, missing {detail.missing_units}u. Reason: {detail.reason}
+                      {detail.subject_name} ({detail.subject_id}) | Lærer: {detail.teacher_label} | Krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e. Årsak: {detail.reason}
                     </li>
                   ))}
                 </ul>
@@ -9191,11 +9177,11 @@ export default function Home() {
           {cautionsList.length > 0 && (
             <details className="status-caution-panel" open>
               <summary>
-                <span>{cautionsList.length} scheduling caution{cautionsList.length === 1 ? "" : "s"}</span>
-                <span className="status-warning-summary-hint">Click to collapse</span>
+                <span>{cautionsList.length} planleggingsadvarsel{cautionsList.length === 1 ? "" : "er"}</span>
+                <span className="status-warning-summary-hint">Klikk for å skjule</span>
               </summary>
               <div className="status-warning-content">
-                <p>These items are non-blocking but may warrant manual review:</p>
+                <p>Disse elementene er ikke-blokkerende, men kan kreve manuell gjennomgang:</p>
                 <ul>
                   {cautionsList.map((msg, idx) => (
                     <li key={idx}>{msg}</li>
@@ -9207,15 +9193,15 @@ export default function Home() {
         </section>
 
         <section className="card">
-          <h2>Schedule Timeline</h2>
+          <h2>Timetabell</h2>
           <div className="compare-controls">
             <div className="compare-group">
-              <label>Compare classes</label>
+              <label>Sammenlign klasser</label>
               <input
                 type="text"
                 value={compareClassSearchQuery}
                 onChange={(e) => setCompareClassSearchQuery(e.target.value)}
-                placeholder="Search classes"
+                placeholder="Søk klasser"
               />
               <select
                 multiple
@@ -9241,12 +9227,12 @@ export default function Home() {
               </select>
             </div>
             <div className="compare-group">
-              <label>Compare teachers</label>
+              <label>Sammenlign lærere</label>
               <input
                 type="text"
                 value={compareTeacherSearchQuery}
                 onChange={(e) => setCompareTeacherSearchQuery(e.target.value)}
-                placeholder="Search teachers"
+                placeholder="Søk lærere"
               />
               <select
                 multiple
@@ -9272,12 +9258,12 @@ export default function Home() {
               </select>
             </div>
             <div className="compare-group">
-              <label>Compare rooms</label>
+              <label>Sammenlign rom</label>
               <input
                 type="text"
                 value={compareRoomSearchQuery}
                 onChange={(e) => setCompareRoomSearchQuery(e.target.value)}
-                placeholder="Search rooms"
+                placeholder="Søk rom"
               />
               <select
                 multiple
@@ -9304,14 +9290,14 @@ export default function Home() {
             </div>
             <div className="compare-actions">
               <div className="compare-week-view">
-                <label>Display</label>
+                <label>Vis</label>
                 <select
                   value={weekView}
                   onChange={(e) => setWeekView(parseWeekView(e.target.value))}
                 >
-                  <option value="both">Show both weeks</option>
-                  <option value="A">Show A-week only</option>
-                  <option value="B">Show B-week only</option>
+                  <option value="both">Vis begge uker</option>
+                  <option value="A">Vis kun A-uke</option>
+                  <option value="B">Vis kun B-uke</option>
                 </select>
               </div>
               <button
@@ -9323,13 +9309,13 @@ export default function Home() {
                 }}
                 disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0}
               >
-                Clear compare
+                Fjern sammenligning
               </button>
             </div>
           </div>
           {selectedTeacherCompareIds.length > 0 && (
             <div className="teacher-filter-summary" role="status" aria-live="polite">
-              <div className="teacher-filter-summary-title">Selected teacher subjects (Blokk/Class - Subject)</div>
+              <div className="teacher-filter-summary-title">Valgte lærerfag (Blokk/Klasse - Fag)</div>
               <div className="teacher-filter-summary-grid">
                 {teacherFilterSubjectSummaryRows.map((row) => (
                   <div key={row.teacherId} className="teacher-filter-summary-row">
@@ -9337,7 +9323,7 @@ export default function Home() {
                       <button
                         type="button"
                         className="teacher-filter-summary-remove"
-                        aria-label={`Remove teacher ${row.teacherName} from filter`}
+                        aria-label={`Fjern lærer ${row.teacherName} fra filter`}
                         onClick={() => {
                           setSelectedTeacherCompareIds((prev) => prev.filter((id) => id !== row.teacherId));
                         }}
@@ -9348,7 +9334,7 @@ export default function Home() {
                     </div>
                     <div className="teacher-filter-summary-items">
                       {row.entries.length === 0
-                        ? "No subjects in generated schedule."
+                        ? "Ingen fag i generert timeplan."
                         : row.entries.map((entry, idx) => (
                           <Fragment key={`${row.teacherId}_${entry.kind}_${entry.label}_${entry.subject}_${idx}`}>
                             <span
@@ -9372,11 +9358,11 @@ export default function Home() {
               {compareEntities.map((entity) => (
                 <span key={entity.id} className="compare-pill" style={{ borderColor: entity.color }}>
                   <span className="dot" style={{ backgroundColor: entity.color }} />
-                  {entity.kind === "class" ? "Class" : entity.kind === "teacher" ? "Teacher" : "Room"}: {entity.label}
+                  {entity.kind === "class" ? "Klasse" : entity.kind === "teacher" ? "Lærer" : "Rom"}: {entity.label}
                   <button
                     type="button"
                     className="compare-pill-remove"
-                    aria-label={`Remove ${entity.kind} ${entity.label} from comparison`}
+                    aria-label={`Fjern ${entity.kind} ${entity.label} fra sammenligning`}
                     onClick={() => {
                       const rawId = entity.id.split(":")[1] ?? "";
                       if (entity.kind === "class") {
@@ -9601,7 +9587,7 @@ export default function Home() {
                                 roomLabel,
                                 laneIndex,
                                 laneCount,
-                                laneEntityLabel: laneEntity?.label ?? "Selection",
+                                laneEntityLabel: laneEntity?.label ?? "Utvalg",
                                 laneEntityKind: laneEntity?.kind,
                                 laneColor,
                                 topPct,
@@ -9727,11 +9713,11 @@ export default function Home() {
                                 subjectId: undefined,
                                 title: meeting.name,
                                 ts,
-                                classLabel: "Meeting",
+                                classLabel: "Møte",
                                 teacherLabel,
                                 laneIndex,
                                 laneCount,
-                                laneEntityLabel: laneEntity?.label ?? "Meeting",
+                                laneEntityLabel: laneEntity?.label ?? "Møte",
                                 laneEntityKind: laneEntity?.kind,
                                 laneColor,
                                 topPct,
@@ -9849,7 +9835,7 @@ export default function Home() {
                               <strong>{event.title}</strong>
                               <small>{event.displayStart}-{event.displayEnd}</small>
                             </div>
-                            {enableAlternatingWeeks && event.weekType ? <small>Week {event.weekType}</small> : null}
+                            {enableAlternatingWeeks && event.weekType ? <small>Uke {event.weekType}</small> : null}
                             {!event.isBlockSummary ? (
                               <>
                                 {compareEntities.length > 0 && event.laneEntityKind !== "class" ? (
@@ -10058,14 +10044,14 @@ export default function Home() {
             </div>
             {activeOverviewSubtab !== "constraints" && (
               <div className="compare-week-view" style={{ minWidth: "170px" }}>
-                <label>Display</label>
+                <label>Vis</label>
                 <select
                   value={weekView}
                   onChange={(e) => setWeekView(parseWeekView(e.target.value))}
                 >
-                  <option value="both">Show both weeks</option>
-                  <option value="A">Show A-week only</option>
-                  <option value="B">Show B-week only</option>
+                  <option value="both">Vis begge uker</option>
+                  <option value="A">Vis kun A-uke</option>
+                  <option value="B">Vis kun B-uke</option>
                 </select>
               </div>
             )}
@@ -10112,8 +10098,8 @@ export default function Home() {
                                   )));
                                 }}
                               >
-                                <option value="always">Always</option>
-                                <option value="once_per_week">Once per week</option>
+                                <option value="always">Alltid</option>
+                                <option value="once_per_week">En gang per uke</option>
                               </select>
                             </td>
                             <td>
@@ -10144,7 +10130,7 @@ export default function Home() {
                                     e.preventDefault();
                                     const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
                                     if (resolvedRoomIds === null) {
-                                      setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                      setStatusText("Kunne ikke finne ett eller flere romnavn. Bruk eksakte navn fra listen.");
                                       return;
                                     }
                                     if (resolvedRoomIds.length === 0) {
@@ -10268,7 +10254,7 @@ export default function Home() {
                                     e.preventDefault();
                                     const resolvedTimeslotIds = resolveTimeslotIdsFromInput(unavailableDraft);
                                     if (resolvedTimeslotIds === null) {
-                                      setStatusText("Could not resolve one or more sessions. Use exact labels from the list.");
+                                      setStatusText("Kunne ikke l\u00f8se en eller flere timer. Bruk eksakte betegnelser fra listen.");
                                       return;
                                     }
                                     if (resolvedTimeslotIds.length === 0) {
@@ -10365,8 +10351,8 @@ export default function Home() {
                                   room_requirement_mode: e.target.value === "once_per_week" ? "once_per_week" : "always",
                                 })}
                               >
-                                <option value="always">Always</option>
-                                <option value="once_per_week">Once per week</option>
+                                <option value="always">Alltid</option>
+                                <option value="once_per_week">En gang per uke</option>
                               </select>
                             </td>
                             <td>
@@ -10395,7 +10381,7 @@ export default function Home() {
                                     e.preventDefault();
                                     const resolvedRoomIds = resolveRoomIdsFromInput(roomDraft);
                                     if (resolvedRoomIds === null) {
-                                      setStatusText("Could not resolve one or more room names. Use exact names from the list.");
+                                      setStatusText("Kunne ikke finne ett eller flere romnavn. Bruk eksakte navn fra listen.");
                                       return;
                                     }
                                     if (resolvedRoomIds.length === 0) {
@@ -10456,7 +10442,7 @@ export default function Home() {
         ) : (
           <>
             <p>
-              {overviewEntityLabel} on rows, week sessions on columns. Each cell shows the scheduled subject in that slot.
+              {overviewEntityLabel} på rader, ukentlige økter på kolonner. Hver celle viser planlagt fag i den timen.
             </p>
 
             <div className="overview-filter-bar">
@@ -10527,16 +10513,16 @@ export default function Home() {
             </div>
 
             <div className={`overview-hover-status-line ${overviewHoverSubjectStatus ? "" : "is-empty"}`}>
-              <strong>{overviewHoverSubjectStatus?.subjectTitle ?? "Hover a session"}</strong>
-              <span>{overviewHoverSubjectStatus?.text ?? "Matched positions will be shown here without shifting the table."}</span>
+              <strong>{overviewHoverSubjectStatus?.subjectTitle ?? "Hold musepeker over en økt"}</strong>
+              <span>{overviewHoverSubjectStatus?.text ?? "Treff vil vises her uten å flytte tabellen."}</span>
             </div>
 
             {schedule.length === 0 ? (
-              <p style={{ color: "#999", marginTop: "10px" }}>Generate a schedule to populate this overview.</p>
+              <p style={{ color: "#999", marginTop: "10px" }}>Generer en timeplan for å fylle ut denne oversikten.</p>
             ) : overviewFlatColumns.length === 0 ? (
-              <p style={{ color: "#999", marginTop: "10px" }}>No timeslots found in the active week calendar.</p>
+              <p style={{ color: "#999", marginTop: "10px" }}>Ingen timer funnet i den aktive ukeplanen.</p>
             ) : displayedOverviewRows.length === 0 ? (
-              <p style={{ color: "#999", marginTop: "10px" }}>No {overviewEntityLabel.toLowerCase()} available.</p>
+              <p style={{ color: "#999", marginTop: "10px" }}>Ingen {overviewEntityLabel.toLowerCase()} tilgjengelig.</p>
             ) : (
               <div className="overview-table-wrap">
                 <table className="overview-table">

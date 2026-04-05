@@ -2408,59 +2408,6 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_aktivitetsl_re_vg1_1ida",
-      "name": "Aktivitetslære vg1",
-      "teacher_id": "teacher_alexander_gabrielsen",
-      "teacher_ids": [
-        "teacher_alexander_gabrielsen",
-        "teacher_christian_magnus_mikalsen_johannessen"
-      ],
-      "class_ids": [
-        "class_1ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg1_mnixj9st",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg1_1idb",
-      "name": "Aktivitetslære vg1",
-      "teacher_id": "teacher_eline_s_ter",
-      "teacher_ids": [
-        "teacher_eline_s_ter",
-        "teacher_daniel_kanstad"
-      ],
-      "class_ids": [
-        "class_1idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-3",
-        "Mon-4",
-        "Tue-3",
-        "Tue-4",
-        "Wed-4",
-        "Wed-5",
-        "Thu-3",
-        "Thu-4",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg1_mnixj9st",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
       "id": "subject_aktivitetsl_re_vg2_2idb",
       "name": "Aktivitetslære vg2",
       "teacher_id": "teacher_j_rund_tore_skadberg",
@@ -2478,7 +2425,7 @@
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg2_mnjbymw8",
+      "link_group_id": "link_aktivitetsl_re_vg2_mnm12gc6",
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
@@ -2511,7 +2458,7 @@
         "Fri-4"
       ],
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg2_mnjbymw8",
+      "link_group_id": "link_aktivitetsl_re_vg2_mnm12gc6",
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
@@ -2532,7 +2479,7 @@
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg3_mnjbylb7",
+      "link_group_id": "link_aktivitetsl_re_vg3_mnm12hmr",
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
@@ -2553,7 +2500,7 @@
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg3_mnjbylb7",
+      "link_group_id": "link_aktivitetsl_re_vg3_mnm12hmr",
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
@@ -4886,6 +4833,42 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_aktivitetsl_re_vg1_1ida",
+      "name": "Aktivitetslære vg1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [
+        "class_1ida"
+      ],
+      "subject_type": "fellesfag",
+      "sessions_per_week": 4,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": "link_aktivitetsl_re_vg1_mnm12emw",
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_aktivitetsl_re_vg1_1idb",
+      "name": "Aktivitetslære vg1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [
+        "class_1idb"
+      ],
+      "subject_type": "fellesfag",
+      "sessions_per_week": 4,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": "link_aktivitetsl_re_vg1_mnm12emw",
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     }
@@ -7361,7 +7344,7 @@
   "meetings": [
     {
       "id": "meeting_idrettsm_te",
-      "name": "Idrettsmøte",
+      "name": "Avdelingsmøte: Idrett",
       "timeslot_id": "Mon-2",
       "teacher_assignments": [
         {
@@ -8166,7 +8149,7 @@
     },
     {
       "id": "meeting_realfag",
-      "name": "Realfag",
+      "name": "Avdelingsmøte: Realfag",
       "timeslot_id": "Wed-2",
       "teacher_assignments": [
         {
@@ -8245,7 +8228,7 @@
     },
     {
       "id": "meeting_spr_k",
-      "name": "Språk",
+      "name": "Avdelingsmøte: Språk",
       "timeslot_id": "Wed-2",
       "teacher_assignments": [
         {
@@ -8324,7 +8307,7 @@
     },
     {
       "id": "meeting_samfunnsfag",
-      "name": "Samfunnsfag",
+      "name": "Avdelingsmøte: Samfunnsfag",
       "timeslot_id": "Thu-3",
       "teacher_assignments": [
         {
@@ -8430,6 +8413,65 @@
         {
           "teacher_id": "teacher_trond_waage_ids_e",
           "mode": "preferred"
+        }
+      ]
+    },
+    {
+      "id": "meeting_norsk",
+      "name": "Avdelingsmøte: Norsk",
+      "timeslot_id": "Tue-3",
+      "teacher_assignments": [
+        {
+          "teacher_id": "teacher_agnethe_j_rpeland",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_anja_helen_steinsland",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_annett_titlestad",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_shild_naustdal_jakobsen",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_gry_heidi_d_vik_skadsem",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_hanne_h_vardstein",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_hilde_maren_todnem",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_jon_arne_pollestad",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_kjersti_eide_torstrup",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_lasse_l_tcherath_ihle",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_marit_topnes_serigstad",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_siri_st_ldal",
+          "mode": "unavailable"
+        },
+        {
+          "teacher_id": "teacher_tor_thorvaldsen",
+          "mode": "unavailable"
         }
       ]
     }
