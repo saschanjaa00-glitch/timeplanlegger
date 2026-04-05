@@ -87,6 +87,47 @@ def _timeslot_45m_units(timeslot: Timeslot) -> int:
     return 1
 
 
+def _class_year_gap_weight(class_id: str) -> int:
+    """Return a gap-penalty weight based on the school year inferred from the class ID.
+    Younger students (year 1) get a higher weight since gaps are more disruptive for them.
+    """
+    m = re.match(r"^(\d)", class_id.strip())
+    if m:
+        year = int(m.group(1))
+        return max(1, 4 - year)  # year 1 -> 3, year 2 -> 2, year 3 -> 1
+    return 1
+
+
+def _compute_teacher_overload_cautions(
+    schedule: List[ScheduledItem],
+    teachers_by_id: Dict[str, Any],
+) -> List[str]:
+    """Return caution strings for teachers with 4 or more sessions on any single day."""
+    day_counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
+    for item in schedule:
+        week_key = item.week_type or "base"
+        all_tids = list(dict.fromkeys(
+            ([item.teacher_id] if item.teacher_id else []) + list(item.teacher_ids or [])
+        ))
+        for tid in all_tids:
+            if tid:
+                day_counts[(tid, week_key, item.day)] += 1
+
+    cautions: List[str] = []
+    seen: Set[Tuple[str, str]] = set()
+    for (tid, week_key, day), count in sorted(day_counts.items()):
+        if count >= 4:
+            key = (tid, day)
+            prev_best = seen  # reuse to track max per (teacher, day)
+            teacher = teachers_by_id.get(tid)
+            name = teacher.name if teacher else tid
+            week_label = f" (week {week_key})" if week_key != "base" else ""
+            cautions.append(
+                f"Teacher '{name}' has {count} sessions on {day}{week_label}"
+            )
+    return cautions
+
+
 def _timeslot_bounds_minutes(timeslot: Timeslot) -> Tuple[int, int]:
     start = _to_minutes(timeslot.start_time)
     end = _to_minutes(timeslot.end_time)
@@ -1219,6 +1260,14 @@ def _generate_schedule_staged(
     schedule_items: List[ScheduledItem] = []
     reduced_tail_span_by_class_slot: Dict[Tuple[str, str], Tuple[str, str]] = {}
     class_day_load_units: Dict[Tuple[str, str], int] = defaultdict(int)
+    # Track sessions per (teacher_id, day) and (class_id, day)->set(periods)
+    # for teacher overload avoidance and class gap avoidance in placement scoring.
+    teacher_day_count_staged: Dict[Tuple[str, str], int] = defaultdict(int)
+    class_periods_by_day: Dict[Tuple[str, str], Set[int]] = defaultdict(set)
+    # Set of valid period numbers per day (from defined timeslots).
+    day_valid_periods: Dict[str, Set[int]] = defaultdict(set)
+    for _ts in active_timeslots:
+        day_valid_periods[_ts.day].add(_ts.period)
     seeded_units_by_subject: Dict[str, int] = defaultdict(int)
     seeded_days_by_subject: Dict[str, Set[str]] = defaultdict(set)
     partial_subject_ids = allow_partial_subject_ids or set()
@@ -1274,6 +1323,7 @@ def _generate_schedule_staged(
                 class_occupied.add((class_id, item.timeslot_id))
                 class_day_load_units[(class_id, item.day)] += item_units
                 class_week_units[class_id] += item_units
+                class_periods_by_day[(class_id, item.day)].add(item.period)
 
             seeded_teacher_ids = list(dict.fromkeys([
                 *(item.teacher_ids or []),
@@ -1281,6 +1331,7 @@ def _generate_schedule_staged(
             ]))
             for teacher_id in seeded_teacher_ids:
                 teacher_occupied.add((teacher_id, item.timeslot_id))
+                teacher_day_count_staged[(teacher_id, item.day)] += 1
 
     # Step 0: force-placed subjects (typically fellesfag class copies) are inserted
     # before block reservation. They reserve teacher/class occupancy for other
@@ -1364,8 +1415,10 @@ def _generate_schedule_staged(
             class_occupied.add((class_id, forced_ts_id))
             class_day_load_units[(class_id, ts.day)] += forced_units
             class_week_units[class_id] += forced_units
+            class_periods_by_day[(class_id, ts.day)].add(ts.period)
         for teacher_id in teacher_ids:
             teacher_occupied.add((teacher_id, forced_ts_id))
+            teacher_day_count_staged[(teacher_id, ts.day)] += 1
         _increment_room_slot_usage(subject.id, forced_ts_id, (week_label or "base"))
 
     block_subject_ids: Set[str] = set(linked_block_ids.keys())
@@ -1542,12 +1595,14 @@ def _generate_schedule_staged(
                 ):
                     for teacher_id in teacher_ids:
                         teacher_occupied.add((teacher_id, ts_id))
+                        teacher_day_count_staged[(teacher_id, timeslots_by_id[ts_id].day)] += 1
 
                 units_placed += timeslot_units_by_id.get(ts_id, 1)
                 _increment_room_slot_usage(subject.id, ts_id, (week_label or "base"))
                 for class_id in placement_class_ids:
                     class_day_load_units[(class_id, timeslots_by_id[ts_id].day)] += timeslot_units_by_id.get(ts_id, 1)
                     class_week_units[class_id] += timeslot_units_by_id.get(ts_id, 1)
+                    class_periods_by_day[(class_id, timeslots_by_id[ts_id].day)].add(timeslots_by_id[ts_id].period)
                 if not fill_all_block_slots and units_placed >= required_units:
                     break
 
@@ -1969,8 +2024,10 @@ def _generate_schedule_staged(
                     class_occupied.add((class_id, linked_slot_id))
                     class_day_load_units[(class_id, linked_slot.day)] += placed_units
                     class_week_units[class_id] += placed_units
+                    class_periods_by_day[(class_id, linked_slot.day)].add(linked_slot.period)
                 for teacher_id in teacher_ids:
                     teacher_occupied.add((teacher_id, linked_slot_id))
+                    teacher_day_count_staged[(teacher_id, linked_slot.day)] += 1
                 _increment_room_slot_usage(subject.id, linked_slot_id, planning_week_key)
 
                 units_placed += placed_units
@@ -2098,6 +2155,15 @@ def _generate_schedule_staged(
                     for class_id in blocker_subject.class_ids:
                         class_day_load_units[(class_id, old_day)] -= blocker_units
                         class_day_load_units[(class_id, alt_slot.day)] += blocker_units
+                        if old_day != alt_slot.day:
+                            class_periods_by_day[(class_id, old_day)].discard(old_period)
+                            class_periods_by_day[(class_id, alt_slot.day)].add(alt_slot.period)
+                    for teacher_id in blocker_teacher_ids:
+                        if old_day != alt_slot.day:
+                            teacher_day_count_staged[(teacher_id, old_day)] = max(
+                                0, teacher_day_count_staged[(teacher_id, old_day)] - 1
+                            )
+                            teacher_day_count_staged[(teacher_id, alt_slot.day)] += 1
                     _decrement_room_slot_usage(blocker_subject.id, blocker_old_slot_id, planning_week_key)
                     _increment_room_slot_usage(blocker_subject.id, alt_ts_id, planning_week_key)
 
@@ -2328,11 +2394,37 @@ def _generate_schedule_staged(
                         norsk_pair_penalty = 0 if completes_target_pair else 1
                         norsk_pair_setup_penalty = 0 if ts.period in {1, 2, 3, 4} else 1
 
+                    # Avoid giving a teacher a 4th (or more) session on the same day.
+                    teacher_four_session_penalty = (
+                        1 if teacher_ids and any(
+                            teacher_day_count_staged.get((tid, ts.day), 0) >= 3
+                            for tid in teacher_ids
+                        ) else 0
+                    )
+
+                    # Soft preference: avoid creating gaps for classes within the same day.
+                    # Weighted by class year (younger = higher weight). Low priority.
+                    class_gap_penalty = 0
+                    if subject.class_ids:
+                        valid_periods_today = day_valid_periods.get(ts.day, set())
+                        for class_id in subject.class_ids:
+                            existing_ps = class_periods_by_day.get((class_id, ts.day), set())
+                            if existing_ps and valid_periods_today:
+                                all_ps = existing_ps | {ts.period}
+                                min_p_gap = min(all_ps)
+                                max_p_gap = max(all_ps)
+                                gap_count = sum(
+                                    1 for p in range(min_p_gap + 1, max_p_gap)
+                                    if p not in all_ps and p in valid_periods_today
+                                )
+                                class_gap_penalty += gap_count * _class_year_gap_weight(class_id)
+
                     score = (
                         would_overshoot,
                         norsk_pair_penalty,
                         norsk_pair_setup_penalty,
                         same_day_repeat_penalty,
+                        teacher_four_session_penalty,
                         thursday_math_penalty,
                         single_unit_penalty,
                         odd_tail_priority_penalty,
@@ -2345,6 +2437,7 @@ def _generate_schedule_staged(
                         boundary_penalty,
                         boundary_repeat_penalty,
                         day_load,
+                        class_gap_penalty,
                         ts.day,
                         ts.period,
                     )
@@ -2389,8 +2482,10 @@ def _generate_schedule_staged(
                 class_occupied.add((class_id, chosen_ts_id))
                 class_day_load_units[(class_id, chosen_ts.day)] += chosen_units
                 class_week_units[class_id] += chosen_units
+                class_periods_by_day[(class_id, chosen_ts.day)].add(chosen_ts.period)
             for teacher_id in teacher_ids:
                 teacher_occupied.add((teacher_id, chosen_ts_id))
+                teacher_day_count_staged[(teacher_id, chosen_ts.day)] += 1
             _increment_room_slot_usage(subject.id, chosen_ts_id, planning_week_key)
 
             subject_days_used.add(chosen_ts.day)
@@ -5827,6 +5922,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     deadline_monotonic = time.monotonic() + float(solver_timeout_seconds)
     generation_timed_out = False
 
+    _gen_teachers_by_id: Dict[str, Any] = {t.id: t for t in data.teachers}
+
+    def _cautions_for(schedule: List[ScheduledItem]) -> List[str]:
+        return _compute_teacher_overload_cautions(schedule, _gen_teachers_by_id)
+
     if solver_engine == "cp_sat_experimental":
         _solver_log("[ENGINE] cp_sat_experimental requested; attempting CP-SAT engine first.")
         cp_sat_response = _generate_schedule_cp_sat_experimental(data, solver_timeout_seconds)
@@ -5854,6 +5954,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 schedule=cp_sat_schedule,
                 metadata=cp_sat_metadata,
                 diagnostics=dict(cp_sat_response.diagnostics or {}),
+                cautions=_cautions_for(cp_sat_schedule),
             )
         _solver_log(
             f"[ENGINE] cp_sat_experimental fallback to staged: {cp_sat_response.message}"
@@ -5891,12 +5992,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
                 metadata["solver_engine_cp_sat_requested"] = 1.0 if solver_engine == "cp_sat_experimental" else 0.0
                 metadata["solver_engine_effective_staged"] = 1.0
+                final_schedule = list(attempt.schedule or [])
                 return ScheduleResponse(
                     status=attempt.status,
                     message=attempt.message,
-                    schedule=list(attempt.schedule or []),
+                    schedule=final_schedule,
                     metadata=metadata,
                     diagnostics=dict(attempt.diagnostics or {}),
+                    cautions=_cautions_for(final_schedule),
                 )
         if attempts:
             metadata = dict(attempts[0].metadata or {})
@@ -7743,12 +7846,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             metadata = dict(response.metadata or {})
             metadata["postprocess_skipped_timeout"] = 1.0
             metadata["remaining_budget_seconds"] = float(max(0.0, remaining_budget))
+            sched = list(response.schedule or [])
             return ScheduleResponse(
                 status=response.status,
                 message=response.message,
-                schedule=list(response.schedule or []),
+                schedule=sched,
                 metadata=metadata,
                 diagnostics=dict(response.diagnostics or {}),
+                cautions=_cautions_for(sched),
             )
 
         def _enforce_strict_subject_day_pattern(items: List[ScheduledItem]) -> List[ScheduledItem]:
@@ -8074,6 +8179,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             schedule=sanitized_schedule,
             metadata=dict(response.metadata or {}),
             diagnostics=dict(response.diagnostics or {}),
+            cautions=_cautions_for(sanitized_schedule),
         )
 
     def _alternating_slot_sort_key(ts_id: str) -> Tuple[str, int]:
@@ -9099,9 +9205,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             schedule=list(response.schedule or []),
             metadata=metadata,
             diagnostics=dict(response.diagnostics or {}),
+            cautions=list(response.cautions or []),
         )
-
-    def _reinject_block_step_items_for_partial(schedule_items: List[ScheduledItem]) -> List[ScheduledItem]:
         """Keep block-step semantics in partial outputs.
 
         When alternating fallback selects a partial schedule, it may come from an

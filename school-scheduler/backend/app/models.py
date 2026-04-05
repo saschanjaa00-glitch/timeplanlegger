@@ -136,3 +136,4 @@ class ScheduleResponse(BaseModel):
     schedule: List[ScheduledItem]
     metadata: Dict[str, float] = Field(default_factory=dict)
     diagnostics: Dict[str, Any] = Field(default_factory=dict)
+    cautions: List[str] = Field(default_factory=list)

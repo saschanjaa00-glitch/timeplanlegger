@@ -1,0 +1,2 @@
+[RUN] generate_schedule called with alternating_weeks_enabled=True
+[ENGINE] cp_sat_experimental requested; attempting CP-SAT engine first.

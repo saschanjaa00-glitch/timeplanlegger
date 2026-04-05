@@ -2401,8 +2401,16 @@ button.secondary {
   color: #672626;
 }
 
+.status-caution-panel {
+  flex: 1 1 100%;
+  border: 1px solid #c9a84c;
+  background: #fffbf0;
+  color: #5a4200;
+}
+
 .status-warning-panel > summary,
-.status-unplaced-panel > summary {
+.status-unplaced-panel > summary,
+.status-caution-panel > summary {
   list-style: none;
   cursor: pointer;
   display: flex;
@@ -2415,7 +2423,8 @@ button.secondary {
 }
 
 .status-warning-panel > summary::-webkit-details-marker,
-.status-unplaced-panel > summary::-webkit-details-marker {
+.status-unplaced-panel > summary::-webkit-details-marker,
+.status-caution-panel > summary::-webkit-details-marker {
   display: none;
 }
 

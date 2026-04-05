@@ -146,6 +146,7 @@ type GenerateResponse = {
   message: string;
   schedule: ScheduledItem[];
   metadata?: Record<string, number>;
+  cautions?: string[];
   diagnostics?: {
     missing_subjects?: MissingSubjectDiagnostic[];
   };
@@ -1272,6 +1273,7 @@ export default function Home() {
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
   const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
+  const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [generationPopup, setGenerationPopup] = useState<{
     visible: boolean;
@@ -5597,6 +5599,7 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setCautionsList([]);
     setLastRunMetadata(null);
     setSchedule([]);
 
@@ -5789,6 +5792,7 @@ export default function Home() {
         data.status === "success" ? 3500 : undefined,
       );
       setSchedule(data.schedule || []);
+      setCautionsList(data.cautions ?? []);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
       const failStatus = `Failed (run ${runId}): ${message}. Total time ${generationElapsedLabel()}.`;
@@ -5796,6 +5800,7 @@ export default function Home() {
       setPlacementWarningSummary("");
       setUnplacedStatusDetails([]);
       setUnplacedStatusSummary("");
+      setCautionsList([]);
       setLastRunMetadata(null);
       setStatusText(failStatus);
       openGenerationPopup("error", failStatus, runId);
@@ -5811,6 +5816,7 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setCautionsList([]);
     setLastRunMetadata(null);
     setStatusText("Generated schedule cleared. Inputs and constraints are unchanged.");
   }
@@ -9177,6 +9183,22 @@ export default function Home() {
                     <li key={detail.subject_id}>
                       {detail.subject_name} ({detail.subject_id}) | Teacher: {detail.teacher_label} | Required {detail.required_units}u, placed {detail.placed_units}u, missing {detail.missing_units}u. Reason: {detail.reason}
                     </li>
+                  ))}
+                </ul>
+              </div>
+            </details>
+          )}
+          {cautionsList.length > 0 && (
+            <details className="status-caution-panel" open>
+              <summary>
+                <span>{cautionsList.length} scheduling caution{cautionsList.length === 1 ? "" : "s"}</span>
+                <span className="status-warning-summary-hint">Click to collapse</span>
+              </summary>
+              <div className="status-warning-content">
+                <p>These items are non-blocking but may warrant manual review:</p>
+                <ul>
+                  {cautionsList.map((msg, idx) => (
+                    <li key={idx}>{msg}</li>
                   ))}
                 </ul>
               </div>
