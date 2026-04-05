@@ -8217,30 +8217,37 @@ export default function Home() {
 
         {/* Missing teacher status for Fellesfag */}
         {(() => {
-          const missing = subjects
-            .filter((s) => s.subject_type === "fellesfag")
-            .filter((s) => {
-              const allTids = Array.from(new Set([...(s.teacher_id ? [s.teacher_id] : []), ...(s.teacher_ids ?? [])].filter(Boolean)));
-              return allTids.length === 0;
-            })
-            .sort((a, b) => a.name.localeCompare(b.name, "nb"));
-          if (missing.length === 0) return null;
+          const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, "nb"));
+          const byClass: { cls: SchoolClass; missing: string[] }[] = [];
+          for (const cls of sortedClasses) {
+            const missingSubjs = subjects
+              .filter((s) => s.subject_type === "fellesfag" && (s.class_ids ?? []).includes(cls.id))
+              .filter((s) => {
+                const tids = Array.from(new Set([...(s.teacher_id ? [s.teacher_id] : []), ...(s.teacher_ids ?? [])].filter(Boolean)));
+                return tids.length === 0;
+              })
+              .sort((a, b) => a.name.localeCompare(b.name, "nb"))
+              .map((s) => s.name);
+            if (missingSubjs.length > 0) byClass.push({ cls, missing: missingSubjs });
+          }
+          const totalCount = byClass.reduce((sum, e) => sum + e.missing.length, 0);
+          if (totalCount === 0) return null;
           return (
             <article className="card" style={{ gridColumn: "1 / -1" }}>
               <details>
                 <summary style={{ cursor: "pointer", fontWeight: 600, color: "#b45309" }}>
-                  ⚠️ {missing.length} fellesfag mangler lærer
+                  ⚠️ {totalCount} fellesfag mangler lærer ({byClass.length} klasse{byClass.length === 1 ? "" : "r"})
                 </summary>
-                <ul style={{ marginTop: "8px", fontSize: "0.88rem" }}>
-                  {missing.map((s) => {
-                    const classNames = (s.class_ids ?? []).map((cid) => classes.find((c) => c.id === cid)?.name ?? cid).join(", ");
-                    return (
-                      <li key={s.id}>
-                        <strong>{s.name}</strong>{classNames ? ` — ${classNames}` : ""}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <div style={{ marginTop: "8px", fontSize: "0.88rem" }}>
+                  {byClass.map(({ cls, missing }) => (
+                    <div key={cls.id} style={{ marginBottom: "6px" }}>
+                      <strong>{cls.name}</strong>
+                      <ul style={{ margin: "2px 0 0 16px" }}>
+                        {missing.map((name) => <li key={name}>{name}</li>)}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
               </details>
             </article>
           );
