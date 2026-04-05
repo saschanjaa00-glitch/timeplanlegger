@@ -11148,15 +11148,32 @@ export default function Home() {
         }
 
         function slotsStr(items: ScheduledItem[]): string {
-          return [...items]
+          // Group by timeslot_id so that A+B occurrences of the same slot merge to "(begge uker)"
+          const grouped = new Map<string, Set<string | null>>();
+          for (const it of items) {
+            if (!grouped.has(it.timeslot_id)) grouped.set(it.timeslot_id, new Set());
+            grouped.get(it.timeslot_id)!.add(it.week_type ?? null);
+          }
+          // Sort by day/period using first item for each timeslot_id
+          const sorted = [...items]
+            .filter((it, idx, arr) => arr.findIndex(x => x.timeslot_id === it.timeslot_id) === idx)
             .sort((a, b) => {
               const da = dayOrder[a.day] ?? 9;
               const db = dayOrder[b.day] ?? 9;
               if (da !== db) return da - db;
               return a.period - b.period;
-            })
-            .map(it => slotLabel(it.timeslot_id, it.week_type))
-            .join(", ");
+            });
+          return sorted.map(it => {
+            const weeks = grouped.get(it.timeslot_id)!;
+            const hasA = weeks.has("A");
+            const hasB = weeks.has("B");
+            const ts = timeslotById[it.timeslot_id];
+            const base = ts ? formatTimeslotLabel(ts) : it.timeslot_id;
+            if (hasA && hasB) return `${base} (begge uker)`;
+            if (hasA) return `${base} (A-uke)`;
+            if (hasB) return `${base} (B-uke)`;
+            return base;
+          }).join(", ");
         }
 
         const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, "nb"));
@@ -11184,8 +11201,17 @@ export default function Home() {
 
             const classBlocks = blocks.filter(b => b.class_ids.includes(cls.id));
             for (const block of classBlocks) {
-              const occLabels = block.occurrences.map(occ => {
-                const weekSuffix = occ.week_type === "A" ? " (A-uke)" : occ.week_type === "B" ? " (B-uke)" : "";
+              // Merge occurrences with same day+time that differ only in week_type
+              const occMap = new Map<string, { occ: typeof block.occurrences[0]; weeks: Set<string | null> }>();
+              for (const occ of block.occurrences) {
+                const key = `${occ.day}|${occ.start_time}|${occ.end_time}`;
+                if (!occMap.has(key)) occMap.set(key, { occ, weeks: new Set() });
+                occMap.get(key)!.weeks.add(occ.week_type ?? null);
+              }
+              const occLabels = [...occMap.values()].map(({ occ, weeks }) => {
+                const hasA = weeks.has("A");
+                const hasB = weeks.has("B");
+                const weekSuffix = (hasA && hasB) ? " (begge uker)" : hasA ? " (A-uke)" : hasB ? " (B-uke)" : "";
                 return `${toNorwegianDay(occ.day)} ${occ.start_time}-${occ.end_time}${weekSuffix}`;
               }).join(", ");
               lines.push(`  [Blokk: ${block.name}]  ${occLabels}`);

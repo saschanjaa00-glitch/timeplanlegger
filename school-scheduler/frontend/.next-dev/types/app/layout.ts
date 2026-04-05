@@ -1,4 +1,4 @@
-// File: d:\VibeCoding\Timeplanlegger\school-scheduler\frontend\app\layout.tsx
+// File: D:\VibeCoding\Timeplanlegger\school-scheduler\frontend\app\layout.tsx
 import * as entry from '../../../app/layout.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 
