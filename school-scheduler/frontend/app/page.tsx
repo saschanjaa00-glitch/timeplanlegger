@@ -205,6 +205,13 @@ type SavedJsonExport = {
   payload: string;
 };
 
+type SavedScheduleSnapshot = {
+  id: string;
+  name: string;
+  created_at: string;
+  schedule: ScheduledItem[];
+};
+
 type SubjectTabEntry = {
   subject: Subject;
   derivedClassIds: string[];
@@ -233,6 +240,7 @@ type PersistedState = {
   activeWeekSetupId: string | null;
   weekView: WeekView;
   savedJsonExports?: SavedJsonExport[];
+  savedScheduleSnapshots?: SavedScheduleSnapshot[];
 };
 
 function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
@@ -1441,6 +1449,8 @@ export default function Home() {
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [savedJsonExports, setSavedJsonExports] = useState<SavedJsonExport[]>([]);
+  const [savedScheduleSnapshots, setSavedScheduleSnapshots] = useState<SavedScheduleSnapshot[]>([]);
+  const [snapshotName, setSnapshotName] = useState("");
 
   // ── Supabase cloud save state ──────────────────────────────────────────────
   const [cloudUser, setCloudUser] = useState<User | null>(null);
@@ -1635,6 +1645,7 @@ export default function Home() {
       activeWeekSetupId,
       weekView,
       savedJsonExports,
+      savedScheduleSnapshots,
     };
   }
 
@@ -1685,6 +1696,12 @@ export default function Home() {
         .filter((entry): entry is SavedJsonExport => Boolean(entry?.id && entry?.name && entry?.created_at && entry?.payload))
         .slice(0, 30);
       setSavedJsonExports(normalized);
+    }
+    if (Array.isArray(parsed.savedScheduleSnapshots)) {
+      const normalized = parsed.savedScheduleSnapshots
+        .filter((entry): entry is SavedScheduleSnapshot => Boolean(entry?.id && entry?.name && entry?.created_at && Array.isArray(entry?.schedule)))
+        .slice(0, 20);
+      setSavedScheduleSnapshots(normalized);
     }
   }
 
@@ -1899,6 +1916,7 @@ export default function Home() {
         activeWeekSetupId: string | null;
         weekView: WeekView;
         savedJsonExports: SavedJsonExport[];
+        savedScheduleSnapshots: SavedScheduleSnapshot[];
       }>;
 
       applyPersistedState(parsed);
@@ -1954,6 +1972,7 @@ export default function Home() {
       activeWeekSetupId,
       weekView,
       savedJsonExports,
+      savedScheduleSnapshots,
     };
 
     const serialized = JSON.stringify(persisted);
@@ -1988,6 +2007,7 @@ export default function Home() {
     activeWeekSetupId,
     weekView,
     savedJsonExports,
+    savedScheduleSnapshots,
   ]);
 
   // ── Autosave to cloud (debounced 8s) ──────────────────────────────────────
@@ -9616,6 +9636,71 @@ export default function Home() {
           >
             Slett generert timeplan
           </button>
+          {/* ── Schedule snapshot save/restore ── */}
+          <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "wrap" }}>
+            <input
+              type="text"
+              value={snapshotName}
+              onChange={(e) => setSnapshotName(e.target.value)}
+              placeholder="Navn på lagring..."
+              style={{ fontSize: "0.85rem", padding: "4px 8px", width: "160px" }}
+              disabled={schedule.length === 0}
+            />
+            <button
+              type="button"
+              className="secondary"
+              disabled={schedule.length === 0}
+              onClick={() => {
+                const now = new Date();
+                const name = snapshotName.trim() ||
+                  `Timeplan ${now.toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })}`;
+                const snap: SavedScheduleSnapshot = {
+                  id: `${now.getTime()}_${Math.random().toString(16).slice(2, 6)}`,
+                  name,
+                  created_at: now.toISOString(),
+                  schedule: [...schedule],
+                };
+                setSavedScheduleSnapshots((prev) => [snap, ...prev].slice(0, 20));
+                setSnapshotName("");
+                setStatusText(`Lagret «${name}»`);
+              }}
+            >
+              Lagre timeplan
+            </button>
+            {savedScheduleSnapshots.length > 0 && (
+              <select
+                style={{ fontSize: "0.85rem", padding: "4px 6px" }}
+                value=""
+                onChange={(e) => {
+                  const snap = savedScheduleSnapshots.find((s) => s.id === e.target.value);
+                  if (!snap) return;
+                  const proceed = window.confirm(`Last inn «${snap.name}»? Dette erstatter gjeldende timeplan.`);
+                  if (!proceed) return;
+                  setSchedule(snap.schedule);
+                  setStatusText(`Lastet inn «${snap.name}»`);
+                }}
+              >
+                <option value="">Gjenopprett lagret...</option>
+                {savedScheduleSnapshots.map((snap) => (
+                  <option key={snap.id} value={snap.id}>
+                    {snap.name} ({new Date(snap.created_at).toLocaleString("nb-NO", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })})
+                  </option>
+                ))}
+              </select>
+            )}
+            {savedScheduleSnapshots.length > 0 && (
+              <button
+                type="button"
+                className="secondary"
+                style={{ fontSize: "0.78rem", color: "#c53" }}
+                onClick={() => {
+                  if (window.confirm("Slett alle lagrede timeplaner?")) setSavedScheduleSnapshots([]);
+                }}
+              >
+                Slett alle lagringer
+              </button>
+            )}
+          </div>
           <div className="status">{statusText}</div>
           {lastRunMetadata && (
             <details className="status-warning-panel">
