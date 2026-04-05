@@ -92,6 +92,11 @@ class Room(BaseModel):
     id: str
     name: str
     prioritize_for_preferred_subjects: bool = False
+    # "strict" = old behaviour (others use only as last resort)
+    # "medium"  = others prefer non-prioritised rooms but can use this one before strict rooms
+    # "relaxed" = freely available to all (helps avoid hull-times)
+    # None      = no restriction (same as relaxed / prioritize_for_preferred_subjects=False)
+    room_priority_mode: Optional[str] = None
 
 
 class SportsHall(BaseModel):

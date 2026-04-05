@@ -379,11 +379,23 @@ def _assign_rooms_to_schedule(
     }
     room_ids_ordered = list(rooms_by_id.keys())
     room_order_index = {room_id: idx for idx, room_id in enumerate(room_ids_ordered)}
-    prioritized_rooms = {
-        room.id
-        for room in all_rooms
-        if getattr(room, "prioritize_for_preferred_subjects", False)
+    def _room_priority_level(room) -> str:
+        mode = getattr(room, "room_priority_mode", None)
+        if mode in ("strict", "medium", "relaxed"):
+            return mode
+        # Backward compat: prioritize_for_preferred_subjects=True → strict
+        if getattr(room, "prioritize_for_preferred_subjects", False):
+            return "strict"
+        return "none"
+
+    strict_prioritized_rooms = {
+        room.id for room in all_rooms if _room_priority_level(room) == "strict"
     }
+    medium_prioritized_rooms = {
+        room.id for room in all_rooms if _room_priority_level(room) == "medium"
+    }
+    # "relaxed" and "none" rooms are treated as fully unrestricted
+    prioritized_rooms = strict_prioritized_rooms  # kept for any legacy references
     teachers_by_id = {teacher.id: teacher for teacher in data.teachers}
     result_items: List[ScheduledItem] = []
 
@@ -557,13 +569,18 @@ def _assign_rooms_to_schedule(
                 available_any = [room_id for room_id in available_any if room_id in sports_hall_ids]
             else:
                 available_any = [room_id for room_id in available_any if room_id not in sports_hall_ids]
-            available_non_prioritized = [room_id for room_id in available_any if room_id not in prioritized_rooms]
-            available_prioritized = [room_id for room_id in available_any if room_id in prioritized_rooms]
+            available_non_prioritized = [room_id for room_id in available_any if room_id not in strict_prioritized_rooms and room_id not in medium_prioritized_rooms]
+            available_medium_prioritized = [room_id for room_id in available_any if room_id in medium_prioritized_rooms]
+            available_strict_prioritized = [room_id for room_id in available_any if room_id in strict_prioritized_rooms]
+            available_prioritized = available_strict_prioritized  # legacy alias
             available_non_preferred_non_prioritized = [
                 room_id for room_id in available_non_prioritized if room_id not in preferred_rooms
             ]
+            available_non_preferred_medium_prioritized = [
+                room_id for room_id in available_medium_prioritized if room_id not in preferred_rooms
+            ]
             available_non_preferred_prioritized = [
-                room_id for room_id in available_prioritized if room_id not in preferred_rooms
+                room_id for room_id in available_strict_prioritized if room_id not in preferred_rooms
             ]
             base_room_id: str | None = None
             if not is_sports_only and subject and subject.subject_type == "fellesfag" and item.class_ids:
@@ -581,6 +598,13 @@ def _assign_rooms_to_schedule(
                 elif available_non_preferred_non_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_preferred_non_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
+                elif available_non_preferred_medium_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_preferred_medium_prioritized,
                         item.subject_id,
                         week_key,
                         item.timeslot_id,
@@ -613,6 +637,13 @@ def _assign_rooms_to_schedule(
                         week_key,
                         item.timeslot_id,
                     )
+                elif available_non_preferred_medium_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_non_preferred_medium_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                 elif available_non_preferred_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_preferred_prioritized,
@@ -634,6 +665,13 @@ def _assign_rooms_to_schedule(
                         week_key,
                         item.timeslot_id,
                     )
+                elif available_medium_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_medium_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
                 elif available_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_prioritized,
@@ -647,6 +685,13 @@ def _assign_rooms_to_schedule(
                 if not assigned_room_id and available_non_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_prioritized,
+                        item.subject_id,
+                        week_key,
+                        item.timeslot_id,
+                    )
+                if not assigned_room_id and available_medium_prioritized:
+                    assigned_room_id = _pick_with_consistency(
+                        available_medium_prioritized,
                         item.subject_id,
                         week_key,
                         item.timeslot_id,

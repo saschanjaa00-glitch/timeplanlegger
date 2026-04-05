@@ -93,6 +93,7 @@ type Room = {
   id: string;
   name: string;
   prioritize_for_preferred_subjects?: boolean;
+  room_priority_mode?: "strict" | "medium" | "relaxed";
 };
 
 type SportsHall = {
@@ -843,6 +844,7 @@ function normalizeRoom(room: Partial<Room>): Room {
     id: room.id ?? "",
     name: room.name ?? "",
     prioritize_for_preferred_subjects: Boolean(room.prioritize_for_preferred_subjects),
+    room_priority_mode: room.room_priority_mode,
   };
 }
 
@@ -1334,7 +1336,7 @@ export default function Home() {
   const [roomForm, setRoomForm] = useState({ name: "" });
   const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
   const [preferencesRoomId, setPreferencesRoomId] = useState<string | null>(null);
-  const [preferencesRoomPriorityOnly, setPreferencesRoomPriorityOnly] = useState(false);
+  const [preferencesRoomPriorityMode, setPreferencesRoomPriorityMode] = useState<"strict" | "medium" | "relaxed" | "none">("none");
   const [sportsHallForm, setSportsHallForm] = useState({ name: "" });
   const [editingSportsHallId, setEditingSportsHallId] = useState<string | null>(null);
   const [sportsHallPreferencesId, setSportsHallPreferencesId] = useState<string | null>(null);
@@ -2406,7 +2408,8 @@ export default function Home() {
 
   function openRoomPreferences(room: Room) {
     setPreferencesRoomId(room.id);
-    setPreferencesRoomPriorityOnly(Boolean(room.prioritize_for_preferred_subjects));
+    const mode = room.room_priority_mode ?? (room.prioritize_for_preferred_subjects ? "strict" : "none");
+    setPreferencesRoomPriorityMode(mode as "strict" | "medium" | "relaxed" | "none");
   }
 
   function saveRoomPreferences() {
@@ -2415,15 +2418,21 @@ export default function Home() {
     }
     setRooms((prev) => prev.map((room) => (
       room.id === preferencesRoomId
-        ? { ...room, prioritize_for_preferred_subjects: preferencesRoomPriorityOnly }
+        ? {
+            ...room,
+            room_priority_mode: preferencesRoomPriorityMode === "none" ? undefined : preferencesRoomPriorityMode,
+            prioritize_for_preferred_subjects: preferencesRoomPriorityMode === "strict",
+          }
         : room
     )));
     const roomName = rooms.find((room) => room.id === preferencesRoomId)?.name ?? preferencesRoomId;
-    setStatusText(
-      preferencesRoomPriorityOnly
-        ? `Saved preferences for ${roomName}: prioritize for preferred subjects.`
-        : `Saved preferences for ${roomName}: available for all subjects.`
-    );
+    const modeLabel: Record<string, string> = {
+      strict: "streng prioritering",
+      medium: "middels prioritering",
+      relaxed: "avslappet prioritering",
+      none: "ingen prioritering",
+    };
+    setStatusText(`Lagret innstillinger for ${roomName}: ${modeLabel[preferencesRoomPriorityMode] ?? preferencesRoomPriorityMode}.`);
     setPreferencesRoomId(null);
   }
 
@@ -8428,9 +8437,10 @@ export default function Home() {
                         style={{
                           padding: "4px 8px",
                           fontSize: "0.72em",
-                          background: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
-                          borderColor: room.prioritize_for_preferred_subjects ? "#2f7f4f" : undefined,
-                          color: room.prioritize_for_preferred_subjects ? "#fff" : undefined,
+                          textTransform: "none",
+                          background: room.room_priority_mode === "strict" || (!room.room_priority_mode && room.prioritize_for_preferred_subjects) ? "#2f7f4f" : room.room_priority_mode === "medium" ? "#5a7e4f" : room.room_priority_mode === "relaxed" ? "#7a9e6f" : undefined,
+                          borderColor: room.room_priority_mode === "strict" || (!room.room_priority_mode && room.prioritize_for_preferred_subjects) ? "#2f7f4f" : room.room_priority_mode === "medium" ? "#5a7e4f" : room.room_priority_mode === "relaxed" ? "#7a9e6f" : undefined,
+                          color: room.room_priority_mode || room.prioritize_for_preferred_subjects ? "#fff" : undefined,
                         }}
                       >
                         Innstillinger
@@ -8486,21 +8496,38 @@ export default function Home() {
               >
                 <h3 style={{ margin: 0, fontSize: "0.95rem" }}>Rominnstillinger</h3>
                 <p style={{ margin: 0, fontSize: "0.82rem", color: "#555" }}>
-                  Angi om dette rommet primært skal brukes av fag som eksplisitt lister det opp under Romkrav.
+                  Angi hvor strengt dette rommet skal prioriteres for fag som lister det opp under Romkrav.
                 </p>
-                <label style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "0.85rem", color: "#222" }}>
-                  <input
-                    type="checkbox"
-                    checked={preferencesRoomPriorityOnly}
-                    onChange={(e) => setPreferencesRoomPriorityOnly(e.target.checked)}
-                  />
-                  Prioriter dette rommet for fag som har merket det som foretrukket (andre bruker det kun som siste utvei)
-                </label>
+                {(["none", "strict", "medium", "relaxed"] as const).map((opt) => {
+                  const labels: Record<string, { title: string; desc: string }> = {
+                    none: { title: "Ingen prioritering", desc: "Ingen spesiell behandling – rommet tildeles fritt til alle fag." },
+                    strict: { title: "Streng", desc: "Andre fag bruker rommet kun som absolutt siste utvei." },
+                    medium: { title: "Middels", desc: "Prioriterte fag får rommet først, men andre kan bruke det etter ikke-prioriterte rom er prøvd." },
+                    relaxed: { title: "Ikke så strengt", desc: "Alle kan bruke rommet etter prioriteringer er tatt – bra for rom som kan brukes av mange, men trenger prioritering (f.eks. R110). Hjelper med å unngå hull-timer." },
+                  };
+                  const { title, desc } = labels[opt];
+                  return (
+                    <label key={opt} style={{ display: "flex", alignItems: "flex-start", gap: "8px", fontSize: "0.85rem", color: "#222", cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name="room-priority-mode"
+                        value={opt}
+                        checked={preferencesRoomPriorityMode === opt}
+                        onChange={() => setPreferencesRoomPriorityMode(opt)}
+                        style={{ marginTop: "3px", flexShrink: 0, width: "auto" }}
+                      />
+                      <span>
+                        <strong>{title}</strong>
+                        <span style={{ display: "block", fontSize: "0.78rem", color: "#666", marginTop: "1px" }}>{desc}</span>
+                      </span>
+                    </label>
+                  );
+                })}
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
-                  <button type="button" className="secondary" onClick={() => setPreferencesRoomId(null)}>
+                  <button type="button" className="secondary" onClick={() => setPreferencesRoomId(null)} style={{ textTransform: "none" }}>
                     Avbryt
                   </button>
-                  <button type="button" onClick={saveRoomPreferences}>
+                  <button type="button" onClick={saveRoomPreferences} style={{ textTransform: "none" }}>
                     Lagre
                   </button>
                 </div>
