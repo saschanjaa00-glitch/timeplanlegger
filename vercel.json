@@ -1,0 +1,6 @@
+{
+  "buildCommand": "cd school-scheduler/frontend && npm run build",
+  "outputDirectory": "school-scheduler/frontend/.next",
+  "installCommand": "cd school-scheduler/frontend && npm install",
+  "framework": "nextjs"
+}
