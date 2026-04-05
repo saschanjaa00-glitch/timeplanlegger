@@ -608,10 +608,11 @@ type CompareEntity = {
   color: string;
 };
 
-const API_BASE_CANDIDATES = [
-  "http://127.0.0.1:8000",
-  "http://localhost:8000",
-];
+const API_BASE_CANDIDATES: string[] = (() => {
+  const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
+  if (envUrl) return [envUrl.replace(/\/$/, "")];
+  return ["http://127.0.0.1:8000", "http://localhost:8000"];
+})();
 
 async function postGenerateWithFallback(
   bodyStr: string,
@@ -1732,7 +1733,21 @@ export default function Home() {
       savedJsonExports,
     };
 
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+    const serialized = JSON.stringify(persisted);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, serialized);
+    } catch (e) {
+      if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.name === "NS_ERROR_DOM_QUOTA_REACHED")) {
+        // Data too large — retry without schedule to at least preserve config
+        try {
+          const withoutSchedule = JSON.stringify({ ...persisted, schedule: [] });
+          window.localStorage.setItem(STORAGE_KEY, withoutSchedule);
+          console.warn("localStorage quota exceeded — saved without schedule. Export your data to JSON to avoid losing it.");
+        } catch {
+          console.error("localStorage quota exceeded even without schedule. Data not saved.");
+        }
+      }
+    }
   }, [
     isStorageHydrated,
     subjects,
