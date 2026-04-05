@@ -5020,6 +5020,12 @@ def _generate_schedule_cp_sat_experimental(
     # for every week, regardless of any occupancy conflicts.
     forced_schedule_items: List[ScheduledItem] = []
     forced_subject_ids: Set[str] = set()
+    # Forced class occupancy is tracked SEPARATELY so that block placement (priority 2)
+    # is NOT blocked by force-placed subjects.  A force-placed Kroppsøving and a block
+    # occurrence are both manually placed and can legally coexist for the same class.
+    # After block processing we merge this into class_block_occupied so CP-SAT
+    # non-block subjects still avoid force-placed slots.
+    forced_class_occupied: Set[Tuple[str, str, str]] = set()  # (class_id, ts_id, week_key)
 
     for subject in data.subjects:
         forced_ts_id_fp = (getattr(subject, "force_timeslot_id", "") or "").strip()
@@ -5047,7 +5053,7 @@ def _generate_schedule_cp_sat_experimental(
                 )
             )
             for class_id in (subject.class_ids or []):
-                class_block_occupied.add((class_id, forced_ts_id_fp, week_key))
+                forced_class_occupied.add((class_id, forced_ts_id_fp, week_key))
             for tid in teacher_ids_forced:
                 if tid:
                     teacher_block_occupied.add((tid, forced_ts_id_fp, week_key))
@@ -5152,7 +5158,12 @@ def _generate_schedule_cp_sat_experimental(
                             if teacher_id:
                                 teacher_block_occupied.add((teacher_id, ts_id, week_key))
 
-    # ── Tail-slot detection ──────────────────────────────────────────────────
+    # ── Merge forced occupancy after blocks ──────────────────────────────────
+    # Now that block placement is complete, add forced-subject class occupancy so
+    # CP-SAT non-block subjects still avoid force-placed timeslots.
+    class_block_occupied |= forced_class_occupied
+
+    # ── Tail-slot detection ───────────────────────────────────────────────────
     # A tail slot is a regular timeslot that a block occurrence overshoots into at
     # its start (occ_start < ts_start < occ_end < ts_end).  In that case only the
     # last 45 minutes of the underlying timeslot (ts_end-45 … ts_end) are available
