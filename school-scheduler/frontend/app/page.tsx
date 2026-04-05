@@ -9772,18 +9772,7 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                {teacherSwapSuggestions.length > 0 && (
-                  <>
-                    <p style={{ marginTop: "10px", fontWeight: 600 }}>💡 Mulige lærerbytte-forslag:</p>
-                    <ul>
-                      {teacherSwapSuggestions.map((s, i) => (
-                        <li key={i}>
-                          <strong>{s.subject_name}</strong> ({s.class_names}) — bytt ut <em>{s.current_teacher}</em> med <em>{s.suggested_teacher}</em>. {s.reason}
-                        </li>
-                      ))}
-                    </ul>
-                  </>
-                )}
+
               </div>
             </details>
           )}
