@@ -4,14 +4,16 @@ from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from math import gcd
 import os
+import threading
 from pathlib import Path
 import random
 import re
-from typing import Dict, List, Set, Tuple
+import time
+from typing import Any, Dict, List, Set, Tuple
 
 from ortools.sat.python import cp_model
 
-from .models import Block, BlockOccurrence, BlockSubjectEntry, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Timeslot
+from .models import Block, BlockOccurrence, BlockSubjectEntry, ScheduleRequest, ScheduleResponse, ScheduledItem, Subject, Teacher, Timeslot
 
 
 MAX_WEEKLY_WORK_MINUTES_100_PERCENT = 29 * 60
@@ -162,6 +164,13 @@ def _subject_teacher_ids(subject: Subject) -> List[str]:
         candidates.append(subject.teacher_id)
     candidates.extend(getattr(subject, "teacher_ids", []) or [])
     return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
+
+
+REPAIR_RELOCATION_DEPTH = 4
+REPAIR_BLOCK_LOCK_SWEEPS = 4
+REPAIR_FINAL_CLEANUP_RELOCATION_DEPTH = 4
+ALT_DETERMINISTIC_SEEDS_PER_BATCH = 2
+ALT_DETERMINISTIC_SEED_BATCHES = 1
 
 
 def _subject_link_group_id(subject: Subject) -> str:
@@ -1077,11 +1086,23 @@ def _generate_schedule_staged(
     partial_subject_priority: str = "first",
     subject_priority_rank: Dict[str, int] | None = None,
     target_week_units_by_class: Dict[str, int] | None = None,
+    deadline_monotonic: float | None = None,
 ) -> ScheduleResponse:
     _solver_log(
         f"[RUN] generate_schedule_staged week={week_label or 'single'}",
         reset=(week_label is None or week_label == "A"),
     )
+
+    def _deadline_exceeded() -> bool:
+        return deadline_monotonic is not None and time.monotonic() >= deadline_monotonic
+
+    if _deadline_exceeded():
+        return ScheduleResponse(
+            status="infeasible",
+            message="Schedule generation timed out before staged planning started.",
+            schedule=[],
+            metadata={"timed_out": 1.0},
+        )
 
     active_timeslots = list(data.timeslots)
     if not active_timeslots:
@@ -1265,6 +1286,8 @@ def _generate_schedule_staged(
     # before block reservation. They reserve teacher/class occupancy for other
     # non-block subjects, but block subjects may still overlap by design.
     for subject in sorted(data.subjects, key=lambda s: s.name.lower()):
+        if _deadline_exceeded():
+            return _partial_infeasible_response("Schedule generation timed out during forced-slot placement.")
         if not getattr(subject, "force_place", False):
             continue
         forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
@@ -1348,6 +1371,8 @@ def _generate_schedule_staged(
     block_subject_ids: Set[str] = set(linked_block_ids.keys())
 
     for block in data.blocks:
+        if _deadline_exceeded():
+            return _partial_infeasible_response("Schedule generation timed out during block-slot placement.")
         block_slots = sorted(block_to_timeslots.get(block.id, set()), key=_slot_sort_key)
         if not block_slots:
             continue
@@ -1821,6 +1846,8 @@ def _generate_schedule_staged(
             seeded_last_boundary_count_by_subject[existing_item.subject_id] += 1
 
     for subject in remaining_subjects:
+        if _deadline_exceeded():
+            return _partial_infeasible_response("Schedule generation timed out during remaining-subject planning.")
         teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
         is_norsk_vg3 = _is_norsk_vg3_subject(subject)
@@ -1976,6 +2003,8 @@ def _generate_schedule_staged(
                 return False
 
             for ts_id in target_slots:
+                if _deadline_exceeded():
+                    return False
                 ts = timeslots_by_id[ts_id]
                 if enforce_unique_day_now and ts.day in subject_days_used:
                     continue
@@ -1984,6 +2013,8 @@ def _generate_schedule_staged(
 
                 blocking_indexes: List[int] = []
                 for idx, existing_item in enumerate(schedule_items):
+                    if _deadline_exceeded():
+                        return False
                     if (existing_item.week_type or "base") != planning_week_key:
                         continue
                     if existing_item.timeslot_id != ts_id:
@@ -2022,6 +2053,8 @@ def _generate_schedule_staged(
                 blocker_units = _item_units(blocker_item, timeslot_units_by_id)
 
                 for alt_ts_id in blocker_allowed:
+                    if _deadline_exceeded():
+                        return False
                     if alt_ts_id == ts_id:
                         continue
                     if not _room_capacity_available(blocker_subject, alt_ts_id, planning_week_key):
@@ -2085,6 +2118,10 @@ def _generate_schedule_staged(
             return False
 
         while units_placed < required_units:
+            if _deadline_exceeded():
+                return _partial_infeasible_response(
+                    f"Schedule generation timed out while placing subject '{subject.name}' ({subject.id})."
+                )
             remaining_units = required_units - units_placed
             prefer_single_unit_first = (
                 week_label == "A"
@@ -2109,8 +2146,16 @@ def _generate_schedule_staged(
             feasible_candidates: List[Tuple[Tuple[int, int, int, int, str, int], str, str | None, str | None, int]] = []
 
             for slot_candidates in slot_passes:
+                if _deadline_exceeded():
+                    return _partial_infeasible_response(
+                        f"Schedule generation timed out while evaluating candidates for '{subject.name}' ({subject.id})."
+                    )
                 feasible_candidates = []
                 for ts_id in slot_candidates:
+                    if _deadline_exceeded():
+                        return _partial_infeasible_response(
+                            f"Schedule generation timed out while scoring slots for '{subject.name}' ({subject.id})."
+                        )
                     if not _room_capacity_available(subject, ts_id, planning_week_key):
                         continue
                     if any((teacher_id, ts_id) in teacher_occupied for teacher_id in teacher_ids):
@@ -2471,23 +2516,36 @@ def _is_norsk_vg3_subject(subject: Subject | None) -> bool:
     return "norsk vg3" in normalized_name or ("norsk" in normalized_name and "vg3" in normalized_name)
 
 
+def _is_norsk_vg3_double_session_pair(periods: List[int]) -> bool:
+    if len(periods) != 2:
+        return False
+    return set(periods) in ({1, 2}, {3, 4})
+
+
 def _subject_day_repeat_penalty(
     items: List[ScheduledItem],
     subjects_by_id: Dict[str, Subject],
 ) -> int:
-    counts: Dict[Tuple[str, str], int] = defaultdict(int)
+    grouped_periods: Dict[Tuple[str, str, str], List[int]] = defaultdict(list)
     for item in items:
         subject = subjects_by_id.get(item.subject_id)
-        if _is_norsk_vg3_subject(subject):
-            continue
         if subject and subject.force_place and (subject.force_timeslot_id or "").strip():
             continue
-        counts[(item.subject_id, item.day)] += 1
+        grouped_periods[(item.subject_id, item.week_type or "base", item.day)].append(item.period)
 
     penalty = 0
-    for c in counts.values():
-        if c > 1:
-            penalty += c - 1
+    for (subject_id, _week, _day), periods in grouped_periods.items():
+        subject = subjects_by_id.get(subject_id)
+        if _is_norsk_vg3_subject(subject):
+            if len(periods) <= 1:
+                continue
+            if len(periods) == 2 and _is_norsk_vg3_double_session_pair(sorted(periods)):
+                continue
+            penalty += max(1, len(periods) - 1)
+            continue
+
+        if len(periods) > 1:
+            penalty += len(periods) - 1
     return penalty
 
 
@@ -2566,30 +2624,11 @@ def _norsk_vg3_adjacent_double90_pairs(
         week = item.week_type or "base"
         by_subject_week_day[(item.subject_id, week, item.day)].append(item)
 
-    noon = 12 * 60
     pairs = 0
     for grouped_items in by_subject_week_day.values():
-        resolved: List[Tuple[int, int]] = []
-        for item in grouped_items:
-            start = _to_minutes(item.start_time) if item.start_time else None
-            end = _to_minutes(item.end_time) if item.end_time else None
-            if start is None or end is None:
-                ts = timeslots_by_id.get(item.timeslot_id)
-                if ts:
-                    start, end = _timeslot_bounds_minutes(ts)
-            if start is None or end is None or end <= start:
-                continue
-            resolved.append((start, end))
-
-        resolved.sort()
-        for i in range(len(resolved) - 1):
-            start_a, end_a = resolved[i]
-            start_b, end_b = resolved[i + 1]
-            contiguous = end_a == start_b
-            same_half_day = (end_a <= noon and end_b <= noon) or (start_a >= noon and start_b >= noon)
-            if contiguous and same_half_day:
-                pairs += 1
-                break
+        periods = sorted({item.period for item in grouped_items})
+        if _is_norsk_vg3_double_session_pair(periods):
+            pairs += 1
 
     return pairs
 
@@ -2831,6 +2870,11 @@ def _can_place_item_in_slot(
         if any(tid in other_teacher_ids for tid in item_teacher_ids):
             return False
 
+        # If both items already have concrete room assignments, prevent
+        # same-room/same-slot overlap in lookahead moves.
+        if item.room_id and other.room_id and item.room_id == other.room_id:
+            return False
+
     return True
 
 
@@ -2986,14 +3030,21 @@ def _post_optimize_ab_day_uniqueness(
         counts: Dict[Tuple[str, str], List[int]] = defaultdict(list)
         for idx, item in enumerate(working_items):
             subject = subjects_by_id.get(item.subject_id)
-            if _is_norsk_vg3_subject(subject):
-                continue
             if subject and subject.force_place and (subject.force_timeslot_id or "").strip():
                 continue
             counts[(item.subject_id, item.day)].append(idx)
 
         conflict_indices: List[int] = []
-        for grouped in counts.values():
+        for (subject_id, _day), grouped in counts.items():
+            subject = subjects_by_id.get(subject_id)
+            if _is_norsk_vg3_subject(subject):
+                if len(grouped) <= 1:
+                    continue
+                periods = sorted([working_items[idx].period for idx in grouped])
+                if len(grouped) == 2 and _is_norsk_vg3_double_session_pair(periods):
+                    continue
+                conflict_indices.extend(grouped)
+                continue
             if len(grouped) > 1:
                 conflict_indices.extend(grouped)
         if not conflict_indices:
@@ -3334,6 +3385,253 @@ def _post_optimize_ab_day_uniqueness(
         if not improved:
             break
 
+    # Stage 2d: same-subject A/B consolidation for even fellesfag.
+    # If the same even-unit fellesfag subject has unmatched A and B signatures,
+    # try directly moving one side to the other side's slot.
+    # This addresses avoidable split patterns like A:(Mon,Tue) and B:(Mon,Fri)
+    # when Tue is also feasible for B (or vice versa).
+    even_fellesfag_subject_ids = {
+        s.id
+        for s in data.subjects
+        if (s.subject_type or "").lower() == "fellesfag"
+        and int(s.sessions_per_week or 1) % 2 == 0
+        and not _is_norsk_vg3_subject(s)
+        and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+        and s.id not in block_subject_ids
+    }
+
+    for _ in range(56):
+        improved = False
+        current_ab_mismatch = _ab_signature_mismatch_penalty(working_items, subjects_by_id)
+        current_repeat_penalty = _subject_day_repeat_penalty(working_items, subjects_by_id)
+
+        for subject_id in sorted(even_fellesfag_subject_ids):
+            unmatched_a_indices = _unmatched_indices_for_subject(working_items, subject_id, "A")
+            unmatched_b_indices = _unmatched_indices_for_subject(working_items, subject_id, "B")
+            if not unmatched_a_indices or not unmatched_b_indices:
+                continue
+
+            for idx_a in unmatched_a_indices:
+                item_a = working_items[idx_a]
+                if item_a.start_time or item_a.end_time:
+                    continue
+                units_a = _item_units(item_a, timeslot_units_map)
+
+                for idx_b in unmatched_b_indices:
+                    if idx_b == idx_a:
+                        continue
+                    item_b = working_items[idx_b]
+                    if item_b.start_time or item_b.end_time:
+                        continue
+
+                    units_b = _item_units(item_b, timeslot_units_map)
+                    if units_a != units_b:
+                        continue
+
+                    move_options = [
+                        (idx_b, item_b, item_a.timeslot_id, "B", idx_a),
+                        (idx_a, item_a, item_b.timeslot_id, "A", idx_b),
+                    ]
+
+                    for moving_idx, moving_item, target_slot_id, target_week, paired_idx in move_options:
+                        target_slot = timeslots_by_id.get(target_slot_id)
+                        if not target_slot:
+                            continue
+
+                        # Keep same-subject/day hard pattern intact.
+                        if any(
+                            other.subject_id == subject_id
+                            and (other.week_type or "base") == target_week
+                            and other.day == target_slot.day
+                            and other_idx not in {moving_idx, paired_idx}
+                            for other_idx, other in enumerate(working_items)
+                        ):
+                            continue
+
+                        if not _can_place_item_in_slot(
+                            moving_item,
+                            target_slot_id,
+                            target_week,
+                            working_items,
+                            {moving_idx, paired_idx},
+                            allowed_slots_by_subject,
+                            allowed_weeks_by_subject,
+                            teacher_unavailable,
+                            blocked_class_slots_by_week,
+                        ):
+                            continue
+
+                        candidate = list(working_items)
+                        candidate[moving_idx] = _move_item_to_slot(moving_item, target_slot)
+
+                        candidate_ab_mismatch = _ab_signature_mismatch_penalty(candidate, subjects_by_id)
+                        if candidate_ab_mismatch > current_ab_mismatch:
+                            continue
+
+                        candidate_repeat_penalty = _subject_day_repeat_penalty(candidate, subjects_by_id)
+                        if candidate_repeat_penalty > current_repeat_penalty:
+                            continue
+
+                        candidate_score = _score(candidate)
+                        if (
+                            candidate_ab_mismatch < current_ab_mismatch
+                            or candidate_score < best_score
+                        ):
+                            working_items = candidate
+                            best_score = candidate_score
+                            improved = True
+                            break
+
+                    if improved:
+                        break
+
+                if improved:
+                    break
+
+            if improved:
+                break
+
+        if not improved:
+            break
+
+    # Stage 2b: standalone A/B cross-week swaps.
+    # Swap unmatched standalone B-week items with unmatched standalone A-week
+    # items (across subjects) to improve fit without touching mirrored pairs.
+    for _ in range(48):
+        improved = False
+        current_ab_mismatch = _ab_signature_mismatch_penalty(working_items, subjects_by_id)
+
+        unmatched_a_indices: List[int] = []
+        unmatched_b_indices: List[int] = []
+        for subject_id in rebalance_subject_ids:
+            unmatched_a_indices.extend(_unmatched_indices_for_subject(working_items, subject_id, "A"))
+            unmatched_b_indices.extend(_unmatched_indices_for_subject(working_items, subject_id, "B"))
+
+        standalone_a_indices = [
+            idx
+            for idx in unmatched_a_indices
+            if _find_opposite_week_pair_index(working_items[idx], working_items, {idx}) is None
+        ]
+        standalone_b_indices = [
+            idx
+            for idx in unmatched_b_indices
+            if _find_opposite_week_pair_index(working_items[idx], working_items, {idx}) is None
+        ]
+
+        if not standalone_a_indices or not standalone_b_indices:
+            break
+
+        for idx_b in standalone_b_indices:
+            item_b = working_items[idx_b]
+            subject_b = subjects_by_id.get(item_b.subject_id)
+            if not subject_b:
+                continue
+            if subject_b.force_place and (subject_b.force_timeslot_id or "").strip():
+                continue
+            if item_b.subject_id in block_subject_ids:
+                continue
+            if item_b.start_time or item_b.end_time:
+                continue
+
+            units_b = _item_units(item_b, timeslot_units_map)
+
+            for idx_a in standalone_a_indices:
+                if idx_a == idx_b:
+                    continue
+                item_a = working_items[idx_a]
+                subject_a = subjects_by_id.get(item_a.subject_id)
+                if not subject_a:
+                    continue
+                if subject_a.force_place and (subject_a.force_timeslot_id or "").strip():
+                    continue
+                if item_a.subject_id in block_subject_ids:
+                    continue
+                if item_a.start_time or item_a.end_time:
+                    continue
+                if item_a.subject_id == item_b.subject_id:
+                    continue
+
+                # Keep swaps within same class scope.
+                if set(item_a.class_ids) != set(item_b.class_ids):
+                    continue
+
+                units_a = _item_units(item_a, timeslot_units_map)
+                if units_a != units_b:
+                    continue
+
+                # Preserve same-subject/day constraints by avoiding direct day duplication.
+                if any(
+                    other.subject_id == item_b.subject_id
+                    and (other.week_type or "base") == "B"
+                    and other.day == item_a.day
+                    and other is not item_b
+                    for other in working_items
+                ):
+                    continue
+                if any(
+                    other.subject_id == item_a.subject_id
+                    and (other.week_type or "base") == "A"
+                    and other.day == item_b.day
+                    and other is not item_a
+                    for other in working_items
+                ):
+                    continue
+
+                if not _can_place_item_in_slot(
+                    item_b,
+                    item_a.timeslot_id,
+                    "B",
+                    working_items,
+                    {idx_a, idx_b},
+                    allowed_slots_by_subject,
+                    allowed_weeks_by_subject,
+                    teacher_unavailable,
+                    blocked_class_slots_by_week,
+                ):
+                    continue
+
+                if not _can_place_item_in_slot(
+                    item_a,
+                    item_b.timeslot_id,
+                    "A",
+                    working_items,
+                    {idx_a, idx_b},
+                    allowed_slots_by_subject,
+                    allowed_weeks_by_subject,
+                    teacher_unavailable,
+                    blocked_class_slots_by_week,
+                ):
+                    continue
+
+                target_slot_for_b = timeslots_by_id.get(item_a.timeslot_id)
+                target_slot_for_a = timeslots_by_id.get(item_b.timeslot_id)
+                if not target_slot_for_b or not target_slot_for_a:
+                    continue
+
+                candidate = list(working_items)
+                candidate[idx_b] = _move_item_to_slot(item_b, target_slot_for_b)
+                candidate[idx_a] = _move_item_to_slot(item_a, target_slot_for_a)
+
+                candidate_ab_mismatch = _ab_signature_mismatch_penalty(candidate, subjects_by_id)
+                candidate_score = _score(candidate)
+                if (
+                    candidate_ab_mismatch < current_ab_mismatch
+                    or (
+                        candidate_ab_mismatch == current_ab_mismatch
+                        and candidate_score < best_score
+                    )
+                ):
+                    working_items = candidate
+                    best_score = candidate_score
+                    improved = True
+                    break
+
+            if improved:
+                break
+
+        if not improved:
+            break
+
     # Stage 2c: Norsk vg3 adjacency improvement.
     # When Norsk vg3 appears twice on the same day in a week, prefer contiguous
     # placement (typically periods 1+2 or 3+4) and try a local swap if needed.
@@ -3363,8 +3661,7 @@ def _post_optimize_ab_day_uniqueness(
                     if len(periods) < 2:
                         continue
                     periods = sorted(periods)
-                    has_adjacent = any((periods[i + 1] - periods[i]) == 1 for i in range(len(periods) - 1))
-                    if not has_adjacent:
+                    if not _is_norsk_vg3_double_session_pair(periods):
                         penalty += 1
         return penalty
 
@@ -4650,28 +4947,747 @@ def _rebalance_1tmt_naturfag_samf_partial(
     return working_items
 
 
+def _generate_schedule_cp_sat_experimental(
+    data: ScheduleRequest,
+    solver_timeout_seconds: int,
+) -> ScheduleResponse:
+    active_timeslots = list(data.timeslots)
+    if not active_timeslots:
+        return ScheduleResponse(status="infeasible", message="No active timeslots available.", schedule=[])
+
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in active_timeslots}
+    all_timeslot_ids: Set[str] = set(timeslots_by_id.keys())
+    timeslot_units_by_id: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in active_timeslots}
+    subjects_by_id: Dict[str, Subject] = {s.id: s for s in data.subjects}
+    teachers_by_id: Dict[str, Any] = {t.id: t for t in data.teachers}
+
+    class_to_base_room: Dict[str, str] = {
+        cls.id: cls.base_room_id
+        for cls in data.classes
+        if cls.base_room_id
+    }
+
+    block_to_timeslots: Dict[str, Set[str]] = {}
+    for block in data.blocks:
+        slot_set: Set[str] = set()
+        for occ in block.occurrences:
+            slot_set |= (_timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids)
+        if not block.occurrences:
+            slot_set |= (set(block.timeslot_ids) & all_timeslot_ids)
+        block_to_timeslots[block.id] = slot_set
+
+    linked_block_ids: Dict[str, Set[str]] = defaultdict(set)
+    for block in data.blocks:
+        for entry in block.subject_entries:
+            if entry.subject_id in subjects_by_id:
+                linked_block_ids[entry.subject_id].add(block.id)
+        for subject_id in block.subject_ids:
+            if subject_id in subjects_by_id:
+                linked_block_ids[subject_id].add(block.id)
+
+    blocks_by_id: Dict[str, Block] = {b.id: b for b in data.blocks}
+
+    teacher_meeting_unavailable: Dict[str, Set[str]] = defaultdict(set)
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in all_timeslot_ids:
+            continue
+        for assignment in meeting.teacher_assignments:
+            if assignment.mode == "unavailable":
+                teacher_meeting_unavailable[assignment.teacher_id].add(meeting.timeslot_id)
+
+    week_labels = ["A", "B"] if data.alternating_weeks_enabled else ["base"]
+
+    # Ordering: meetings (teacher_meeting_unavailable already built above) →
+    #           forced subjects → blocks → CP-SAT subjects.
+
+    # Shared occupancy sets — populated in priority order so CP-SAT subjects
+    # see all pre-placed occupancy when their domains are filtered.
+    class_block_occupied: Set[Tuple[str, str, str]] = set()   # (class_id, ts_id, week_key)
+    teacher_block_occupied: Set[Tuple[str, str, str]] = set()  # (teacher_id, ts_id, week_key)
+
+    # Seed teacher_block_occupied with meeting unavailability so blocks/CP-SAT
+    # subjects both respect teacher meeting times.
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in all_timeslot_ids:
+            continue
+        for assignment in meeting.teacher_assignments:
+            if assignment.mode == "unavailable":
+                for week_key in week_labels:
+                    teacher_block_occupied.add((assignment.teacher_id, meeting.timeslot_id, week_key))
+
+    # === FORCED-SUBJECT PRE-PLACEMENT (priority 1) ===
+    # Subjects with force_place=True are placed directly at their forced timeslot
+    # for every week, regardless of any occupancy conflicts.
+    forced_schedule_items: List[ScheduledItem] = []
+    forced_subject_ids: Set[str] = set()
+
+    for subject in data.subjects:
+        forced_ts_id_fp = (getattr(subject, "force_timeslot_id", "") or "").strip()
+        if not (getattr(subject, "force_place", False) and forced_ts_id_fp):
+            continue
+        ts_fp = timeslots_by_id.get(forced_ts_id_fp)
+        if not ts_fp:
+            continue
+        forced_subject_ids.add(subject.id)
+        teacher_ids_forced = _subject_teacher_ids(subject)
+        primary_teacher_id_forced = teacher_ids_forced[0] if teacher_ids_forced else ""
+        for week_key in week_labels:
+            week_type_for_item = None if week_key == "base" else week_key
+            forced_schedule_items.append(
+                ScheduledItem(
+                    subject_id=subject.id,
+                    subject_name=subject.name,
+                    teacher_id=primary_teacher_id_forced,
+                    teacher_ids=teacher_ids_forced,
+                    class_ids=list(subject.class_ids or []),
+                    timeslot_id=forced_ts_id_fp,
+                    day=ts_fp.day,
+                    period=ts_fp.period or 0,
+                    week_type=week_type_for_item,
+                )
+            )
+            for class_id in (subject.class_ids or []):
+                class_block_occupied.add((class_id, forced_ts_id_fp, week_key))
+            for tid in teacher_ids_forced:
+                if tid:
+                    teacher_block_occupied.add((tid, forced_ts_id_fp, week_key))
+
+    # === BLOCK PRE-PLACEMENT (priority 2) ===
+    # All subjects referenced in any block are placed directly from block occurrences.
+    # They are immovable — CP-SAT only handles remaining non-block subjects.
+    block_subject_ids: Set[str] = set()
+    for block in data.blocks:
+        for entry in block.subject_entries:
+            block_subject_ids.add(entry.subject_id)
+        for sid in (block.subject_ids or []):
+            block_subject_ids.add(sid)
+
+    block_schedule_items: List[ScheduledItem] = []
+
+    for block in data.blocks:
+        all_entries: List[BlockSubjectEntry] = list(block.subject_entries)
+        existing_entry_sids = {e.subject_id for e in all_entries}
+        for sid in (block.subject_ids or []):
+            if sid not in existing_entry_sids:
+                all_entries.append(BlockSubjectEntry(subject_id=sid))
+
+        for occ in block.occurrences:
+            occ_week_raw = (occ.week_type or "both").strip().upper()
+            if occ_week_raw in ("BOTH", ""):
+                occ_week_keys = list(week_labels)
+            elif occ_week_raw == "A":
+                occ_week_keys = ["A"] if "A" in week_labels else list(week_labels)
+            elif occ_week_raw == "B":
+                occ_week_keys = ["B"] if "B" in week_labels else list(week_labels)
+            else:
+                occ_week_keys = list(week_labels)
+
+            overlapping_ts_ids = _timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids
+            overlapping_sorted = sorted(
+                [timeslots_by_id[t] for t in overlapping_ts_ids if t in timeslots_by_id],
+                key=lambda t: (t.period if t.period is not None else 0),
+            )
+            primary_ts = overlapping_sorted[0] if overlapping_sorted else None
+            primary_ts_id = primary_ts.id if primary_ts else f"{occ.day}-blk-{block.id}"
+            primary_period = (primary_ts.period if primary_ts is not None else 0) or 0
+
+            for entry in all_entries:
+                subject = subjects_by_id.get(entry.subject_id)
+                if not subject:
+                    continue
+                entry_tids: List[str] = []
+                if getattr(entry, "teacher_id", ""):
+                    entry_tids.append(entry.teacher_id)
+                entry_tids.extend(getattr(entry, "teacher_ids", []) or [])
+                if not entry_tids:
+                    entry_tids = _subject_teacher_ids(subject)
+                entry_tids = list(dict.fromkeys([t for t in entry_tids if t]))
+                primary_teacher_id = entry_tids[0] if entry_tids else ""
+
+                for week_key in occ_week_keys:
+                    week_type_for_item = None if week_key == "base" else week_key
+                    # Only include classes that haven't already been claimed by an
+                    # earlier block at this timeslot (first-defined block wins).
+                    eligible_classes = [
+                        c for c in (block.class_ids or [])
+                        if not any(
+                            (c, ts_id, week_key) in class_block_occupied
+                            for ts_id in overlapping_ts_ids
+                        )
+                    ]
+                    if not eligible_classes:
+                        continue
+                    block_schedule_items.append(
+                        ScheduledItem(
+                            subject_id=subject.id,
+                            subject_name=subject.name,
+                            teacher_id=primary_teacher_id,
+                            teacher_ids=entry_tids,
+                            class_ids=eligible_classes,
+                            timeslot_id=primary_ts_id,
+                            day=occ.day,
+                            period=primary_period,
+                            start_time=occ.start_time,
+                            end_time=occ.end_time,
+                            week_type=week_type_for_item,
+                        )
+                    )
+
+            # Mark ALL overlapping timeslots busy (block classes + block teachers).
+            # Done after entry loop so we don't repeat per-entry.
+            for ts_id in overlapping_ts_ids:
+                for week_key in occ_week_keys:
+                    for class_id in (block.class_ids or []):
+                        class_block_occupied.add((class_id, ts_id, week_key))
+                    for entry in all_entries:
+                        tids_occ: List[str] = []
+                        if getattr(entry, "teacher_id", ""):
+                            tids_occ.append(entry.teacher_id)
+                        tids_occ.extend(getattr(entry, "teacher_ids", []) or [])
+                        if not tids_occ:
+                            s = subjects_by_id.get(entry.subject_id)
+                            if s:
+                                tids_occ = _subject_teacher_ids(s)
+                        for teacher_id in tids_occ:
+                            if teacher_id:
+                                teacher_block_occupied.add((teacher_id, ts_id, week_key))
+
+    # ── Tail-slot detection ──────────────────────────────────────────────────
+    # A tail slot is a regular timeslot that a block occurrence overshoots into at
+    # its start (occ_start < ts_start < occ_end < ts_end).  In that case only the
+    # last 45 minutes of the underlying timeslot (ts_end-45 … ts_end) are available
+    # for non-block subjects in block classes.  The reduced span is kept per
+    # (class_id, ts_id) and is used in the variable / constraint build below.
+    cp_sat_tail_span: Dict[Tuple[str, str], Tuple[str, str]] = {}  # (class_id, ts_id) → (start, end)
+    for block in data.blocks:
+        for occ in block.occurrences:
+            occ_start = _to_minutes(occ.start_time)
+            occ_end = _to_minutes(occ.end_time)
+            if occ_start is None or occ_end is None:
+                continue
+            overlapping_ts_ids = _timeslots_overlapping_occurrence(occ, active_timeslots) & all_timeslot_ids
+            for ts_id in overlapping_ts_ids:
+                ts = timeslots_by_id[ts_id]
+                ts_start = _to_minutes(ts.start_time)
+                ts_end = _to_minutes(ts.end_time)
+                if ts_start is None or ts_end is None or ts_end <= ts_start:
+                    continue
+                # Partial overlap: occ bisects the slot from the start.
+                if not (occ_start < ts_start < occ_end < ts_end):
+                    continue
+                reduced_start_min = ts_end - 45
+                if reduced_start_min < ts_start or occ_end > reduced_start_min:
+                    continue
+                reduced_span = (_minutes_to_hhmm(reduced_start_min), _minutes_to_hhmm(ts_end))
+                for class_id in (block.class_ids or []):
+                    cp_sat_tail_span[(class_id, ts_id)] = reduced_span
+
+    # ts_id → set of class_ids that have a tail in this slot (for quick lookup)
+    tail_classes_by_ts: Dict[str, Set[str]] = defaultdict(set)
+    for (class_id, ts_id) in cp_sat_tail_span:
+        tail_classes_by_ts[ts_id].add(class_id)
+
+    def _is_tail_slot_for_subject(subject_obj: Subject, ts_id: str) -> bool:
+        """True when ALL of the subject's classes have a tail span in ts_id."""
+        if not subject_obj.class_ids:
+            return False
+        return all((c, ts_id) in cp_sat_tail_span for c in subject_obj.class_ids)
+
+    def _tail_span_for_subject(subject_obj: Subject, ts_id: str) -> Tuple[str, str] | None:
+        """Return the common tail span if all classes agree, else None."""
+        spans = {cp_sat_tail_span[(c, ts_id)] for c in subject_obj.class_ids if (c, ts_id) in cp_sat_tail_span}
+        if len(spans) == 1:
+            return next(iter(spans))
+        return None
+
+    # ── Build CP-SAT model ───────────────────────────────────────────────────
+    model = cp_model.CpModel()
+
+    # x[subject_id, ts_id, week_key] – regular (full-slot) placement variable.
+    x: Dict[Tuple[str, str, str], cp_model.IntVar] = {}
+    # x_tail[subject_id, ts_id, week_key] – tail-slot (45-min) placement variable.
+    # Only created for timeslots that are tail slots for this subject.
+    x_tail: Dict[Tuple[str, str, str], cp_model.IntVar] = {}
+
+    allowed_by_subject_week: Dict[Tuple[str, str], List[str]] = {}
+    tail_slots_by_subject: Dict[str, List[str]] = {}  # subject_id → list of ts_ids that are tails
+
+    use_ab = data.alternating_weeks_enabled  # shorthand
+
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue  # Pre-placed directly; no CP-SAT variables needed.
+        teacher_ids = _subject_teacher_ids(subject)
+        allowed_slots = _compute_allowed_timeslots(
+            subject,
+            all_timeslot_ids,
+            block_to_timeslots,
+            timeslots_by_id,
+        )
+        forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
+        if getattr(subject, "force_place", False) and forced_ts_id in all_timeslot_ids:
+            allowed_slots.add(forced_ts_id)
+        for teacher_id in teacher_ids:
+            if teacher_id in teachers_by_id:
+                allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
+            allowed_slots -= teacher_meeting_unavailable.get(teacher_id, set())
+
+        subject_allowed_weeks = _compute_allowed_weeks(
+            subject,
+            data.alternating_weeks_enabled,
+            blocks_by_id,
+            linked_block_ids,
+        )
+
+        subject_class_ids_set = set(subject.class_ids or [])
+
+        # Split allowed slots into regular and tail categories for this subject.
+        tail_ts_ids: List[str] = []
+        regular_ts_ids: List[str] = []
+        for ts_id in sorted(allowed_slots):
+            if _is_tail_slot_for_subject(subject, ts_id):
+                tail_ts_ids.append(ts_id)
+            else:
+                regular_ts_ids.append(ts_id)
+        tail_slots_by_subject[subject.id] = tail_ts_ids
+
+        for week_key in week_labels:
+            if week_key not in subject_allowed_weeks:
+                allowed_by_subject_week[(subject.id, week_key)] = []
+                continue
+            # Regular slots: exclude timeslots fully occupied by block occurrences.
+            slots_for_week = [
+                ts_id for ts_id in regular_ts_ids
+                if not any((c, ts_id, week_key) in class_block_occupied for c in subject_class_ids_set)
+                and not any((t, ts_id, week_key) in teacher_block_occupied for t in teacher_ids)
+            ]
+            allowed_by_subject_week[(subject.id, week_key)] = slots_for_week
+            for ts_id in slots_for_week:
+                x[(subject.id, ts_id, week_key)] = model.NewBoolVar(f"x_{subject.id}_{ts_id}_{week_key}")
+
+            # Tail slots: available even though block occupies the start of the slot.
+            # The block marks the slot occupied for regular subjects, but tail slots
+            # are explicitly allowed (the block only covers the first portion).
+            for ts_id in tail_ts_ids:
+                if any((t, ts_id, week_key) in teacher_block_occupied for t in teacher_ids):
+                    continue  # Teacher is in block at this slot; can't use tail either.
+                x_tail[(subject.id, ts_id, week_key)] = model.NewBoolVar(
+                    f"xtail_{subject.id}_{ts_id}_{week_key}"
+                )
+
+    # ── Mirroring constraints (alternating weeks only) ───────────────────────
+    # For every regular timeslot: if a subject is placed there in week A it MUST
+    # also be placed there in week B (and vice versa).  This enforces mirror symmetry
+    # for even-unit sessions.  Tail slots are handled separately below.
+    if use_ab:
+        for subject in data.subjects:
+            if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+                continue
+            for ts_id in allowed_by_subject_week.get((subject.id, "A"), []):
+                key_a = (subject.id, ts_id, "A")
+                key_b = (subject.id, ts_id, "B")
+                if key_a in x and key_b in x:
+                    model.Add(x[key_a] == x[key_b])
+
+        # Tail slots: tail placement must also be mirrored (same slot, both weeks)
+        # to count as "every-week" usage.  We allow a tail to be used in just one
+        # week (making it an asymmetric extra) OR both weeks (every-week extra),
+        # but NOT used in A only while the full slot is used in B or vice versa.
+        # The odd-unit handling below regulates which mode is chosen per subject.
+        # (No hard constraint here – the unit-count constraints do the work.)
+
+    # ── One subject per class/week/slot (regular) ────────────────────────────
+    for class_obj in data.classes:
+        class_id = class_obj.id
+        for week_key in week_labels:
+            for ts_id in all_timeslot_ids:
+                vars_in_slot: List[cp_model.IntVar] = []
+                for subject in data.subjects:
+                    if class_id not in (subject.class_ids or []):
+                        continue
+                    key = (subject.id, ts_id, week_key)
+                    if key in x:
+                        vars_in_slot.append(x[key])
+                    key_t = (subject.id, ts_id, week_key)
+                    if key_t in x_tail:
+                        vars_in_slot.append(x_tail[key_t])
+                if vars_in_slot:
+                    model.Add(sum(vars_in_slot) <= 1)
+
+    # ── One subject per teacher/week/slot ────────────────────────────────────
+    for teacher in data.teachers:
+        teacher_id = teacher.id
+        for week_key in week_labels:
+            for ts_id in all_timeslot_ids:
+                vars_in_slot: List[cp_model.IntVar] = []
+                for subject in data.subjects:
+                    if teacher_id not in _subject_teacher_ids(subject):
+                        continue
+                    key = (subject.id, ts_id, week_key)
+                    if key in x:
+                        vars_in_slot.append(x[key])
+                    if key in x_tail:
+                        vars_in_slot.append(x_tail[key])
+                if vars_in_slot:
+                    model.Add(sum(vars_in_slot) <= 1)
+
+    # ── Force-placed subjects safety guard ───────────────────────────────────
+    forced_slot_issues: List[str] = []
+    for subject in data.subjects:
+        if subject.id in forced_subject_ids:
+            continue  # Already pre-placed.
+        forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
+        if not (getattr(subject, "force_place", False) and forced_ts_id):
+            continue
+        for week_key in week_labels:
+            key = (subject.id, forced_ts_id, week_key)
+            if key not in x:
+                forced_slot_issues.append(f"{subject.id}:{week_key}:{forced_ts_id}")
+                continue
+            model.Add(x[key] == 1)
+
+    if forced_slot_issues:
+        return ScheduleResponse(
+            status="infeasible",
+            message=(
+                "CP-SAT experimental could not satisfy forced placements. "
+                f"First issue: {forced_slot_issues[0]}"
+            ),
+            schedule=[],
+            metadata={"timed_out": 0.0},
+        )
+
+    # ── Odd-unit extra slot constraints ──────────────────────────────────────
+    # For subjects with an odd total weekly-unit count (sessions_per_week is the
+    # two-week total when alternating weeks are enabled), the "extra" 1 unit may be
+    # placed in one of two ways:
+    #   (a) EVERY-WEEK tail: x_tail[s, ts, A] == x_tail[s, ts, B] == 1 for some tail ts.
+    #   (b) ONE-WEEK 90min: a regular 90-min slot used in exactly one week (A xor B).
+    # We do NOT restrict which mode is chosen – the required-unit constraint drives
+    # the solver to pick one.  The mirroring constraint on regular slots already
+    # ensures the even portion is symmetric.
+    # For subjects with even total units in non-alternating mode there is nothing
+    # extra to do here.
+    #
+    # We DO add a soft preference: if two odd subjects share the same regular ts_id
+    # for their one-week extras, prefer one being in A and the other in B.  This
+    # is implemented via the odd_pair_mismatch penalty below.
+
+    # Collect odd-unit subject info for pairing penalty.
+    odd_subjects_info: List[Tuple[str, List[str]]] = []  # (subject_id, regular_allowed_A_slots)
+    if use_ab:
+        for subject in data.subjects:
+            if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+                continue
+            weekly_units = max(0, int(subject.sessions_per_week or 0))
+            # sessions_per_week is the two-week total when alternating.
+            total_units = weekly_units
+            if (total_units % 2) == 1:
+                slots_a = allowed_by_subject_week.get((subject.id, "A"), [])
+                odd_subjects_info.append((subject.id, slots_a))
+
+    # ── Required-unit constraints with shortfall objective ────────────────────
+    shortfall_vars: List[cp_model.IntVar] = []
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue  # Pre-placed; not part of CP-SAT objective.
+
+        weekly_units = max(0, int(subject.sessions_per_week or 0))
+        required_units = weekly_units * (2 if use_ab else 1)
+        if required_units <= 0:
+            continue
+
+        # Gather all placement variables and their unit contributions.
+        all_vars: List[cp_model.IntVar] = []
+        all_coeffs: List[int] = []
+
+        for week_key in week_labels:
+            for ts_id in allowed_by_subject_week.get((subject.id, week_key), []):
+                key = (subject.id, ts_id, week_key)
+                if key in x:
+                    all_vars.append(x[key])
+                    all_coeffs.append(timeslot_units_by_id.get(ts_id, 1))
+            # Tail slots each count as 1 unit.
+            for ts_id in tail_slots_by_subject.get(subject.id, []):
+                key_t = (subject.id, ts_id, week_key)
+                if key_t in x_tail:
+                    all_vars.append(x_tail[key_t])
+                    all_coeffs.append(1)
+
+        if not all_vars:
+            shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
+            shortfall_vars.append(shortfall)
+            continue
+
+        achieved = sum(var * coeff for var, coeff in zip(all_vars, all_coeffs))
+        model.Add(achieved <= required_units)
+        shortfall = model.NewIntVar(0, required_units, f"shortfall_{subject.id}")
+        model.Add(shortfall == required_units - achieved)
+        shortfall_vars.append(shortfall)
+
+    # ── Same-day spread penalty ───────────────────────────────────────────────
+    same_day_penalties: List[cp_model.IntVar] = []
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue
+        for week_key in week_labels:
+            for day_name in DAY_ORDER_INDEX.keys():
+                day_slots = [
+                    ts_id
+                    for ts_id in allowed_by_subject_week.get((subject.id, week_key), [])
+                    if (timeslots_by_id.get(ts_id).day or "").lower() == day_name
+                ]
+                if not day_slots:
+                    continue
+                day_vars = [x[(subject.id, ts_id, week_key)] for ts_id in day_slots if (subject.id, ts_id, week_key) in x]
+                # Also include tail slots on this day.
+                for ts_id in tail_slots_by_subject.get(subject.id, []):
+                    if (timeslots_by_id.get(ts_id).day or "").lower() == day_name:
+                        key_t = (subject.id, ts_id, week_key)
+                        if key_t in x_tail:
+                            day_vars.append(x_tail[key_t])
+                if not day_vars:
+                    continue
+                excess = model.NewIntVar(0, len(day_vars), f"same_day_excess_{subject.id}_{week_key}_{day_name}")
+                model.Add(excess >= sum(day_vars) - 1)
+                same_day_penalties.append(excess)
+
+    # ── Odd-extra A/B pairing soft objective ─────────────────────────────────
+    # When two odd-unit subjects both pick the same regular ts_id as their one-week
+    # extra, reward them for using opposite weeks (one A, one B) so the slot is
+    # usefully occupied in both weeks without double-booking classes.
+    # Penalty: count pairs of odd subjects with one-week extra in the same ts_id
+    # that are NOT in opposite weeks.
+    odd_pair_penalties: List[cp_model.IntVar] = []
+    if use_ab and len(odd_subjects_info) >= 2:
+        # For each odd subject, build a variable indicating it used a regular
+        # ts_id in ONLY week A or ONLY week B as its extra.
+        # extra_in_week[subject_id][ts_id] → (var_A_only, var_B_only)
+        # A slot ts_id is used as a "one-week extra" for subject s when:
+        #   x[s, ts_id, A] == 1 AND x[s, ts_id, B] == 0  (A-only extra), or
+        #   x[s, ts_id, A] == 0 AND x[s, ts_id, B] == 1  (B-only extra).
+        # Due to mirroring, x[A] == x[B] for most slots, so a one-week extra
+        # can only happen if the mirroring constraint is overridden by the solver
+        # (which it can be for odd subjects where achieved < required forces an
+        # asymmetric choice).  We use auxiliary vars to detect this.
+        subject_extra_a: Dict[Tuple[str, str], cp_model.IntVar] = {}  # (sid, ts_id)
+        subject_extra_b: Dict[Tuple[str, str], cp_model.IntVar] = {}
+
+        for sid, slots_a in odd_subjects_info:
+            for ts_id in slots_a:
+                key_a = (sid, ts_id, "A")
+                key_b = (sid, ts_id, "B")
+                if key_a not in x or key_b not in x:
+                    continue
+                # a_only = x_A AND NOT x_B
+                a_only = model.NewBoolVar(f"aonly_{sid}_{ts_id}")
+                model.AddBoolAnd([x[key_a], x[key_b].Not()]).OnlyEnforceIf(a_only)
+                model.AddBoolOr([x[key_a].Not(), x[key_b]]).OnlyEnforceIf(a_only.Not())
+                subject_extra_a[(sid, ts_id)] = a_only
+
+                b_only = model.NewBoolVar(f"bonly_{sid}_{ts_id}")
+                model.AddBoolAnd([x[key_b], x[key_a].Not()]).OnlyEnforceIf(b_only)
+                model.AddBoolOr([x[key_b].Not(), x[key_a]]).OnlyEnforceIf(b_only.Not())
+                subject_extra_b[(sid, ts_id)] = b_only
+
+        # For every pair of odd subjects sharing a candidate ts_id, add a penalty
+        # when they both use the same week for their one-week extra (both A or both B).
+        all_ts_ids_for_odd = set(ts_id for _, slots in odd_subjects_info for ts_id in slots)
+        for ts_id in all_ts_ids_for_odd:
+            sids_here = [sid for sid, slots in odd_subjects_info if ts_id in slots
+                         and (sid, ts_id) in subject_extra_a]
+            for i in range(len(sids_here)):
+                for j in range(i + 1, len(sids_here)):
+                    sid_i, sid_j = sids_here[i], sids_here[j]
+                    # Penalty fired when both choose A-only or both choose B-only.
+                    both_a = model.NewBoolVar(f"both_a_{sid_i}_{sid_j}_{ts_id}")
+                    model.AddBoolAnd([subject_extra_a[(sid_i, ts_id)], subject_extra_a[(sid_j, ts_id)]]).OnlyEnforceIf(both_a)
+                    model.AddBoolOr([subject_extra_a[(sid_i, ts_id)].Not(), subject_extra_a[(sid_j, ts_id)].Not()]).OnlyEnforceIf(both_a.Not())
+                    odd_pair_penalties.append(both_a)
+
+                    both_b = model.NewBoolVar(f"both_b_{sid_i}_{sid_j}_{ts_id}")
+                    model.AddBoolAnd([subject_extra_b[(sid_i, ts_id)], subject_extra_b[(sid_j, ts_id)]]).OnlyEnforceIf(both_b)
+                    model.AddBoolOr([subject_extra_b[(sid_i, ts_id)].Not(), subject_extra_b[(sid_j, ts_id)].Not()]).OnlyEnforceIf(both_b.Not())
+                    odd_pair_penalties.append(both_b)
+
+    # ── Objective ─────────────────────────────────────────────────────────────
+    model.Minimize(
+        1000 * sum(shortfall_vars)
+        + 10 * sum(same_day_penalties)
+        + 5 * sum(odd_pair_penalties)
+    )
+
+    solver = cp_model.CpSolver()
+    solver.parameters.max_time_in_seconds = float(max(1, min(600, solver_timeout_seconds)))
+    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+
+    status = solver.Solve(model)
+    if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        return ScheduleResponse(
+            status="infeasible",
+            message="CP-SAT experimental mode could not produce a feasible schedule.",
+            schedule=[],
+            metadata={"timed_out": 1.0 if status == cp_model.UNKNOWN else 0.0},
+        )
+
+    schedule_items: List[ScheduledItem] = []
+    for subject in data.subjects:
+        teacher_ids = _subject_teacher_ids(subject)
+        primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+        for week_key in week_labels:
+            # Regular slots.
+            for ts_id in allowed_by_subject_week.get((subject.id, week_key), []):
+                key = (subject.id, ts_id, week_key)
+                if key not in x or solver.Value(x[key]) != 1:
+                    continue
+                ts = timeslots_by_id[ts_id]
+                schedule_items.append(
+                    ScheduledItem(
+                        subject_id=subject.id,
+                        subject_name=subject.name,
+                        teacher_id=primary_teacher_id,
+                        teacher_ids=teacher_ids,
+                        class_ids=list(subject.class_ids or []),
+                        timeslot_id=ts_id,
+                        day=ts.day,
+                        period=ts.period,
+                        week_type=(None if week_key == "base" else week_key),
+                    )
+                )
+            # Tail slots – emit with reduced start/end times.
+            for ts_id in tail_slots_by_subject.get(subject.id, []):
+                key_t = (subject.id, ts_id, week_key)
+                if key_t not in x_tail or solver.Value(x_tail[key_t]) != 1:
+                    continue
+                tail_span = _tail_span_for_subject(subject, ts_id)
+                if tail_span is None:
+                    continue
+                ts = timeslots_by_id[ts_id]
+                schedule_items.append(
+                    ScheduledItem(
+                        subject_id=subject.id,
+                        subject_name=subject.name,
+                        teacher_id=primary_teacher_id,
+                        teacher_ids=teacher_ids,
+                        class_ids=list(subject.class_ids or []),
+                        timeslot_id=ts_id,
+                        day=ts.day,
+                        period=ts.period,
+                        start_time=tail_span[0],
+                        end_time=tail_span[1],
+                        week_type=(None if week_key == "base" else week_key),
+                    )
+                )
+
+    schedule_items = _assign_rooms_to_schedule(
+        schedule_items,
+        data,
+        {s.id: s for s in data.subjects},
+        class_to_base_room,
+    )
+
+    return ScheduleResponse(
+        status="success",
+        message="Schedule generated by CP-SAT experimental engine.",
+        schedule=block_schedule_items + forced_schedule_items + schedule_items,
+        metadata={"timed_out": 0.0},
+    )
+
+
 def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     _solver_log(f"[RUN] generate_schedule called with alternating_weeks_enabled={data.alternating_weeks_enabled}", reset=True)
+    solver_engine = getattr(data, "solver_engine", "cp_sat_experimental")
+    solver_timeout_seconds = max(5, min(600, int(getattr(data, "solver_timeout_seconds", 90) or 90)))
+    deadline_monotonic = time.monotonic() + float(solver_timeout_seconds)
+    generation_timed_out = False
+
+    if solver_engine == "cp_sat_experimental":
+        _solver_log("[ENGINE] cp_sat_experimental requested; attempting CP-SAT engine first.")
+        cp_sat_response = _generate_schedule_cp_sat_experimental(data, solver_timeout_seconds)
+        if cp_sat_response.status == "success":
+            cp_sat_metadata = dict(cp_sat_response.metadata or {})
+            cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
+            cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0
+            cp_sat_metadata["solver_engine_effective_staged"] = 0.0
+            cp_sat_metadata["solver_engine_effective_cp_sat"] = 1.0
+            return ScheduleResponse(
+                status=cp_sat_response.status,
+                message=cp_sat_response.message,
+                schedule=list(cp_sat_response.schedule or []),
+                metadata=cp_sat_metadata,
+                diagnostics=dict(cp_sat_response.diagnostics or {}),
+            )
+        _solver_log(
+            f"[ENGINE] cp_sat_experimental fallback to staged: {cp_sat_response.message}"
+        )
+
+    def _timed_out() -> bool:
+        return time.monotonic() >= deadline_monotonic
+
     if not data.alternating_weeks_enabled:
         odd_ids = [s.id for s in data.subjects if int(s.sessions_per_week or 1) % 2 == 1]
         odd_ids_sorted = sorted(odd_ids)
 
-        attempts = [
-            _generate_schedule_staged(
-                data,
-                partial_subject_priority="first",
-                subject_priority_rank={sid: i for i, sid in enumerate(odd_ids_sorted)},
-            ),
-            _generate_schedule_staged(
-                data,
-                partial_subject_priority="last",
-                subject_priority_rank={sid: i for i, sid in enumerate(reversed(odd_ids_sorted))},
-            ),
+        attempts: List[ScheduleResponse] = []
+        non_alt_attempt_specs = [
+            ("first", {sid: i for i, sid in enumerate(odd_ids_sorted)}),
+            ("last", {sid: i for i, sid in enumerate(reversed(odd_ids_sorted))}),
         ]
+        for partial_priority, subject_rank in non_alt_attempt_specs:
+            if _timed_out():
+                generation_timed_out = True
+                break
+            attempts.append(
+                _generate_schedule_staged(
+                    data,
+                    partial_subject_priority=partial_priority,
+                    subject_priority_rank=subject_rank,
+                    deadline_monotonic=deadline_monotonic,
+                )
+            )
+
         for attempt in attempts:
             if attempt.status == "success":
-                return attempt
-        return attempts[0]
+                metadata = dict(attempt.metadata or {})
+                metadata["timed_out"] = 1.0 if generation_timed_out else 0.0
+                metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
+                metadata["solver_engine_cp_sat_requested"] = 1.0 if solver_engine == "cp_sat_experimental" else 0.0
+                metadata["solver_engine_effective_staged"] = 1.0
+                return ScheduleResponse(
+                    status=attempt.status,
+                    message=attempt.message,
+                    schedule=list(attempt.schedule or []),
+                    metadata=metadata,
+                    diagnostics=dict(attempt.diagnostics or {}),
+                )
+        if attempts:
+            metadata = dict(attempts[0].metadata or {})
+            metadata["timed_out"] = 1.0 if generation_timed_out else 0.0
+            metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
+            metadata["solver_engine_cp_sat_requested"] = 1.0 if solver_engine == "cp_sat_experimental" else 0.0
+            metadata["solver_engine_effective_staged"] = 1.0
+            message = attempts[0].message
+            if generation_timed_out:
+                message = message + f" Reached global solver timeout ({solver_timeout_seconds}s)."
+            return ScheduleResponse(
+                status=attempts[0].status,
+                message=message,
+                schedule=list(attempts[0].schedule or []),
+                metadata=metadata,
+                diagnostics=dict(attempts[0].diagnostics or {}),
+            )
+
+        return ScheduleResponse(
+            status="infeasible",
+            message=f"No valid schedule found before timeout ({solver_timeout_seconds}s).",
+            schedule=[],
+            metadata={
+                "timed_out": 1.0 if generation_timed_out else 0.0,
+                "solver_timeout_seconds": float(solver_timeout_seconds),
+                "solver_engine_cp_sat_requested": 1.0 if solver_engine == "cp_sat_experimental" else 0.0,
+                "solver_engine_effective_staged": 1.0,
+            },
+        )
 
     # Collect subjects linked to blocks — their placements are driven by block
     # occurrence windows, not by sessions_per_week, so they are excluded from
@@ -4753,6 +5769,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     blocks_by_id_for_rules: Dict[str, Block] = {b.id: b for b in data.blocks}
     blocked_class_slots_by_week_for_rules: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
     for block in data.blocks:
+        block_subject_set = {entry.subject_id for entry in block.subject_entries} | set(block.subject_ids)
         has_occurrences = bool(block.occurrences)
         if has_occurrences:
             for occ in block.occurrences:
@@ -4768,12 +5785,34 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 else:
                     target_weeks = {"base"}
                 for class_id in block.class_ids:
+                    class_block_subject_ids = [
+                        subject_id
+                        for subject_id in block_subject_set
+                        if subject_id in subjects_by_id
+                        and (
+                            not subjects_by_id[subject_id].class_ids
+                            or class_id in subjects_by_id[subject_id].class_ids
+                        )
+                    ]
+                    if not class_block_subject_ids:
+                        continue
                     for week_key in target_weeks:
                         blocked_class_slots_by_week_for_rules[(class_id, week_key)].update(matched_slots)
         else:
             legacy_weeks = _block_active_weeks(block, data.alternating_weeks_enabled)
             slot_ids = set(block.timeslot_ids) & alternating_all_timeslot_ids
             for class_id in block.class_ids:
+                class_block_subject_ids = [
+                    subject_id
+                    for subject_id in block_subject_set
+                    if subject_id in subjects_by_id
+                    and (
+                        not subjects_by_id[subject_id].class_ids
+                        or class_id in subjects_by_id[subject_id].class_ids
+                    )
+                ]
+                if not class_block_subject_ids:
+                    continue
                 for week_key in legacy_weeks:
                     blocked_class_slots_by_week_for_rules[(class_id, week_key)].update(slot_ids)
 
@@ -4790,15 +5829,22 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     def _hard_post_rule_violation_counts(schedule_items: List[ScheduledItem]) -> Tuple[int, int]:
         # Validation-only: never drop sessions here. x45 totals must remain intact.
         subject_day_violations = 0
-        grouped_by_subject_day: Dict[Tuple[str, str, str], int] = defaultdict(int)
+        grouped_by_subject_day: Dict[Tuple[str, str, str], List[int]] = defaultdict(list)
         for item in schedule_items:
-            grouped_by_subject_day[(item.subject_id, item.week_type or "base", item.day)] += 1
-        for (subject_id, _week_key, _day), count in grouped_by_subject_day.items():
+            grouped_by_subject_day[(item.subject_id, item.week_type or "base", item.day)].append(item.period)
+        for (subject_id, _week_key, _day), periods in grouped_by_subject_day.items():
+            if subject_id in block_subject_ids:
+                continue
             subject = subjects_by_id.get(subject_id)
             if _is_norsk_vg3_subject(subject):
+                if len(periods) <= 1:
+                    continue
+                if len(periods) == 2 and _is_norsk_vg3_double_session_pair(sorted(periods)):
+                    continue
+                subject_day_violations += max(1, len(periods) - 1)
                 continue
-            if count > 1:
-                subject_day_violations += count - 1
+            if len(periods) > 1:
+                subject_day_violations += len(periods) - 1
 
         teacher_day_violations = 0
         teacher_day_counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
@@ -4813,6 +5859,18 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         return subject_day_violations, teacher_day_violations
 
     def _repair_missing_units(schedule_items: List[ScheduledItem]) -> Tuple[List[ScheduledItem], int]:
+        nonlocal generation_timed_out
+        now = time.monotonic()
+        repair_budget_seconds = max(1.0, min(8.0, float(solver_timeout_seconds) * 0.25))
+        repair_deadline = min(deadline_monotonic, now + repair_budget_seconds)
+
+        def _repair_timed_out() -> bool:
+            return time.monotonic() >= repair_deadline or _timed_out()
+
+        if _repair_timed_out():
+            generation_timed_out = True
+            return list(schedule_items), 0
+
         working_items = list(schedule_items)
 
         placed_units_by_subject: Dict[str, int] = defaultdict(int)
@@ -4849,6 +5907,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     teacher_day_count[(teacher_id, week_key, scheduled_item.day)] += 1
 
         added_count = 0
+        evicted_backfill_needs: List[Tuple[str, str, int]] = []
 
         def _find_class_conflicting_items(
             class_ids: List[str],
@@ -4873,9 +5932,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             item: ScheduledItem,
             target_week_key: str,
             blocked_timeslot_id: str,
-            depth_remaining: int = 1,
+            depth_remaining: int = REPAIR_RELOCATION_DEPTH,
             seen_item_ids: Set[int] | None = None,
         ) -> bool:
+            if _repair_timed_out():
+                generation_timed_out = True
+                return False
             if seen_item_ids is None:
                 seen_item_ids = set()
 
@@ -4895,6 +5957,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if not old_slot:
                 return False
             old_day = item.day
+            old_period = item.period
             old_units = _item_units(item, timeslot_units_map)
 
             allowed_slots = _compute_allowed_timeslots(
@@ -4919,7 +5982,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     filtered_slots -= set(alternating_teachers_by_id[teacher_id].unavailable_timeslots)
                 filtered_slots -= alternating_teacher_meeting_unavailable.get(teacher_id, set())
 
-            subject_day_counts: Dict[str, int] = defaultdict(int)
+            subject_day_periods: Dict[str, List[int]] = defaultdict(list)
             for scheduled_item in working_items:
                 scheduled_week = scheduled_item.week_type or "base"
                 if scheduled_week != target_week_key:
@@ -4928,9 +5991,23 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     continue
                 if scheduled_item is item:
                     continue
-                subject_day_counts[scheduled_item.day] += 1
+                subject_day_periods[scheduled_item.day].append(scheduled_item.period)
+
+            def _can_place_subject_on_day(candidate_day: str, candidate_period: int) -> bool:
+                day_periods = list(subject_day_periods.get(candidate_day, []))
+                if not _is_norsk_vg3_subject(subject):
+                    return len(day_periods) == 0
+                if len(day_periods) == 0:
+                    return True
+                if len(day_periods) >= 2:
+                    return False
+                pair_periods = sorted([day_periods[0], candidate_period])
+                return _is_norsk_vg3_double_session_pair(pair_periods)
 
             for candidate_slot_id in sorted(filtered_slots, key=_alternating_slot_sort_key):
+                if _repair_timed_out():
+                    generation_timed_out = True
+                    return False
                 if candidate_slot_id == item.timeslot_id or candidate_slot_id == blocked_timeslot_id:
                     continue
 
@@ -4938,16 +6015,14 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 if timeslot_units_map.get(candidate_slot_id, 1) != old_units:
                     continue
 
-                # same-subject/day rule for relocated item (except Norsk vg3)
-                if not _is_norsk_vg3_subject(subject):
-                    if subject_day_counts.get(candidate_slot.day, 0) >= 1:
-                        continue
+                if not _can_place_subject_on_day(candidate_slot.day, candidate_slot.period):
+                    continue
 
                 # class checks
                 class_conflict = False
                 class_conflicting_items: List[ScheduledItem] = []
                 for class_id in item.class_ids:
-                    if candidate_slot_id in blocked_class_slots_by_week_for_rules.get((class_id, target_week_key), set()):
+                    if _is_block_locked_for_class_slot(class_id, target_week_key, candidate_slot_id):
                         class_conflict = True
                         break
                     for other_item in working_items:
@@ -4957,6 +6032,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         if other_week != target_week_key or other_item.timeslot_id != candidate_slot_id:
                             continue
                         if class_id in (other_item.class_ids or []):
+                            class_conflict = True
+                            class_conflicting_items.append(other_item)
+                            break
+                        if item.room_id and other_item.room_id and item.room_id == other_item.room_id:
                             class_conflict = True
                             class_conflicting_items.append(other_item)
                             break
@@ -4985,6 +6064,9 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                                 if other_week != target_week_key or other_item.timeslot_id != candidate_slot_id:
                                     continue
                                 if class_id in (other_item.class_ids or []):
+                                    class_conflict = True
+                                    break
+                                if item.room_id and other_item.room_id and item.room_id == other_item.room_id:
                                     class_conflict = True
                                     break
                             if class_conflict:
@@ -5040,9 +6122,295 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     subject_day_used[(item.subject_id, target_week_key, old_day)] - 1,
                 )
                 subject_day_used[(item.subject_id, target_week_key, candidate_slot.day)] += 1
+                old_day_periods = subject_day_periods.get(old_day, [])
+                if old_period in old_day_periods:
+                    old_day_periods.remove(old_period)
+                subject_day_periods[candidate_slot.day].append(candidate_slot.period)
                 return True
 
             return False
+
+        def _remove_item(item: ScheduledItem) -> None:
+            week_key = item.week_type or "base"
+            units = _item_units(item, timeslot_units_map)
+
+            if item.subject_id not in block_subject_ids:
+                placed_units_by_subject[item.subject_id] = max(0, placed_units_by_subject[item.subject_id] - units)
+
+            subject_day_used[(item.subject_id, week_key, item.day)] = max(
+                0,
+                subject_day_used[(item.subject_id, week_key, item.day)] - 1,
+            )
+
+            for class_id in item.class_ids:
+                class_busy.discard((class_id, week_key, item.timeslot_id))
+
+            for teacher_id in _item_teacher_ids_for_rules(item):
+                teacher_busy.discard((teacher_id, week_key, item.timeslot_id))
+                teacher_day_count[(teacher_id, week_key, item.day)] = max(
+                    0,
+                    teacher_day_count[(teacher_id, week_key, item.day)] - 1,
+                )
+
+            if item in working_items:
+                working_items.remove(item)
+
+        def _add_item(
+            subject: Subject,
+            teacher_ids: List[str],
+            primary_teacher_id: str,
+            week_key: str,
+            ts_id: str,
+            start_time: str | None = None,
+            end_time: str | None = None,
+        ) -> int:
+            ts = alternating_timeslots_by_id[ts_id]
+            new_item = ScheduledItem(
+                subject_id=subject.id,
+                subject_name=subject.name,
+                teacher_id=primary_teacher_id,
+                teacher_ids=teacher_ids,
+                class_ids=list(subject.class_ids),
+                timeslot_id=ts_id,
+                day=ts.day,
+                period=ts.period,
+                start_time=start_time,
+                end_time=end_time,
+                week_type=(None if week_key == "base" else week_key),
+            )
+            working_items.append(new_item)
+
+            units = _item_units(new_item, timeslot_units_map)
+            if subject.id not in block_subject_ids:
+                placed_units_by_subject[subject.id] += units
+            subject_day_used[(subject.id, week_key, ts.day)] += 1
+            for class_id in subject.class_ids:
+                class_busy.add((class_id, week_key, ts_id))
+            for teacher_id in teacher_ids:
+                teacher_busy.add((teacher_id, week_key, ts_id))
+                teacher_day_count[(teacher_id, week_key, ts.day)] += 1
+            return units
+
+        def _is_block_locked_for_class_slot(class_id: str, week_key: str, ts_id: str) -> bool:
+            return ts_id in blocked_class_slots_by_week_for_rules.get((class_id, week_key), set())
+
+        def _can_place_subject_on_day(
+            subject: Subject,
+            week_key: str,
+            day: str,
+            period: int,
+        ) -> bool:
+            periods = [
+                scheduled_item.period
+                for scheduled_item in working_items
+                if scheduled_item.subject_id == subject.id
+                and (scheduled_item.week_type or "base") == week_key
+                and scheduled_item.day == day
+            ]
+
+            if not _is_norsk_vg3_subject(subject):
+                return len(periods) == 0
+            if len(periods) == 0:
+                return True
+            if len(periods) >= 2:
+                return False
+            return _is_norsk_vg3_double_session_pair(sorted([periods[0], period]))
+
+        def _is_non_block_item_in_locked_slot(item: ScheduledItem) -> bool:
+            if item.subject_id in block_subject_ids:
+                return False
+            week_key = item.week_type or "base"
+            for class_id in item.class_ids:
+                if _is_block_locked_for_class_slot(class_id, week_key, item.timeslot_id):
+                    return True
+            return False
+
+        # Enforce strict block-window reservation: non-block subjects must not occupy
+        # class/week slots reserved by blocks, even if they were inserted earlier.
+        removed_for_block_lock = 0
+        for _ in range(REPAIR_BLOCK_LOCK_SWEEPS):
+            if _repair_timed_out():
+                generation_timed_out = True
+                break
+            changed = False
+            for item in list(working_items):
+                if _repair_timed_out():
+                    generation_timed_out = True
+                    break
+                if not _is_non_block_item_in_locked_slot(item):
+                    continue
+
+                week_key = item.week_type or "base"
+                if _try_relocate_item(
+                    item,
+                    week_key,
+                    item.timeslot_id,
+                    depth_remaining=REPAIR_RELOCATION_DEPTH,
+                ):
+                    changed = True
+                    continue
+
+                _remove_item(item)
+                removed_for_block_lock += 1
+                changed = True
+
+            if not changed:
+                break
+
+        if removed_for_block_lock:
+            _rebuild_usage_maps()
+
+        def _try_add_mirrored_from_opposite_week(
+            subject: Subject,
+            teacher_ids: List[str],
+            primary_teacher_id: str,
+            target_week_key: str,
+            shortfall_units: int,
+        ) -> int:
+            if target_week_key not in {"A", "B"}:
+                return 0
+
+            opposite_week_key = "B" if target_week_key == "A" else "A"
+            source_items = [
+                item
+                for item in working_items
+                if item.subject_id == subject.id and (item.week_type or "base") == opposite_week_key
+            ]
+            if not source_items:
+                return 0
+
+            # Prefer reduced-tail mirrors first (often the missing final 1u), then by stable slot order.
+            source_items.sort(
+                key=lambda item: (
+                    0 if (item.start_time and item.end_time) else 1,
+                    _item_units(item, timeslot_units_map),
+                    DAY_ORDER_INDEX.get((item.day or "").lower(), 99),
+                    item.period,
+                )
+            )
+
+            existing_target_signatures = {
+                (item.timeslot_id, item.start_time, item.end_time)
+                for item in working_items
+                if item.subject_id == subject.id and (item.week_type or "base") == target_week_key
+            }
+
+            for src_item in source_items:
+                signature = (src_item.timeslot_id, src_item.start_time, src_item.end_time)
+                if signature in existing_target_signatures:
+                    continue
+
+                ts = alternating_timeslots_by_id.get(src_item.timeslot_id)
+                if not ts:
+                    continue
+
+                units_to_add = _item_units(src_item, timeslot_units_map)
+                if units_to_add > shortfall_units:
+                    continue
+
+                # Keep reduced-tail 45-minute additions constrained to Wednesday.
+                if src_item.start_time and src_item.end_time and units_to_add == 1:
+                    if (ts.day or "").lower() != "wednesday":
+                        continue
+
+                class_conflict = False
+                for class_id in subject.class_ids:
+                    if (class_id, target_week_key, src_item.timeslot_id) in class_busy:
+                        class_conflict = True
+                        break
+                    if (
+                        not (src_item.start_time and src_item.end_time)
+                        and _is_block_locked_for_class_slot(class_id, target_week_key, src_item.timeslot_id)
+                    ):
+                        class_conflict = True
+                        break
+                if class_conflict:
+                    class_blockers = [
+                        item
+                        for item in working_items
+                        if (item.week_type or "base") == target_week_key
+                        and item.timeslot_id == src_item.timeslot_id
+                        and item.subject_id != subject.id
+                        and any(class_id in (item.class_ids or []) for class_id in subject.class_ids)
+                    ]
+                    moved_any_blocker = False
+                    for blocker in class_blockers:
+                        if _try_relocate_item(blocker, target_week_key, src_item.timeslot_id, depth_remaining=1):
+                            moved_any_blocker = True
+                    if moved_any_blocker:
+                        class_conflict = any(
+                            (class_id, target_week_key, src_item.timeslot_id) in class_busy
+                            or (
+                                not (src_item.start_time and src_item.end_time)
+                                and _is_block_locked_for_class_slot(class_id, target_week_key, src_item.timeslot_id)
+                            )
+                            for class_id in subject.class_ids
+                        )
+                if class_conflict:
+                    continue
+
+                teacher_conflict = False
+                for teacher_id in teacher_ids:
+                    if (teacher_id, target_week_key, src_item.timeslot_id) in teacher_busy:
+                        teacher_conflict = True
+                        break
+                    if teacher_day_count[(teacher_id, target_week_key, ts.day)] >= 3:
+                        teacher_conflict = True
+                        break
+                if teacher_conflict:
+                    teacher_blockers = [
+                        item
+                        for item in working_items
+                        if (item.week_type or "base") == target_week_key
+                        and item.timeslot_id == src_item.timeslot_id
+                        and item.subject_id != subject.id
+                        and (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
+                    ]
+                    moved_any_blocker = False
+                    for blocker in teacher_blockers:
+                        if _try_relocate_item(blocker, target_week_key, src_item.timeslot_id, depth_remaining=1):
+                            moved_any_blocker = True
+                    if moved_any_blocker:
+                        teacher_conflict = False
+                        for teacher_id in teacher_ids:
+                            if (teacher_id, target_week_key, src_item.timeslot_id) in teacher_busy:
+                                teacher_conflict = True
+                                break
+                            if teacher_day_count[(teacher_id, target_week_key, ts.day)] >= 3:
+                                teacher_conflict = True
+                                break
+                if teacher_conflict:
+                    continue
+
+                if not _can_place_subject_on_day(subject, target_week_key, ts.day, ts.period):
+                    continue
+
+                mirrored_item = ScheduledItem(
+                    subject_id=subject.id,
+                    subject_name=subject.name,
+                    teacher_id=primary_teacher_id,
+                    teacher_ids=teacher_ids,
+                    class_ids=list(subject.class_ids),
+                    timeslot_id=src_item.timeslot_id,
+                    day=ts.day,
+                    period=ts.period,
+                    start_time=src_item.start_time,
+                    end_time=src_item.end_time,
+                    week_type=(None if target_week_key == "base" else target_week_key),
+                )
+                working_items.append(mirrored_item)
+
+                placed_units_by_subject[subject.id] += units_to_add
+                subject_day_used[(subject.id, target_week_key, ts.day)] += 1
+                for class_id in subject.class_ids:
+                    class_busy.add((class_id, target_week_key, src_item.timeslot_id))
+                for teacher_id in teacher_ids:
+                    teacher_busy.add((teacher_id, target_week_key, src_item.timeslot_id))
+                    teacher_day_count[(teacher_id, target_week_key, ts.day)] += 1
+
+                return units_to_add
+
+            return 0
 
         for subject in data.subjects:
             if subject.id in block_subject_ids:
@@ -5051,11 +6419,124 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             weekly_units = max(0, int(subject.sessions_per_week or 0))
             expected_total = weekly_units * (2 if data.alternating_weeks_enabled else 1)
             shortfall = expected_total - placed_units_by_subject.get(subject.id, 0)
-            if shortfall <= 0:
-                continue
 
             teacher_ids = alternating_subject_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
             primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+
+            # Hard repair for force-placed subjects: forced slot must exist in every
+            # eligible week. Try to relocate blockers before giving up.
+            forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
+            if getattr(subject, "force_place", False) and forced_ts_id and forced_ts_id in alternating_all_timeslot_ids:
+                forced_units = timeslot_units_map.get(forced_ts_id, 1)
+                eligible_weeks = sorted(set(allowed_weeks) & set(week_labels_for_rules))
+                for target_week in eligible_weeks:
+                    already_forced = any(
+                        item.subject_id == subject.id
+                        and (item.week_type or "base") == target_week
+                        and item.timeslot_id == forced_ts_id
+                        for item in working_items
+                    )
+                    if already_forced:
+                        continue
+
+                    # If totals are already saturated, remove one non-forced item of
+                    # equal units in the same week to make room for the forced slot.
+                    if placed_units_by_subject.get(subject.id, 0) >= expected_total:
+                        removable_item = next(
+                            (
+                                item for item in working_items
+                                if item.subject_id == subject.id
+                                and (item.week_type or "base") == target_week
+                                and item.timeslot_id != forced_ts_id
+                                and _item_units(item, timeslot_units_map) == forced_units
+                            ),
+                            None,
+                        )
+                        if removable_item is not None:
+                            _remove_item(removable_item)
+                            shortfall += forced_units
+
+                    # Try to free class blockers at forced slot.
+                    for blocking_item in _find_class_conflicting_items(
+                        list(subject.class_ids),
+                        target_week,
+                        forced_ts_id,
+                        subject.id,
+                    ):
+                        _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
+
+                    # Try to free teacher blockers at forced slot.
+                    for blocking_item in [
+                        item
+                        for item in working_items
+                        if (item.week_type or "base") == target_week
+                        and item.timeslot_id == forced_ts_id
+                        and item.subject_id != subject.id
+                        and (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
+                    ]:
+                        _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
+
+                    forced_ts = alternating_timeslots_by_id[forced_ts_id]
+                    class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
+                    teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
+                    teacher_day_conflict = any(
+                        teacher_day_count[(teacher_id, target_week, forced_ts.day)] >= 3
+                        for teacher_id in teacher_ids
+                    )
+
+                    # Final force-place priority: if blockers remain, force-placed subjects
+                    # take precedence over non-force, non-block items.
+                    if class_conflict or teacher_conflict:
+                        blocking_items = [
+                            item
+                            for item in working_items
+                            if (item.week_type or "base") == target_week
+                            and item.timeslot_id == forced_ts_id
+                            and item.subject_id != subject.id
+                            and (
+                                any(class_id in (item.class_ids or []) for class_id in subject.class_ids)
+                                or (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
+                            )
+                        ]
+
+                        can_evict_all = True
+                        for blocking_item in blocking_items:
+                            blocking_subject = subjects_by_id.get(blocking_item.subject_id)
+                            if _is_block_item_for_rules(blocking_item):
+                                can_evict_all = False
+                                break
+                            if blocking_subject and getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
+                                can_evict_all = False
+                                break
+
+                        if can_evict_all and blocking_items:
+                            for blocking_item in blocking_items:
+                                evicted_units = _item_units(blocking_item, timeslot_units_map)
+                                evicted_backfill_needs.append(
+                                    (blocking_item.subject_id, target_week, evicted_units)
+                                )
+                                _remove_item(blocking_item)
+
+                            class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
+                            teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
+
+                    if class_conflict or teacher_conflict or teacher_day_conflict:
+                        continue
+
+                    added_units = _add_item(
+                        subject,
+                        teacher_ids,
+                        primary_teacher_id,
+                        target_week,
+                        forced_ts_id,
+                    )
+                    added_count += 1
+                    shortfall = max(0, shortfall - added_units)
+
+            # If totals are already satisfied, we still allow force-slot repair above
+            # but do not continue with generic backfill placement.
+            if shortfall <= 0:
+                continue
 
             allowed_slots = _compute_allowed_timeslots(
                 subject,
@@ -5121,6 +6602,26 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             progress = True
             while shortfall > 0 and progress:
                 progress = False
+
+                if data.alternating_weeks_enabled:
+                    for target_week_key in sorted(set(allowed_weeks) & {"A", "B"}):
+                        mirrored_added_units = _try_add_mirrored_from_opposite_week(
+                            subject,
+                            teacher_ids,
+                            primary_teacher_id,
+                            target_week_key,
+                            shortfall,
+                        )
+                        if mirrored_added_units <= 0:
+                            continue
+                        added_count += 1
+                        shortfall -= mirrored_added_units
+                        progress = True
+                        break
+
+                    if progress:
+                        continue
+
                 for week_key, ts_id in candidate_keys:
                     ts = alternating_timeslots_by_id[ts_id]
                     slot_units = timeslot_units_map.get(ts_id, 1)
@@ -5133,7 +6634,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         if (class_id, week_key, ts_id) in class_busy:
                             class_conflict = True
                             break
-                        if ts_id in blocked_class_slots_by_week_for_rules.get((class_id, week_key), set()):
+                        if _is_block_locked_for_class_slot(class_id, week_key, ts_id):
                             class_conflict = True
                             break
                     if class_conflict:
@@ -5145,7 +6646,12 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         )
                         moved_any = False
                         for conflicting_item in conflicting_items:
-                            if _try_relocate_item(conflicting_item, week_key, ts_id):
+                            if _try_relocate_item(
+                                conflicting_item,
+                                week_key,
+                                ts_id,
+                                depth_remaining=REPAIR_RELOCATION_DEPTH,
+                            ):
                                 moved_any = True
                         if moved_any:
                             class_conflict = False
@@ -5153,25 +6659,88 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                                 if (class_id, week_key, ts_id) in class_busy:
                                     class_conflict = True
                                     break
+                        # Non-forced fallback: if relocation could not free the slot,
+                        # allow a direct one-item swap by evicting a single equal-size
+                        # blocker and backfilling it later.
+                        if class_conflict:
+                            if len(conflicting_items) == 1:
+                                blocking_item = conflicting_items[0]
+                                blocking_subject = subjects_by_id.get(blocking_item.subject_id)
+                                if (
+                                    not _is_block_item_for_rules(blocking_item)
+                                    and not (
+                                        blocking_subject
+                                        and getattr(blocking_subject, "force_place", False)
+                                        and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip()
+                                    )
+                                    and _item_units(blocking_item, timeslot_units_map) == slot_units
+                                ):
+                                    evicted_backfill_needs.append((blocking_item.subject_id, week_key, slot_units))
+                                    _remove_item(blocking_item)
+                                    class_conflict = any(
+                                        (class_id, week_key, ts_id) in class_busy
+                                        for class_id in subject.class_ids
+                                    )
                         if class_conflict:
                             continue
 
                     # Teacher conflict and daily cap.
                     teacher_conflict = False
+                    teacher_blockers: List[ScheduledItem] = []
                     for teacher_id in teacher_ids:
                         if (teacher_id, week_key, ts_id) in teacher_busy:
                             teacher_conflict = True
+                            teacher_blockers.extend(
+                                [
+                                    other_item
+                                    for other_item in working_items
+                                    if (other_item.week_type or "base") == week_key
+                                    and other_item.timeslot_id == ts_id
+                                    and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                    and other_item.subject_id != subject.id
+                                ]
+                            )
                             break
                         if teacher_day_count[(teacher_id, week_key, ts.day)] >= 3:
                             teacher_conflict = True
+                            teacher_blockers.extend(
+                                [
+                                    other_item
+                                    for other_item in working_items
+                                    if (other_item.week_type or "base") == week_key
+                                    and other_item.day == ts.day
+                                    and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                    and other_item.subject_id != subject.id
+                                ]
+                            )
                             break
+                    if teacher_conflict:
+                        moved_any = False
+                        for blocker in teacher_blockers:
+                            if _try_relocate_item(
+                                blocker,
+                                week_key,
+                                ts_id,
+                                depth_remaining=REPAIR_RELOCATION_DEPTH,
+                            ):
+                                moved_any = True
+
+                        if moved_any:
+                            teacher_conflict = False
+                            for teacher_id in teacher_ids:
+                                if (teacher_id, week_key, ts_id) in teacher_busy:
+                                    teacher_conflict = True
+                                    break
+                                if teacher_day_count[(teacher_id, week_key, ts.day)] >= 3:
+                                    teacher_conflict = True
+                                    break
+
                     if teacher_conflict:
                         continue
 
                     # Same-subject/day rule (except Norsk vg3).
-                    if not _is_norsk_vg3_subject(subject):
-                        if subject_day_used[(subject.id, week_key, ts.day)] >= 1:
-                            continue
+                    if not _can_place_subject_on_day(subject, week_key, ts.day, ts.period):
+                        continue
 
                     new_item = ScheduledItem(
                         subject_id=subject.id,
@@ -5198,6 +6767,318 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     progress = True
                     break
 
+        # General cleanup pass: try to reinsert units that were evicted while
+        # prioritizing forced placements.
+        if evicted_backfill_needs:
+            for evicted_subject_id, evicted_week_key, evicted_units in evicted_backfill_needs:
+                if evicted_units <= 0:
+                    continue
+                evicted_subject = subjects_by_id.get(evicted_subject_id)
+                if not evicted_subject or evicted_subject.id in block_subject_ids:
+                    continue
+
+                teacher_ids = alternating_subject_teacher_ids.get(evicted_subject.id, _subject_teacher_ids(evicted_subject))
+                primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+
+                allowed_slots = _compute_allowed_timeslots(
+                    evicted_subject,
+                    alternating_all_timeslot_ids,
+                    alternating_block_to_timeslots,
+                    alternating_timeslots_by_id,
+                )
+                allowed_weeks = _compute_allowed_weeks(
+                    evicted_subject,
+                    data.alternating_weeks_enabled,
+                    blocks_by_id_for_rules,
+                    linked_block_ids_for_rules,
+                )
+                if evicted_week_key not in allowed_weeks:
+                    continue
+
+                filtered_slots = set(allowed_slots)
+                for teacher_id in teacher_ids:
+                    if teacher_id in alternating_teachers_by_id:
+                        filtered_slots -= set(alternating_teachers_by_id[teacher_id].unavailable_timeslots)
+                    filtered_slots -= alternating_teacher_meeting_unavailable.get(teacher_id, set())
+
+                remaining = evicted_units
+                while remaining > 0:
+                    placed_any = False
+                    for ts_id in sorted(filtered_slots, key=_alternating_slot_sort_key):
+                        ts = alternating_timeslots_by_id[ts_id]
+                        slot_units = timeslot_units_map.get(ts_id, 1)
+                        if slot_units > remaining:
+                            continue
+
+                        if any((class_id, evicted_week_key, ts_id) in class_busy for class_id in evicted_subject.class_ids):
+                            conflicting_items = _find_class_conflicting_items(
+                                list(evicted_subject.class_ids),
+                                evicted_week_key,
+                                ts_id,
+                                evicted_subject.id,
+                            )
+                            moved_any = False
+                            for conflicting_item in conflicting_items:
+                                if _try_relocate_item(
+                                    conflicting_item,
+                                    evicted_week_key,
+                                    ts_id,
+                                    depth_remaining=REPAIR_RELOCATION_DEPTH,
+                                ):
+                                    moved_any = True
+                            if moved_any:
+                                if any((class_id, evicted_week_key, ts_id) in class_busy for class_id in evicted_subject.class_ids):
+                                    continue
+                            else:
+                                # Fallback: swap out a single movable blocker of equal units,
+                                # then try to backfill that blocker later.
+                                if len(conflicting_items) != 1:
+                                    continue
+                                blocker = conflicting_items[0]
+                                blocker_subject = subjects_by_id.get(blocker.subject_id)
+                                if _is_block_item_for_rules(blocker):
+                                    continue
+                                if blocker_subject and getattr(blocker_subject, "force_place", False) and (getattr(blocker_subject, "force_timeslot_id", "") or "").strip():
+                                    continue
+                                if _item_units(blocker, timeslot_units_map) != slot_units:
+                                    continue
+
+                                _remove_item(blocker)
+                                evicted_backfill_needs.append((blocker.subject_id, evicted_week_key, slot_units))
+                        if any(
+                            _is_block_locked_for_class_slot(class_id, evicted_week_key, ts_id)
+                            for class_id in evicted_subject.class_ids
+                        ):
+                            continue
+
+                        teacher_conflict = False
+                        teacher_blockers: List[ScheduledItem] = []
+                        for teacher_id in teacher_ids:
+                            if (teacher_id, evicted_week_key, ts_id) in teacher_busy:
+                                teacher_conflict = True
+                                teacher_blockers.extend(
+                                    [
+                                        other_item
+                                        for other_item in working_items
+                                        if (other_item.week_type or "base") == evicted_week_key
+                                        and other_item.timeslot_id == ts_id
+                                        and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                        and other_item.subject_id != evicted_subject.id
+                                    ]
+                                )
+                                break
+                            if teacher_day_count[(teacher_id, evicted_week_key, ts.day)] >= 3:
+                                teacher_conflict = True
+                                teacher_blockers.extend(
+                                    [
+                                        other_item
+                                        for other_item in working_items
+                                        if (other_item.week_type or "base") == evicted_week_key
+                                        and other_item.day == ts.day
+                                        and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                        and other_item.subject_id != evicted_subject.id
+                                    ]
+                                )
+                                break
+                        if teacher_conflict:
+                            moved_any = False
+                            for blocker in teacher_blockers:
+                                if _try_relocate_item(
+                                    blocker,
+                                    evicted_week_key,
+                                    ts_id,
+                                    depth_remaining=REPAIR_RELOCATION_DEPTH,
+                                ):
+                                    moved_any = True
+
+                            if moved_any:
+                                teacher_conflict = False
+                                for teacher_id in teacher_ids:
+                                    if (teacher_id, evicted_week_key, ts_id) in teacher_busy:
+                                        teacher_conflict = True
+                                        break
+                                    if teacher_day_count[(teacher_id, evicted_week_key, ts.day)] >= 3:
+                                        teacher_conflict = True
+                                        break
+
+                        if teacher_conflict:
+                            continue
+
+                        if not _can_place_subject_on_day(evicted_subject, evicted_week_key, ts.day, ts.period):
+                            continue
+
+                        added_units = _add_item(
+                            evicted_subject,
+                            teacher_ids,
+                            primary_teacher_id,
+                            evicted_week_key,
+                            ts_id,
+                        )
+                        added_count += 1
+                        remaining -= added_units
+                        placed_any = True
+                        break
+
+                    if not placed_any:
+                        break
+
+        # Final global recovery sweep: after force-priority swaps and backfills,
+        # some subjects may become placeable again in newly opened slots.
+        placed_units_snapshot: Dict[str, int] = defaultdict(int)
+        for scheduled_item in working_items:
+            if scheduled_item.subject_id in block_subject_ids:
+                continue
+            placed_units_snapshot[scheduled_item.subject_id] += _item_units(scheduled_item, timeslot_units_map)
+
+        for subject in data.subjects:
+            if subject.id in block_subject_ids:
+                continue
+
+            weekly_units = max(0, int(subject.sessions_per_week or 0))
+            expected_total = weekly_units * (2 if data.alternating_weeks_enabled else 1)
+            remaining_shortfall = expected_total - placed_units_snapshot.get(subject.id, 0)
+            if remaining_shortfall <= 0:
+                continue
+
+            teacher_ids = alternating_subject_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
+            primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+
+            allowed_slots = _compute_allowed_timeslots(
+                subject,
+                alternating_all_timeslot_ids,
+                alternating_block_to_timeslots,
+                alternating_timeslots_by_id,
+            )
+            allowed_weeks = _compute_allowed_weeks(
+                subject,
+                data.alternating_weeks_enabled,
+                blocks_by_id_for_rules,
+                linked_block_ids_for_rules,
+            )
+
+            filtered_slots = set(allowed_slots)
+            for teacher_id in teacher_ids:
+                if teacher_id in alternating_teachers_by_id:
+                    filtered_slots -= set(alternating_teachers_by_id[teacher_id].unavailable_timeslots)
+                filtered_slots -= alternating_teacher_meeting_unavailable.get(teacher_id, set())
+
+            candidate_keys = [
+                (week_key, ts_id)
+                for week_key in sorted(allowed_weeks)
+                for ts_id in sorted(filtered_slots, key=_alternating_slot_sort_key)
+                if week_key in week_labels_for_rules
+            ]
+
+            progress = True
+            while remaining_shortfall > 0 and progress:
+                progress = False
+                for week_key, ts_id in candidate_keys:
+                    ts = alternating_timeslots_by_id[ts_id]
+                    slot_units = timeslot_units_map.get(ts_id, 1)
+                    if slot_units > remaining_shortfall:
+                        continue
+
+                    class_conflict = False
+                    for class_id in subject.class_ids:
+                        if (class_id, week_key, ts_id) in class_busy:
+                            class_conflict = True
+                            break
+                        if _is_block_locked_for_class_slot(class_id, week_key, ts_id):
+                            class_conflict = True
+                            break
+                    if class_conflict:
+                        conflicting_items = _find_class_conflicting_items(
+                            list(subject.class_ids),
+                            week_key,
+                            ts_id,
+                            subject.id,
+                        )
+                        moved_any = False
+                        for conflicting_item in conflicting_items:
+                            if _try_relocate_item(
+                                conflicting_item,
+                                week_key,
+                                ts_id,
+                                depth_remaining=REPAIR_RELOCATION_DEPTH,
+                            ):
+                                moved_any = True
+                        if moved_any:
+                            class_conflict = any(
+                                (class_id, week_key, ts_id) in class_busy
+                                for class_id in subject.class_ids
+                            )
+                        if class_conflict:
+                            continue
+
+                    teacher_conflict = False
+                    teacher_blockers: List[ScheduledItem] = []
+                    for teacher_id in teacher_ids:
+                        if (teacher_id, week_key, ts_id) in teacher_busy:
+                            teacher_conflict = True
+                            teacher_blockers.extend(
+                                [
+                                    other_item
+                                    for other_item in working_items
+                                    if (other_item.week_type or "base") == week_key
+                                    and other_item.timeslot_id == ts_id
+                                    and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                    and other_item.subject_id != subject.id
+                                ]
+                            )
+                            break
+                        if teacher_day_count[(teacher_id, week_key, ts.day)] >= 3:
+                            teacher_conflict = True
+                            teacher_blockers.extend(
+                                [
+                                    other_item
+                                    for other_item in working_items
+                                    if (other_item.week_type or "base") == week_key
+                                    and other_item.day == ts.day
+                                    and teacher_id in _item_teacher_ids_for_rules(other_item)
+                                    and other_item.subject_id != subject.id
+                                ]
+                            )
+                            break
+                    if teacher_conflict:
+                        moved_any = False
+                        for blocker in teacher_blockers:
+                            if _try_relocate_item(
+                                blocker,
+                                week_key,
+                                ts_id,
+                                depth_remaining=REPAIR_RELOCATION_DEPTH,
+                            ):
+                                moved_any = True
+
+                        if moved_any:
+                            teacher_conflict = False
+                            for teacher_id in teacher_ids:
+                                if (teacher_id, week_key, ts_id) in teacher_busy:
+                                    teacher_conflict = True
+                                    break
+                                if teacher_day_count[(teacher_id, week_key, ts.day)] >= 3:
+                                    teacher_conflict = True
+                                    break
+
+                    if teacher_conflict:
+                        continue
+
+                    if not _can_place_subject_on_day(subject, week_key, ts.day, ts.period):
+                        continue
+
+                    added_units = _add_item(
+                        subject,
+                        teacher_ids,
+                        primary_teacher_id,
+                        week_key,
+                        ts_id,
+                    )
+                    added_count += 1
+                    placed_units_snapshot[subject.id] += added_units
+                    remaining_shortfall -= added_units
+                    progress = True
+                    break
+
         # Second-stage local search: fix remaining hard-rule violations via relocations
         # without changing totals.
         def _subject_day_violation_items() -> List[ScheduledItem]:
@@ -5209,6 +7090,15 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             for (subject_id, _week_key, _day), grouped_items in grouped.items():
                 subject = subjects_by_id.get(subject_id)
                 if _is_norsk_vg3_subject(subject):
+                    if len(grouped_items) <= 1:
+                        continue
+                    if len(grouped_items) == 2 and _is_norsk_vg3_double_session_pair(sorted([grouped_items[0].period, grouped_items[1].period])):
+                        continue
+                    # Keep one in place and move the rest to restore valid day pattern.
+                    for idx, grouped_item in enumerate(sorted(grouped_items, key=lambda it: it.period)):
+                        if idx == 0:
+                            continue
+                        candidates.append(grouped_item)
                     continue
                 if len(grouped_items) <= 1:
                     continue
@@ -5353,7 +7243,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                             continue
 
                         class_blocked = any(
-                            slot_id in blocked_class_slots_by_week_for_rules.get((class_id, week_key), set())
+                            _is_block_locked_for_class_slot(class_id, week_key, slot_id)
                             for class_id in item.class_ids
                         )
                         if class_blocked and slot_id != item.timeslot_id:
@@ -5482,7 +7372,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             )
 
             solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = 3.0
+            solver.parameters.max_time_in_seconds = 15.0
             solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
             status = solver.Solve(model)
             if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -5514,18 +7404,176 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         if _local_cp_sat_violation_repair():
             _rebuild_usage_maps()
 
+        def _collect_invalid_subject_day_groups() -> List[Tuple[Tuple[str, str, str], List[ScheduledItem]]]:
+            grouped: Dict[Tuple[str, str, str], List[ScheduledItem]] = defaultdict(list)
+            for scheduled_item in working_items:
+                grouped[(scheduled_item.subject_id, scheduled_item.week_type or "base", scheduled_item.day)].append(scheduled_item)
+
+            invalid_groups: List[Tuple[Tuple[str, str, str], List[ScheduledItem]]] = []
+            for key, grouped_items in grouped.items():
+                subject_id, _week_key, _day = key
+                if subject_id in block_subject_ids:
+                    continue
+                subject = subjects_by_id.get(subject_id)
+                periods = sorted(item.period for item in grouped_items)
+
+                if _is_norsk_vg3_subject(subject):
+                    if len(grouped_items) <= 1:
+                        continue
+                    if len(grouped_items) == 2 and _is_norsk_vg3_double_session_pair(periods):
+                        continue
+                    invalid_groups.append((key, sorted(grouped_items, key=lambda it: it.period)))
+                    continue
+
+                if len(grouped_items) > 1:
+                    invalid_groups.append((key, sorted(grouped_items, key=lambda it: it.period)))
+
+            return invalid_groups
+
+        # Final hard cleanup: enforce one-subject-per-day everywhere, with the
+        # only exception that Norsk vg3 may appear exactly twice as period pair
+        # 1+2 or 3+4 on the same day.
+        for _ in range(200):
+            invalid_groups = _collect_invalid_subject_day_groups()
+            if not invalid_groups:
+                break
+
+            changed = False
+            for (subject_id, _week_key, _day), grouped_items in invalid_groups:
+                subject = subjects_by_id.get(subject_id)
+
+                keep_ids: Set[int] = set()
+                if _is_norsk_vg3_subject(subject):
+                    valid_pair: Tuple[ScheduledItem, ScheduledItem] | None = None
+                    for i in range(len(grouped_items)):
+                        for j in range(i + 1, len(grouped_items)):
+                            pair_periods = sorted([grouped_items[i].period, grouped_items[j].period])
+                            if _is_norsk_vg3_double_session_pair(pair_periods):
+                                valid_pair = (grouped_items[i], grouped_items[j])
+                                break
+                        if valid_pair is not None:
+                            break
+                    if valid_pair is not None:
+                        keep_ids = {id(valid_pair[0]), id(valid_pair[1])}
+                    elif grouped_items:
+                        keep_ids = {id(grouped_items[0])}
+                elif grouped_items:
+                    keep_ids = {id(grouped_items[0])}
+
+                for grouped_item in grouped_items:
+                    if id(grouped_item) in keep_ids:
+                        continue
+                    week_key = grouped_item.week_type or "base"
+                    if _try_relocate_item(
+                        grouped_item,
+                        week_key,
+                        grouped_item.timeslot_id,
+                        depth_remaining=REPAIR_FINAL_CLEANUP_RELOCATION_DEPTH,
+                    ):
+                        changed = True
+                        continue
+
+                    _remove_item(grouped_item)
+                    changed = True
+
+                if changed:
+                    _rebuild_usage_maps()
+                    break
+
+            if not changed:
+                break
+
         return working_items, added_count
 
     def _success_response_with_hard_rules(response: ScheduleResponse) -> ScheduleResponse:
         if response.status != "success":
             return response
+        if _timed_out():
+            generation_timed_out = True
+            metadata = dict(response.metadata or {})
+            metadata["timed_out"] = 1.0
+            return ScheduleResponse(
+                status="infeasible",
+                message=f"Global solver timeout reached ({solver_timeout_seconds}s) before post-processing.",
+                schedule=list(response.schedule or []),
+                metadata=metadata,
+                diagnostics=dict(response.diagnostics or {}),
+            )
+
+        remaining_budget = deadline_monotonic - time.monotonic()
+        if solver_timeout_seconds <= 30 or remaining_budget <= 15.0:
+            metadata = dict(response.metadata or {})
+            metadata["postprocess_skipped_timeout"] = 1.0
+            metadata["remaining_budget_seconds"] = float(max(0.0, remaining_budget))
+            return ScheduleResponse(
+                status=response.status,
+                message=response.message,
+                schedule=list(response.schedule or []),
+                metadata=metadata,
+                diagnostics=dict(response.diagnostics or {}),
+            )
+
+        def _enforce_strict_subject_day_pattern(items: List[ScheduledItem]) -> List[ScheduledItem]:
+            grouped: Dict[Tuple[str, str, str], List[ScheduledItem]] = defaultdict(list)
+            for item in items:
+                grouped[(item.subject_id, item.week_type or "base", item.day)].append(item)
+
+            keep_item_ids: Set[int] = set()
+            for (subject_id, _week_key, _day), grouped_items in grouped.items():
+                # Block-linked subjects are block entities and must never be
+                # collapsed by name-like cleanup here; they are distinct by ID.
+                if subject_id in block_subject_ids:
+                    keep_item_ids.update(id(it) for it in grouped_items)
+                    continue
+
+                subject = subjects_by_id.get(subject_id)
+                ordered_items = sorted(grouped_items, key=lambda it: (it.period, it.timeslot_id))
+
+                if _is_norsk_vg3_subject(subject):
+                    if len(ordered_items) <= 1:
+                        keep_item_ids.update(id(it) for it in ordered_items)
+                        continue
+
+                    pair_items: Tuple[ScheduledItem, ScheduledItem] | None = None
+                    for i in range(len(ordered_items)):
+                        for j in range(i + 1, len(ordered_items)):
+                            pair_periods = sorted([ordered_items[i].period, ordered_items[j].period])
+                            if _is_norsk_vg3_double_session_pair(pair_periods):
+                                pair_items = (ordered_items[i], ordered_items[j])
+                                break
+                        if pair_items is not None:
+                            break
+
+                    if pair_items is not None:
+                        keep_item_ids.add(id(pair_items[0]))
+                        keep_item_ids.add(id(pair_items[1]))
+                    elif ordered_items:
+                        keep_item_ids.add(id(ordered_items[0]))
+                    continue
+
+                if ordered_items:
+                    keep_item_ids.add(id(ordered_items[0]))
+
+            return [item for item in items if id(item) in keep_item_ids]
 
         repaired_schedule, repaired_count = _repair_missing_units(list(response.schedule or []))
+        if _timed_out():
+            generation_timed_out = True
+            metadata = dict(response.metadata or {})
+            metadata["timed_out"] = 1.0
+            return ScheduleResponse(
+                status="infeasible",
+                message=f"Global solver timeout reached ({solver_timeout_seconds}s) during repair stage.",
+                schedule=repaired_schedule,
+                metadata=metadata,
+                diagnostics=dict(response.diagnostics or {}),
+            )
         sanitized_schedule = _post_optimize_ab_day_uniqueness(
             data,
             repaired_schedule,
             timeslot_units_map,
         )
+        sanitized_schedule = _enforce_strict_subject_day_pattern(sanitized_schedule)
         sanitized_schedule = _assign_rooms_to_schedule(
             sanitized_schedule,
             data,
@@ -5551,19 +7599,206 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if actual_total != expected_total:
                 mismatches.append((subject.id, expected_total, actual_total))
 
+        def _missing_subject_blocker_traces(
+            items: List[ScheduledItem],
+            mismatched: List[Tuple[str, int, int]],
+        ) -> List[Dict[str, Any]]:
+            if not mismatched:
+                return []
+
+            items_by_week_slot: Dict[Tuple[str, str], List[ScheduledItem]] = defaultdict(list)
+            teacher_day_counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
+            subject_day_counts: Dict[Tuple[str, str, str], int] = defaultdict(int)
+            placed_by_subject_week: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+            for it in items:
+                wk = it.week_type or "base"
+                items_by_week_slot[(wk, it.timeslot_id)].append(it)
+                subject_day_counts[(it.subject_id, wk, it.day)] += 1
+                placed_by_subject_week[it.subject_id][wk] += _item_units(it, timeslot_units_map)
+                for tid in _item_teacher_ids_for_rules(it):
+                    teacher_day_counts[(tid, wk, it.day)] += 1
+
+            week_keys = ["A", "B"] if data.alternating_weeks_enabled else ["base"]
+            subject_by_id = {s.id: s for s in data.subjects}
+            traces: List[Dict[str, Any]] = []
+
+            def _diag_can_place_subject_on_day(
+                subject: Subject,
+                week_key: str,
+                day: str,
+                period: int,
+            ) -> bool:
+                periods = [
+                    it.period
+                    for it in items
+                    if it.subject_id == subject.id
+                    and (it.week_type or "base") == week_key
+                    and it.day == day
+                ]
+                if not _is_norsk_vg3_subject(subject):
+                    return len(periods) == 0
+                if len(periods) == 0:
+                    return True
+                if len(periods) >= 2:
+                    return False
+                return _is_norsk_vg3_double_session_pair(sorted([periods[0], period]))
+
+            for subject_id, expected_total, actual_total in sorted(mismatched, key=lambda t: (t[1] - t[2]), reverse=True):
+                subject = subject_by_id.get(subject_id)
+                if not subject:
+                    continue
+
+                teacher_ids = alternating_subject_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
+                allowed_slots = _compute_allowed_timeslots(
+                    subject,
+                    alternating_all_timeslot_ids,
+                    alternating_block_to_timeslots,
+                    alternating_timeslots_by_id,
+                )
+                allowed_weeks = _compute_allowed_weeks(
+                    subject,
+                    data.alternating_weeks_enabled,
+                    blocks_by_id_for_rules,
+                    linked_block_ids_for_rules,
+                )
+
+                filtered_slots = set(allowed_slots)
+                for teacher_id in teacher_ids:
+                    if teacher_id in alternating_teachers_by_id:
+                        filtered_slots -= set(alternating_teachers_by_id[teacher_id].unavailable_timeslots)
+                    filtered_slots -= alternating_teacher_meeting_unavailable.get(teacher_id, set())
+
+                class_hits = 0
+                teacher_slot_hits = 0
+                teacher_day_cap_hits = 0
+                same_day_rule_hits = 0
+                sample_reasons: List[str] = []
+
+                for week_key in week_keys:
+                    if week_key not in allowed_weeks:
+                        continue
+                    for ts_id in sorted(filtered_slots, key=_alternating_slot_sort_key):
+                        ts = alternating_timeslots_by_id.get(ts_id)
+                        if not ts:
+                            continue
+
+                        slot_items = items_by_week_slot.get((week_key, ts_id), [])
+
+                        class_conflict_item = next(
+                            (
+                                other
+                                for other in slot_items
+                                if bool(set(other.class_ids or []) & set(subject.class_ids or []))
+                            ),
+                            None,
+                        )
+                        if class_conflict_item is not None:
+                            class_hits += 1
+                            if len(sample_reasons) < 3:
+                                sample_reasons.append(
+                                    f"class-slot {week_key} {ts.day} p{ts.period} blocked by {class_conflict_item.subject_id}"
+                                )
+                            continue
+
+                        teacher_slot_conflict_item = None
+                        if teacher_ids:
+                            teacher_slot_conflict_item = next(
+                                (
+                                    other
+                                    for other in slot_items
+                                    if bool(set(_item_teacher_ids_for_rules(other)) & set(teacher_ids))
+                                ),
+                                None,
+                            )
+                        if teacher_slot_conflict_item is not None:
+                            teacher_slot_hits += 1
+                            if len(sample_reasons) < 3:
+                                sample_reasons.append(
+                                    f"teacher-slot {week_key} {ts.day} p{ts.period} blocked by {teacher_slot_conflict_item.subject_id}"
+                                )
+                            continue
+
+                        day_cap_hit = False
+                        for teacher_id in teacher_ids:
+                            if teacher_day_counts[(teacher_id, week_key, ts.day)] >= 3:
+                                day_cap_hit = True
+                                break
+                        if day_cap_hit:
+                            teacher_day_cap_hits += 1
+                            if len(sample_reasons) < 3:
+                                sample_reasons.append(
+                                    f"teacher-day-cap {week_key} {ts.day} already at 3"
+                                )
+                            continue
+
+                        if not _diag_can_place_subject_on_day(subject, week_key, ts.day, ts.period):
+                            same_day_rule_hits += 1
+                            if len(sample_reasons) < 3:
+                                sample_reasons.append(
+                                    f"same-subject/day rule blocks {week_key} {ts.day} p{ts.period}"
+                                )
+                            continue
+
+                missing_units = max(0, expected_total - actual_total)
+                traces.append(
+                    {
+                        "subject_id": subject.id,
+                        "subject_name": subject.name,
+                        "expected_units": expected_total,
+                        "actual_units": actual_total,
+                        "missing_units": missing_units,
+                        "placed_units_by_week": {
+                            wk: placed_by_subject_week[subject.id].get(wk, 0)
+                            for wk in week_keys
+                        },
+                        "blockers": {
+                            "class_slot": class_hits,
+                            "teacher_slot": teacher_slot_hits,
+                            "teacher_day_cap": teacher_day_cap_hits,
+                            "same_day_rule": same_day_rule_hits,
+                        },
+                        "samples": sample_reasons[:3],
+                    }
+                )
+
+            return traces
+
         if mismatches:
             preview = ", ".join(
                 f"{subject_id}: exp={expected}u act={actual}u"
                 for subject_id, expected, actual in mismatches[:5]
             )
+            traces = _missing_subject_blocker_traces(sanitized_schedule, mismatches)
+            traces_text_lines: List[str] = []
+            for trace in traces[:14]:
+                per_week_text = ", ".join(
+                    f"{wk}:{int(units)}u"
+                    for wk, units in (trace.get("placed_units_by_week") or {}).items()
+                )
+                blockers = trace.get("blockers") or {}
+                samples = trace.get("samples") or []
+                samples_text = " | ".join(samples) if samples else "no candidate blockers sampled"
+                traces_text_lines.append(
+                    f"{trace.get('subject_name')} ({trace.get('subject_id')}) missing {trace.get('missing_units')}u "
+                    f"[{per_week_text}] -> class_slot={int(blockers.get('class_slot', 0))}, "
+                    f"teacher_slot={int(blockers.get('teacher_slot', 0))}, "
+                    f"teacher_day_cap={int(blockers.get('teacher_day_cap', 0))}, "
+                    f"same_day_rule={int(blockers.get('same_day_rule', 0))}. samples: {samples_text}"
+                )
+            traces_text = "\n".join(f"- {line}" for line in traces_text_lines)
             return ScheduleResponse(
                 status="infeasible",
                 message=(
                     "Rejected schedule because required x45 totals are not exact for one or more subjects. "
                     f"Examples: {preview}."
+                    + ("\nBlocker diagnostics by subject:\n" + traces_text if traces_text else "")
                 ),
                 schedule=sanitized_schedule,
                 metadata=dict(response.metadata or {}),
+                diagnostics={
+                    "missing_subjects": traces,
+                },
             )
 
         if subject_day_violations > 0 or teacher_day_violations > 0:
@@ -5575,6 +7810,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 ),
                 schedule=sanitized_schedule,
                 metadata=dict(response.metadata or {}),
+                diagnostics=dict(response.diagnostics or {}),
             )
 
         message = response.message
@@ -5585,6 +7821,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             message=message,
             schedule=sanitized_schedule,
             metadata=dict(response.metadata or {}),
+            diagnostics=dict(response.diagnostics or {}),
         )
 
     def _alternating_slot_sort_key(ts_id: str) -> Tuple[str, int]:
@@ -5656,7 +7893,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
         return set(auto_balanced_odd_subject_ids)
 
-    def _build_odd_heavy_week_by_subject(strategy: str, odd_order_variant: int) -> Dict[str, str]:
+    def _build_odd_heavy_week_by_subject(
+        strategy: str,
+        odd_order_variant: int,
+        seed_variant: int,
+    ) -> Dict[str, str]:
         if strategy != "alternate_heavy":
             return {}
 
@@ -5680,7 +7921,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     ordered_subjects = ordered_subjects[1:] + ordered_subjects[:1]
                 elif odd_order_variant >= 3:
                     seeded_subjects = list(ordered_subjects)
-                    random.Random(23_911 + odd_order_variant * 4_321).shuffle(seeded_subjects)
+                    random.Random(23_911 + odd_order_variant * 4_321 + seed_variant * 10_003).shuffle(seeded_subjects)
                     ordered_subjects = seeded_subjects
 
             start_week = "A" if (odd_order_variant % 2) == 0 else "B"
@@ -5937,10 +8178,24 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         odd_order_variant: int,
         odd_split_mode: str,
         exact_week_subject_ids: Set[str] | None = None,
+        seed_variant: int = 0,
     ) -> ScheduleResponse:
+        nonlocal generation_timed_out
+        if _timed_out():
+            generation_timed_out = True
+            return ScheduleResponse(
+                status="infeasible",
+                message=f"Timed out before starting alternating attempt ({solver_timeout_seconds}s global limit).",
+                schedule=[],
+                metadata={"timed_out": 1.0},
+            )
         exact_week_subject_ids = set(exact_week_subject_ids or set())
         secondary_week_label = "B" if primary_week_label == "A" else "A"
-        odd_heavy_week_by_subject = _build_odd_heavy_week_by_subject(odd_strategy, odd_order_variant)
+        odd_heavy_week_by_subject = _build_odd_heavy_week_by_subject(
+            odd_strategy,
+            odd_order_variant,
+            seed_variant,
+        )
         # Try both odd-subject orientations:
         # - "balanced": A gets sessions, B gets sessions (preferred)
         # - "a_light": A gets (sessions-1), B gets (sessions+1)
@@ -5978,7 +8233,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             elif odd_order_variant >= 3:
                 # Deterministic shuffle variants to explore additional placement orders.
                 seeded = list(odd_subject_ids_for_order)
-                random.Random(17_171 + odd_order_variant * 9_973).shuffle(seeded)
+                random.Random(17_171 + odd_order_variant * 9_973 + seed_variant * 20_011).shuffle(seeded)
                 odd_subject_ids_for_order = seeded
         subject_rank = {sid: i for i, sid in enumerate(odd_subject_ids_for_order)}
 
@@ -5991,7 +8246,19 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             partial_subject_priority=partial_priority,
             subject_priority_rank=subject_rank,
             target_week_units_by_class=nominal_target_units_by_class,
+            deadline_monotonic=deadline_monotonic,
         )
+        if _timed_out():
+            generation_timed_out = True
+            return ScheduleResponse(
+                status="infeasible",
+                message=(
+                    f"Timed out after {primary_week_label}-week build "
+                    f"({solver_timeout_seconds}s global limit)."
+                ),
+                schedule=list(response_primary.schedule or []),
+                metadata={"timed_out": 1.0},
+            )
         if response_primary.status != "success":
             failed_subject_match = re.search(r"\(([^)]+)\)", response_primary.message or "")
             failed_subject_id = failed_subject_match.group(1) if failed_subject_match else None
@@ -6015,6 +8282,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                         partial_subject_priority=partial_priority,
                         subject_priority_rank=subject_rank,
                         target_week_units_by_class=nominal_target_units_by_class,
+                        deadline_monotonic=deadline_monotonic,
                     )
                     if response_primary_relaxed.status == "success":
                         response_primary = response_primary_relaxed
@@ -6035,6 +8303,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     odd_order_variant,
                     odd_split_mode,
                     {failed_subject_id},
+                    seed_variant,
                 )
 
             metadata = dict(response_primary.metadata or {})
@@ -6204,7 +8473,19 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             partial_subject_priority=partial_priority,
             subject_priority_rank=subject_rank,
             target_week_units_by_class=nominal_target_units_by_class,
+            deadline_monotonic=deadline_monotonic,
         )
+        if _timed_out():
+            generation_timed_out = True
+            return ScheduleResponse(
+                status="infeasible",
+                message=(
+                    f"Timed out after {secondary_week_label}-week build "
+                    f"({solver_timeout_seconds}s global limit)."
+                ),
+                schedule=response_primary.schedule + list(response_secondary.schedule or []),
+                metadata={"timed_out": 1.0},
+            )
         if response_secondary.status != "success":
             failed_subject_id: str | None = None
             failed_required_units: int | None = None
@@ -6233,6 +8514,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     partial_subject_priority=partial_priority,
                     subject_priority_rank=subject_rank,
                     target_week_units_by_class=nominal_target_units_by_class,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if response_secondary_retry.status == "success":
                     response_secondary = response_secondary_retry
@@ -6275,6 +8557,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     partial_subject_priority=partial_priority,
                     subject_priority_rank=subject_rank,
                     target_week_units_by_class=nominal_target_units_by_class,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if response_secondary_partial.status == "success":
                     response_secondary = response_secondary_partial
@@ -6295,6 +8578,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                     odd_order_variant,
                     odd_split_mode,
                     {retry_subject_id},
+                    seed_variant,
                 )
 
             combined_partial_schedule = response_primary.schedule + response_secondary.schedule
@@ -6375,104 +8659,127 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     attempts: List[ScheduleResponse] = []
     failures: List[ScheduleResponse] = []
+    total_attempts_planned = 0
+    total_attempts_executed = 0
+    total_attempts_valid = 0
+    total_attempts_rejected = 0
+    total_attempts_failed = 0
+    tested_seed_variants: Set[int] = set()
+    attempt_workers_used = 1
 
     # Keep alternating search focused on balanced A/B behavior first.
-    # For odd loads under coarse slot granularity (e.g. 2x45), also try both
-    # orientations so the extra unit can land in either week instead of
-    # consistently favoring A-week.
+    # Use a compact attempt matrix to avoid long runtimes when seed attempts
+    # run sequentially.
+    # 3 configs × 2 seeds = 6 attempts max (with early exit on first valid result).
+    # Ordered from most-likely-to-succeed to relaxed fallback.
     attempt_configs: List[Tuple[str, str, bool, str, int, str]] = [
-        ("A", "first", True, "alternate_heavy", 0, "balanced"),
-        ("B", "first", True, "alternate_heavy", 0, "balanced"),
-        ("A", "first", True, "alternate_heavy", 0, "a_light"),
-        ("B", "first", True, "alternate_heavy", 0, "a_light"),
-        ("A", "first", True, "alternate_heavy", 0, "a_heavy"),
-        ("B", "first", True, "alternate_heavy", 0, "a_heavy"),
-        ("A", "first", True, "alternate_heavy", 1, "balanced"),
-        ("B", "first", True, "alternate_heavy", 1, "balanced"),
-        ("A", "first", True, "alternate_heavy", 3, "balanced"),
-        ("B", "first", True, "alternate_heavy", 3, "balanced"),
-        ("A", "last", True, "alternate_heavy", 0, "balanced"),
-        ("B", "last", True, "alternate_heavy", 0, "balanced"),
-        ("A", "first", True, "all_partial", 0, "balanced"),
-        ("B", "first", True, "all_partial", 0, "balanced"),
-        ("A", "first", True, "all_partial", 3, "balanced"),
-        ("B", "first", True, "all_partial", 3, "balanced"),
-        ("A", "first", False, "alternate_heavy", 0, "balanced"),
-        ("B", "first", False, "alternate_heavy", 0, "balanced"),
-        ("A", "first", False, "alternate_heavy", 3, "balanced"),
-        ("B", "first", False, "alternate_heavy", 3, "balanced"),
-        ("A", "first", False, "all_partial", 0, "balanced"),
-        ("B", "first", False, "all_partial", 0, "balanced"),
+        ("A", "first", True, "alternate_heavy", 0, "balanced"),   # primary: A-week first, natural order
+        ("B", "first", True, "alternate_heavy", 0, "balanced"),   # primary: B-week first, natural order
+        ("A", "first", True, "all_partial", 0, "balanced"),       # relaxed fallback: allow partial odd subjects
     ]
 
-    # Reiterate with new shuffle seeds until we find a hard-valid solution.
-    max_search_rounds = 8
-    for search_round in range(max_search_rounds):
-        # Stop only after we have at least one hard-valid candidate.
+    # Deterministic seed search:
+    # - Run a single deterministic seed batch per generate call.
+    for seed_batch in range(ALT_DETERMINISTIC_SEED_BATCHES):
         if attempts:
             break
+        if _timed_out():
+            generation_timed_out = True
+            break
 
-        round_attempt_configs: List[Tuple[str, str, bool, str, int, str]] = []
-        for primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, odd_order_variant, odd_split_mode in attempt_configs:
-            # Keep fixed-order variants in round 0; for shuffled variants (>=3),
-            # mutate seed space each round to explore more orderings.
-            if odd_order_variant < 3:
-                if search_round == 0:
-                    round_attempt_configs.append(
-                        (primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, odd_order_variant, odd_split_mode)
+        seed_start = seed_batch * ALT_DETERMINISTIC_SEEDS_PER_BATCH
+        seed_end = seed_start + ALT_DETERMINISTIC_SEEDS_PER_BATCH
+        batch_attempt_configs: List[Tuple[str, str, bool, str, int, str, int]] = []
+
+        for seed_variant in range(seed_start, seed_end):
+            for (
+                primary_week_label,
+                partial_priority,
+                enforce_odd_min_a,
+                odd_strategy,
+                odd_order_variant,
+                odd_split_mode,
+            ) in attempt_configs:
+                varied_variant = odd_order_variant
+                if odd_order_variant >= 3:
+                    varied_variant = odd_order_variant + (seed_variant * 37)
+                batch_attempt_configs.append(
+                    (
+                        primary_week_label,
+                        partial_priority,
+                        enforce_odd_min_a,
+                        odd_strategy,
+                        varied_variant,
+                        odd_split_mode,
+                        seed_variant,
                     )
-                continue
+                )
 
-            varied_variant = odd_order_variant + (search_round * 37)
-            round_attempt_configs.append(
-                (primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, varied_variant, odd_split_mode)
+        total_attempts_planned += len(batch_attempt_configs)
+
+        # Run seed attempts sequentially with early exit on first valid result.
+        # Submitting all futures upfront to an executor prevents early cancellation,
+        # so we use a plain loop and break as soon as a valid schedule is found.
+        attempt_workers_used = 1
+        for (
+            primary_week_label,
+            partial_priority,
+            enforce_odd_min_a,
+            odd_strategy,
+            odd_order_variant,
+            odd_split_mode,
+            seed_variant,
+        ) in batch_attempt_configs:
+            if _timed_out():
+                generation_timed_out = True
+                break
+            config = (primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, odd_order_variant, odd_split_mode, seed_variant)
+            attempt = _run_alternating_attempt(
+                primary_week_label,
+                partial_priority,
+                enforce_odd_min_a,
+                odd_strategy,
+                odd_order_variant,
+                odd_split_mode,
+                None,
+                seed_variant,
             )
-
-        if not round_attempt_configs:
-            continue
-
-        max_workers = min(len(round_attempt_configs), max(2, (os.cpu_count() or 2)))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            future_map = {
-                executor.submit(
-                    _run_alternating_attempt,
-                    primary_week_label,
-                    partial_priority,
-                    enforce_odd_min_a,
-                    odd_strategy,
-                    odd_order_variant,
-                    odd_split_mode,
-                ): (primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, odd_order_variant, odd_split_mode)
-                for primary_week_label, partial_priority, enforce_odd_min_a, odd_strategy, odd_order_variant, odd_split_mode in round_attempt_configs
-            }
-
-            for future in as_completed(future_map):
-                attempt = future.result()
-                if attempt.status == "success":
-                    validated_attempt = _success_response_with_hard_rules(attempt)
-                    a_units = sum(_item_units(item, timeslot_units_map) for item in attempt.schedule if (item.week_type or "base") == "A")
-                    b_units = sum(_item_units(item, timeslot_units_map) for item in attempt.schedule if (item.week_type or "base") == "B")
-                    config = future_map[future]
-                    if validated_attempt.status == "success":
-                        _solver_log(
-                            "[ALT-SUCCESS] config="
-                            f"{config} quality={_schedule_quality(validated_attempt.schedule)} "
-                            f"a_units={a_units} b_units={b_units} items={len(validated_attempt.schedule)}"
-                        )
-                        attempts.append(validated_attempt)
-                    else:
-                        _solver_log(
-                            "[ALT-REJECTED] config="
-                            f"{config} status={validated_attempt.status} message={validated_attempt.message}"
-                        )
-                        failures.append(validated_attempt)
-                else:
-                    config = future_map[future]
+            total_attempts_executed += 1
+            tested_seed_variants.add(seed_variant)
+            if attempt.status == "success":
+                validated_attempt = _success_response_with_hard_rules(attempt)
+                a_units = sum(_item_units(item, timeslot_units_map) for item in attempt.schedule if (item.week_type or "base") == "A")
+                b_units = sum(_item_units(item, timeslot_units_map) for item in attempt.schedule if (item.week_type or "base") == "B")
+                if validated_attempt.status == "success":
                     _solver_log(
-                        "[ALT-FAIL] config="
-                        f"{config} status={attempt.status} message={attempt.message}"
+                        "[ALT-SUCCESS] config="
+                        f"{config} quality={_schedule_quality(validated_attempt.schedule)} "
+                        f"a_units={a_units} b_units={b_units} items={len(validated_attempt.schedule)}"
                     )
-                    failures.append(attempt)
+                    attempts.append(validated_attempt)
+                    total_attempts_valid += 1
+                    break  # Stop on first valid result — no need to run remaining attempts
+                else:
+                    _solver_log(
+                        "[ALT-REJECTED] config="
+                        f"{config} status={validated_attempt.status} message={validated_attempt.message}"
+                    )
+                    failures.append(validated_attempt)
+                    total_attempts_rejected += 1
+            else:
+                _solver_log(
+                    "[ALT-FAIL] config="
+                    f"{config} status={attempt.status} message={attempt.message}"
+                )
+                failures.append(attempt)
+                total_attempts_failed += 1
+
+        if attempts:
+            break
+        if generation_timed_out:
+            break
+
+        # Single-batch mode: no automatic retry pass.
 
     def _response_total_shortage_units(response: ScheduleResponse) -> int:
         items = response.schedule or []
@@ -6493,9 +8800,128 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 shortage += expected_units - placed_units
         return shortage
 
+    def _attach_alternating_run_stats(response: ScheduleResponse, selection_code: float) -> ScheduleResponse:
+        metadata = dict(response.metadata or {})
+        items = response.schedule or []
+
+        required_units_non_block = 0
+        placed_units_non_block = 0
+        for subject in data.subjects:
+            if subject.id in block_subject_ids:
+                continue
+            required_units_non_block += max(0, 2 * int(subject.sessions_per_week or 1))
+
+        for item in items:
+            if item.subject_id in block_subject_ids:
+                continue
+            week = item.week_type or "base"
+            if week not in {"A", "B"}:
+                continue
+            placed_units_non_block += _item_units(item, timeslot_units_map)
+
+        metadata["attempt_total_planned"] = float(total_attempts_planned)
+        metadata["attempt_total_executed"] = float(total_attempts_executed)
+        metadata["attempt_success_valid"] = float(total_attempts_valid)
+        metadata["attempt_success_rejected"] = float(total_attempts_rejected)
+        metadata["attempt_failed"] = float(total_attempts_failed)
+        metadata["attempt_seed_variants_tested"] = float(len(tested_seed_variants))
+        metadata["attempt_workers"] = float(attempt_workers_used)
+        metadata["placed_items"] = float(len(items))
+        metadata["placed_units_non_block"] = float(placed_units_non_block)
+        metadata["required_units_non_block"] = float(required_units_non_block)
+        metadata["selected_shortage_units"] = float(_response_total_shortage_units(response))
+        metadata["selection_code"] = float(selection_code)
+        metadata["timed_out"] = 1.0 if generation_timed_out else 0.0
+        metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
+        metadata["solver_engine_cp_sat_requested"] = 1.0 if solver_engine == "cp_sat_experimental" else 0.0
+        metadata["solver_engine_effective_staged"] = 1.0
+
+        return ScheduleResponse(
+            status=response.status,
+            message=response.message,
+            schedule=list(response.schedule or []),
+            metadata=metadata,
+            diagnostics=dict(response.diagnostics or {}),
+        )
+
+    def _reinject_block_step_items_for_partial(schedule_items: List[ScheduledItem]) -> List[ScheduledItem]:
+        """Keep block-step semantics in partial outputs.
+
+        When alternating fallback selects a partial schedule, it may come from an
+        attempt where one week is underrepresented even though block-step can
+        produce valid block placements there. Rebuild block items per week from
+        staged generation and merge them back in, evicting conflicting non-block
+        items in the same week/slot.
+        """
+        merged_items = list(schedule_items)
+
+        # Collect canonical block placements from week-isolated staged runs.
+        canonical_block_items_by_week: Dict[str, List[ScheduledItem]] = {"A": [], "B": []}
+        for week_key in ("A", "B"):
+            week_attempt = _generate_schedule_staged(
+                data,
+                week_label=week_key,
+                deadline_monotonic=deadline_monotonic,
+            )
+            canonical_block_items_by_week[week_key] = [
+                item
+                for item in (week_attempt.schedule or [])
+                if item.subject_id in block_subject_ids
+                and (item.week_type or "base") == week_key
+            ]
+
+        for week_key in ("A", "B"):
+            canonical_block_items = canonical_block_items_by_week.get(week_key, [])
+            if not canonical_block_items:
+                continue
+
+            # Remove all existing block items for that week; they will be replaced
+            # by canonical week-staged block placements.
+            merged_items = [
+                item
+                for item in merged_items
+                if not (
+                    item.subject_id in block_subject_ids
+                    and (item.week_type or "base") == week_key
+                )
+            ]
+
+            # Evict conflicting non-block items occupying the same week/slot for
+            # any block class or teacher.
+            for block_item in canonical_block_items:
+                block_teacher_ids = set(_item_teacher_ids_for_rules(block_item))
+                block_class_ids = set(block_item.class_ids or [])
+                block_slot = block_item.timeslot_id
+
+                filtered_items: List[ScheduledItem] = []
+                for item in merged_items:
+                    item_week = item.week_type or "base"
+                    if item_week != week_key or item.timeslot_id != block_slot:
+                        filtered_items.append(item)
+                        continue
+                    if item.subject_id in block_subject_ids:
+                        # Other block items for this week are already removed above.
+                        filtered_items.append(item)
+                        continue
+
+                    item_teacher_ids = set(_item_teacher_ids_for_rules(item))
+                    item_class_ids = set(item.class_ids or [])
+                    class_conflict = bool(block_class_ids and item_class_ids and (block_class_ids & item_class_ids))
+                    teacher_conflict = bool(block_teacher_ids and item_teacher_ids and (block_teacher_ids & item_teacher_ids))
+
+                    if class_conflict or teacher_conflict:
+                        continue
+                    filtered_items.append(item)
+
+                merged_items = filtered_items
+
+            merged_items.extend(canonical_block_items)
+
+        return merged_items
+
     if attempts:
         attempts.sort(key=lambda response: (_response_total_shortage_units(response), _schedule_quality(response.schedule)))
-        return attempts[0]
+        return _attach_alternating_run_stats(attempts[0], 1.0)
 
     if failures:
         def _week_item_counts(response: ScheduleResponse) -> Tuple[int, int]:
@@ -6549,15 +8975,17 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 data,
                 best_failure_schedule,
             )
+            best_failure_schedule = _reinject_block_step_items_for_partial(best_failure_schedule)
             merged_metadata = dict(best_failure.metadata or {})
             merged_metadata["partial"] = 1.0
             merged_metadata["placed_count"] = float(len(best_failure_schedule))
-            return _success_response_with_hard_rules(ScheduleResponse(
+            partial_response = _success_response_with_hard_rules(ScheduleResponse(
                 status="success",
                 message=best_failure.message,
                 schedule=best_failure_schedule,
                 metadata=merged_metadata,
             ))
+            return _attach_alternating_run_stats(partial_response, 2.0)
 
         failures_with_any_schedule = [response for response in failures if response.schedule]
         if failures_with_any_schedule:
@@ -6576,6 +9004,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 data,
                 best_partial_schedule,
             )
+            best_partial_schedule = _reinject_block_step_items_for_partial(best_partial_schedule)
             merged_metadata = dict(best_partial.metadata or {})
             merged_metadata["partial"] = 1.0
             merged_metadata["placed_count"] = float(len(best_partial_schedule))
@@ -6583,7 +9012,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             has_week_b = any((item.week_type or "base") == "B" for item in best_partial_schedule)
             merged_metadata["failed_week_a"] = 0.0 if has_week_a else 1.0
             merged_metadata["failed_week_b"] = 0.0 if has_week_b else 1.0
-            return _success_response_with_hard_rules(ScheduleResponse(
+            partial_response = _success_response_with_hard_rules(ScheduleResponse(
                 status="success",
                 message=(
                     "Schedule generated with current constraints. "
@@ -6592,26 +9021,41 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 schedule=best_partial_schedule,
                 metadata=merged_metadata,
             ))
+            return _attach_alternating_run_stats(partial_response, 3.0)
 
         best_failure = max(failures, key=_failure_rank)
         metadata = dict(best_failure.metadata or {})
         metadata["failed_week_a"] = 1.0
         metadata["failed_week_b"] = 1.0
-        return ScheduleResponse(
+        best_message = best_failure.message
+        if generation_timed_out:
+            best_message = best_message + f" Global solver timeout reached ({solver_timeout_seconds}s)."
+        return _attach_alternating_run_stats(ScheduleResponse(
             status="infeasible",
             message=(
-                best_failure.message
+                best_message
                 + " Alternating-week mode could not place both A and B weeks with current constraints."
             ),
             schedule=[],
             metadata=metadata,
-        )
+        ), 4.0)
 
-    return ScheduleResponse(
+    if generation_timed_out:
+        return _attach_alternating_run_stats(ScheduleResponse(
+            status="infeasible",
+            message=f"No valid alternating-week schedule found before timeout ({solver_timeout_seconds}s).",
+            schedule=[],
+            metadata={
+                "timed_out": 1.0,
+                "solver_timeout_seconds": float(solver_timeout_seconds),
+            },
+        ), 5.0)
+
+    return _attach_alternating_run_stats(ScheduleResponse(
         status="infeasible",
         message="No valid alternating-week schedule could be generated.",
         schedule=[],
-    )
+    ), 5.0)
 
     def _duplicate_ids(values: List[str]) -> List[str]:
         seen: Set[str] = set()
@@ -8226,8 +10670,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     _solver_log(forced_line)
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 60.0
-    solver.parameters.num_search_workers = 8
+    solver.parameters.max_time_in_seconds = 90.0 if data.alternating_weeks_enabled else 180.0
+    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
     solver.parameters.search_branching = cp_model.FIXED_SEARCH
 
     status = solver.Solve(model)
