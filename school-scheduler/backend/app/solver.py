@@ -4684,6 +4684,221 @@ def _fill_reduced_tail_shortage_for_partial_weeks(
     return schedule_items + additions
 
 
+def _fill_regular_slot_shortage_for_partial_weeks(
+    data: ScheduleRequest,
+    schedule_items: List[ScheduledItem],
+    timeslot_units_map: Dict[str, int],
+) -> List[ScheduledItem]:
+    """
+    In partial alternating schedules, fill missing full 90-min sessions as
+    standalone A-only or B-only placements.  A/B pairing is a preference, not
+    a hard requirement — when the opposite week could not be placed earlier
+    (e.g. the odd last session of an odd sessions_per_week subject), any free
+    slot in either week is acceptable.
+    """
+    if not data.alternating_weeks_enabled or not schedule_items:
+        return schedule_items
+
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in data.timeslots}
+    all_timeslot_ids: Set[str] = set(timeslots_by_id.keys())
+
+    block_to_timeslots: Dict[str, Set[str]] = {}
+    for block in data.blocks:
+        slot_set: Set[str] = set()
+        has_occurrences = bool(block.occurrences)
+        for occ in block.occurrences:
+            slot_set |= (_timeslots_overlapping_occurrence(occ, data.timeslots) & all_timeslot_ids)
+        if not has_occurrences:
+            slot_set |= (set(block.timeslot_ids) & all_timeslot_ids)
+        block_to_timeslots[block.id] = slot_set
+
+    blocks_by_id: Dict[str, Block] = {b.id: b for b in data.blocks}
+    linked_block_ids: Dict[str, Set[str]] = defaultdict(set)
+    for block in data.blocks:
+        for se in block.subject_entries:
+            linked_block_ids[se.subject_id].add(block.id)
+        for subject_id in block.subject_ids:
+            linked_block_ids[subject_id].add(block.id)
+
+    block_subject_ids: Set[str] = set()
+    for block in data.blocks:
+        for se in block.subject_entries:
+            block_subject_ids.add(se.subject_id)
+        for sid in block.subject_ids:
+            block_subject_ids.add(sid)
+
+    allowed_slots_by_subject: Dict[str, Set[str]] = {}
+    allowed_weeks_by_subject: Dict[str, Set[str]] = {}
+    for subject in data.subjects:
+        allowed_slots_by_subject[subject.id] = _compute_allowed_timeslots(
+            subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id,
+        )
+        allowed_weeks_by_subject[subject.id] = _compute_allowed_weeks(
+            subject, True, blocks_by_id, linked_block_ids,
+        )
+
+    teacher_unavailable: Dict[str, Set[str]] = defaultdict(set)
+    teachers_by_id = {t.id: t for t in data.teachers}
+    for teacher in data.teachers:
+        teacher_unavailable[teacher.id] |= set(teacher.unavailable_timeslots)
+    for meeting in data.meetings:
+        if meeting.timeslot_id not in all_timeslot_ids:
+            continue
+        for assignment in meeting.teacher_assignments:
+            if assignment.mode == "unavailable" and assignment.teacher_id in teachers_by_id:
+                teacher_unavailable[assignment.teacher_id].add(meeting.timeslot_id)
+
+    class_occupied_by_week_slot: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
+    teacher_occupied_by_week_slot: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
+    units_by_subject_week: Dict[Tuple[str, str], int] = defaultdict(int)
+    days_by_subject_week: Dict[Tuple[str, str], Set[str]] = defaultdict(set)
+
+    for item in schedule_items:
+        week = item.week_type or "base"
+        if week not in {"A", "B"}:
+            continue
+        for class_id in item.class_ids:
+            class_occupied_by_week_slot[(week, item.timeslot_id)].add(class_id)
+        for teacher_id in _scheduled_item_teacher_ids(item):
+            teacher_occupied_by_week_slot[(week, item.timeslot_id)].add(teacher_id)
+        units_by_subject_week[(item.subject_id, week)] += _item_units(item, timeslot_units_map)
+        days_by_subject_week[(item.subject_id, week)].add(item.day)
+
+    def _slot_sort_key(ts_id: str) -> Tuple[int, int]:
+        ts = timeslots_by_id[ts_id]
+        day_index = DAY_ORDER_INDEX.get((ts.day or "").lower(), 99)
+        return (day_index, ts.period)
+
+    additions: List[ScheduledItem] = []
+
+    candidate_subjects = sorted(
+        data.subjects,
+        key=lambda s: (
+            -(
+                max(0, 2 * int(s.sessions_per_week or 0) - (
+                    units_by_subject_week.get((s.id, "A"), 0)
+                    + units_by_subject_week.get((s.id, "B"), 0)
+                ))
+            ),
+            s.id,
+        ),
+    )
+
+    for subject in candidate_subjects:
+        if subject.id in block_subject_ids:
+            continue
+        nominal = max(0, int(subject.sessions_per_week or 0))
+        if nominal <= 0:
+            continue
+        if not subject.class_ids:
+            continue
+
+        target_total = 2 * nominal
+        hi = nominal + 1  # per-week upper bound
+
+        a_units = units_by_subject_week.get((subject.id, "A"), 0)
+        b_units = units_by_subject_week.get((subject.id, "B"), 0)
+        if a_units + b_units >= target_total:
+            continue
+
+        teacher_ids = _subject_teacher_ids(subject)
+        primary_teacher_id = teacher_ids[0] if teacher_ids else ""
+        class_ids = list(subject.class_ids)
+        allowed_slots = sorted(allowed_slots_by_subject.get(subject.id, set()), key=_slot_sort_key)
+        allowed_weeks = allowed_weeks_by_subject.get(subject.id, {"A", "B"})
+
+        made_progress = True
+        while made_progress and (a_units + b_units) < target_total:
+            made_progress = False
+
+            # Determine which week(s) to try: prefer the lighter week, but respect hi bound.
+            weeks_to_try: List[str] = []
+            if "A" in allowed_weeks and a_units < hi:
+                weeks_to_try.append("A")
+            if "B" in allowed_weeks and b_units < hi:
+                # Insert B before A if B is lighter
+                if weeks_to_try and b_units < a_units:
+                    weeks_to_try.insert(0, "B")
+                else:
+                    weeks_to_try.append("B")
+
+            for target_week in weeks_to_try:
+                current_week_units = a_units if target_week == "A" else b_units
+                if current_week_units >= hi:
+                    continue
+
+                existing_days = days_by_subject_week.get((subject.id, target_week), set())
+                placed = False
+
+                # Only place on a day the subject does not already use in that week.
+                # Allowing same-day fallback can create day-repeat violations that
+                # cause _success_response_with_hard_rules to reject the whole schedule.
+                for prefer_new_day in (True,):
+                    for ts_id in allowed_slots:
+                        ts = timeslots_by_id.get(ts_id)
+                        if not ts or getattr(ts, "excluded_from_generation", False):
+                            continue
+                        slot_units = timeslot_units_map.get(ts_id, 1)
+                        if slot_units != 2:
+                            # Only place full 90-min sessions in this pass.
+                            continue
+                        if current_week_units + slot_units > hi:
+                            continue
+
+                        if ts.day in existing_days:
+                            continue
+
+                        if any(
+                            class_id in class_occupied_by_week_slot[(target_week, ts_id)]
+                            for class_id in class_ids
+                        ):
+                            continue
+                        if any(ts_id in teacher_unavailable.get(tid, set()) for tid in teacher_ids):
+                            continue
+                        if any(
+                            tid in teacher_occupied_by_week_slot[(target_week, ts_id)]
+                            for tid in teacher_ids
+                        ):
+                            continue
+
+                        item = ScheduledItem(
+                            subject_id=subject.id,
+                            subject_name=subject.name,
+                            teacher_id=primary_teacher_id,
+                            teacher_ids=teacher_ids,
+                            class_ids=class_ids,
+                            timeslot_id=ts_id,
+                            day=ts.day,
+                            period=ts.period,
+                            start_time=None,
+                            end_time=None,
+                            week_type=target_week,
+                        )
+                        additions.append(item)
+                        for class_id in class_ids:
+                            class_occupied_by_week_slot[(target_week, ts_id)].add(class_id)
+                        for tid in teacher_ids:
+                            teacher_occupied_by_week_slot[(target_week, ts_id)].add(tid)
+                        units_by_subject_week[(subject.id, target_week)] += slot_units
+                        days_by_subject_week[(subject.id, target_week)].add(ts.day)
+                        if target_week == "A":
+                            a_units += slot_units
+                        else:
+                            b_units += slot_units
+
+                        placed = True
+                        made_progress = True
+                        break
+                    if placed:
+                        break
+                if placed:
+                    break
+
+    if not additions:
+        return schedule_items
+    return schedule_items + additions
+
+
 def _rebalance_1tmt_naturfag_samf_partial(
     data: ScheduleRequest,
     schedule_items: List[ScheduledItem],
@@ -5621,10 +5836,22 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0
             cp_sat_metadata["solver_engine_effective_staged"] = 0.0
             cp_sat_metadata["solver_engine_effective_cp_sat"] = 1.0
+            cp_sat_schedule = list(cp_sat_response.schedule or [])
+            # Top-up any subjects the CP-SAT engine left short (e.g. odd sessions_per_week
+            # where the model relaxes the half-unit to avoid infeasibility). A/B pairing
+            # is a preference, not a hard requirement, so standalone placements are fine.
+            if data.alternating_weeks_enabled:
+                _cp_sat_tum: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
+                cp_sat_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
+                    data, cp_sat_schedule, _cp_sat_tum,
+                )
+                cp_sat_schedule = _fill_regular_slot_shortage_for_partial_weeks(
+                    data, cp_sat_schedule, _cp_sat_tum,
+                )
             return ScheduleResponse(
                 status=cp_sat_response.status,
                 message=cp_sat_response.message,
-                schedule=list(cp_sat_response.schedule or []),
+                schedule=cp_sat_schedule,
                 metadata=cp_sat_metadata,
                 diagnostics=dict(cp_sat_response.diagnostics or {}),
             )
@@ -7585,6 +7812,20 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             timeslot_units_map,
         )
         sanitized_schedule = _enforce_strict_subject_day_pattern(sanitized_schedule)
+        # After enforcement may have stripped post-optimization sessions that were placed on
+        # the same day as another occurrence, re-fill any remaining full-slot shortages as
+        # standalone A-only or B-only placements (pairing is a preference, not a requirement).
+        if data.alternating_weeks_enabled:
+            sanitized_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
+                data,
+                sanitized_schedule,
+                timeslot_units_map,
+            )
+            sanitized_schedule = _fill_regular_slot_shortage_for_partial_weeks(
+                data,
+                sanitized_schedule,
+                timeslot_units_map,
+            )
         sanitized_schedule = _assign_rooms_to_schedule(
             sanitized_schedule,
             data,
@@ -8603,6 +8844,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 combined_partial_schedule,
                 timeslot_units_map,
             )
+            combined_partial_schedule = _fill_regular_slot_shortage_for_partial_weeks(
+                data,
+                combined_partial_schedule,
+                timeslot_units_map,
+            )
             combined_partial_schedule = _rebalance_1tmt_naturfag_samf_partial(
                 data,
                 combined_partial_schedule,
@@ -8982,6 +9228,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 best_failure_schedule,
                 timeslot_units_map,
             )
+            best_failure_schedule = _fill_regular_slot_shortage_for_partial_weeks(
+                data,
+                best_failure_schedule,
+                timeslot_units_map,
+            )
             best_failure_schedule = _rebalance_1tmt_naturfag_samf_partial(
                 data,
                 best_failure_schedule,
@@ -9007,6 +9258,11 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 timeslot_units_map,
             )
             best_partial_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
+                data,
+                best_partial_schedule,
+                timeslot_units_map,
+            )
+            best_partial_schedule = _fill_regular_slot_shortage_for_partial_weeks(
                 data,
                 best_partial_schedule,
                 timeslot_units_map,
