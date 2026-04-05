@@ -1715,6 +1715,16 @@ export default function Home() {
       return;
     }
 
+    // Fire-and-forget: ping the backend on first load to wake it up (Render free tier).
+    const base = API_BASE_CANDIDATES[0];
+    fetch(`${base}/health`, { method: "GET", cache: "no-store" }).catch(() => {/* ignore */});
+  }, [isStorageHydrated]);
+
+  useEffect(() => {
+    if (!isStorageHydrated) {
+      return;
+    }
+
     const persisted: PersistedState = {
       subjects,
       teachers,
