@@ -190,6 +190,14 @@ type UnplacedStatusDetail = {
   reason: string;
 };
 
+type TeacherSwapSuggestion = {
+  subject_name: string;
+  class_names: string;
+  current_teacher: string;
+  suggested_teacher: string;
+  reason: string;
+};
+
 type SavedJsonExport = {
   id: string;
   name: string;
@@ -467,6 +475,81 @@ function collectPlacementWarningDetails(
   });
 
   return details;
+}
+
+function computeTeacherSwapSuggestions(
+  unplacedDetails: UnplacedStatusDetail[],
+  allSubjects: Subject[],
+  allTeachers: Teacher[],
+  allClasses: SchoolClass[],
+  schedule: ScheduledItem[],
+): TeacherSwapSuggestion[] {
+  if (unplacedDetails.length === 0) return [];
+
+  // Build map: teacher id → total scheduled units
+  const teacherLoad: Record<string, number> = {};
+  for (const teacher of allTeachers) teacherLoad[teacher.id] = 0;
+  for (const item of schedule) {
+    const tids = Array.from(new Set([item.teacher_id, ...(item.teacher_ids || [])].filter(Boolean)));
+    for (const tid of tids) {
+      teacherLoad[tid] = (teacherLoad[tid] ?? 0) + 1;
+    }
+  }
+
+  const classById: Record<string, SchoolClass> = Object.fromEntries(allClasses.map((c) => [c.id, c]));
+  const teacherById: Record<string, Teacher> = Object.fromEntries(allTeachers.map((t) => [t.id, t]));
+
+  const suggestions: TeacherSwapSuggestion[] = [];
+
+  for (const detail of unplacedDetails) {
+    const unplacedSubj = allSubjects.find((s) => s.id === detail.subject_id);
+    if (!unplacedSubj) continue;
+
+    const currentTeacherIds = Array.from(new Set([
+      ...(unplacedSubj.teacher_id ? [unplacedSubj.teacher_id] : []),
+      ...(unplacedSubj.teacher_ids ?? []),
+    ].filter(Boolean)));
+
+    if (currentTeacherIds.length === 0) continue;
+
+    const classNames = (unplacedSubj.class_ids ?? [])
+      .map((cid) => classById[cid]?.name ?? cid).join(", ");
+
+    // Find other teachers who teach the same subject name for other classes
+    const sameNameSubjects = allSubjects.filter(
+      (s) => s.id !== unplacedSubj.id && s.name === unplacedSubj.name,
+    );
+    const candidateTeacherIds = Array.from(new Set(
+      sameNameSubjects.flatMap((s) => [
+        ...(s.teacher_id ? [s.teacher_id] : []),
+        ...(s.teacher_ids ?? []),
+      ].filter(Boolean)),
+    )).filter((tid) => !currentTeacherIds.includes(tid));
+
+    if (candidateTeacherIds.length === 0) continue;
+
+    // Find the least-loaded candidate
+    const bestCandidate = candidateTeacherIds.reduce((best, tid) =>
+      (teacherLoad[tid] ?? 0) < (teacherLoad[best] ?? 0) ? tid : best,
+    );
+
+    const currentMaxLoad = Math.max(...currentTeacherIds.map((tid) => teacherLoad[tid] ?? 0));
+    const candidateLoad = teacherLoad[bestCandidate] ?? 0;
+
+    if (candidateLoad < currentMaxLoad) {
+      const currentTeacherNames = currentTeacherIds.map((tid) => teacherById[tid]?.name ?? tid).join(", ");
+      const candidateName = teacherById[bestCandidate]?.name ?? bestCandidate;
+      suggestions.push({
+        subject_name: unplacedSubj.name,
+        class_names: classNames,
+        current_teacher: currentTeacherNames,
+        suggested_teacher: candidateName,
+        reason: `${candidateName} underviser samme fag og har ${candidateLoad} plasseringer mot ${currentMaxLoad} — kan ha mer ledig tid.`,
+      });
+    }
+  }
+
+  return suggestions;
 }
 
 function collectUnplacedStatusDetails(
@@ -1291,6 +1374,7 @@ export default function Home() {
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
   const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
+  const [teacherSwapSuggestions, setTeacherSwapSuggestions] = useState<TeacherSwapSuggestion[]>([]);
   const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [generationPopup, setGenerationPopup] = useState<{
@@ -5782,6 +5866,7 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setTeacherSwapSuggestions([]);
     setCautionsList([]);
     setLastRunMetadata(null);
     setSchedule([]);
@@ -5990,8 +6075,18 @@ export default function Home() {
         setUnplacedStatusSummary(
           `${unplacedDetails.length} subject${unplacedDetails.length === 1 ? "" : "s"} have unplaced units.`,
         );
+        // Compute teacher swap suggestions for unplaced subjects
+        const swapSuggestions = computeTeacherSwapSuggestions(
+          unplacedDetails,
+          subjects,
+          teachers,
+          classes,
+          data.schedule || [],
+        );
+        setTeacherSwapSuggestions(swapSuggestions);
       } else {
         setUnplacedStatusSummary("");
+        setTeacherSwapSuggestions([]);
       }
 
       const successStatus = formatGeneratedScheduleStatus(data, runId);
@@ -6015,6 +6110,7 @@ export default function Home() {
       setPlacementWarningSummary("");
       setUnplacedStatusDetails([]);
       setUnplacedStatusSummary("");
+      setTeacherSwapSuggestions([]);
       setCautionsList([]);
       setLastRunMetadata(null);
       setStatusText(failStatus);
@@ -6031,6 +6127,7 @@ export default function Home() {
     setPlacementWarningSummary("");
     setUnplacedStatusDetails([]);
     setUnplacedStatusSummary("");
+    setTeacherSwapSuggestions([]);
     setCautionsList([]);
     setLastRunMetadata(null);
     setStatusText("Generert timeplan slettet. Inndata og begrensninger er uendret.");
@@ -9520,6 +9617,18 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
+                {teacherSwapSuggestions.length > 0 && (
+                  <>
+                    <p style={{ marginTop: "10px", fontWeight: 600 }}>💡 Mulige lærerbytte-forslag:</p>
+                    <ul>
+                      {teacherSwapSuggestions.map((s, i) => (
+                        <li key={i}>
+                          <strong>{s.subject_name}</strong> ({s.class_names}) — bytt ut <em>{s.current_teacher}</em> med <em>{s.suggested_teacher}</em>. {s.reason}
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
               </div>
             </details>
           )}
