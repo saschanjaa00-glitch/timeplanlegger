@@ -1567,7 +1567,7 @@ export default function Home() {
       }
       return {
         ...prev,
-        details: `${phase} Pågått ${generationElapsedLabel()}.`,
+        details: `${phase} Tid: ${generationElapsedLabel()}.`,
       };
     });
   }
@@ -5857,7 +5857,7 @@ export default function Home() {
     generationRunRef.current = runId;
     generationStartedAtRef.current = Date.now();
     setLoading(true);
-    const startStatus = `Generating schedule (run ${runId})...`;
+    const startStatus = `Genererer timeplan ${runId}...`;
     setStatusText(startStatus);
     openGenerationPopup("running", startStatus, runId);
     setGenerationPhase("Fase 1/4: Forbereder inndata...");
@@ -6651,7 +6651,7 @@ export default function Home() {
             <div className="generation-popup-header">
               <strong>
                 {generationPopup.tone === "running"
-                  ? `Genererer kjøring ${generationPopup.runId ?? ""}`
+                  ? `Genererer timeplan ${generationPopup.runId ?? ""}`
                   : generationPopup.tone === "success"
                     ? `Kjøring ${generationPopup.runId ?? ""} fullført`
                     : `Kjøring ${generationPopup.runId ?? ""} mislyktes`}
