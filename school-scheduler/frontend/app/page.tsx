@@ -1356,6 +1356,9 @@ export default function Home() {
   const [selectedClassCompareIds, setSelectedClassCompareIds] = useState<string[]>([]);
   const [selectedTeacherCompareIds, setSelectedTeacherCompareIds] = useState<string[]>([]);
   const [selectedRoomCompareIds, setSelectedRoomCompareIds] = useState<string[]>([]);
+  const [reviewMode, setReviewMode] = useState(false);
+  const [reviewEntityType, setReviewEntityType] = useState<"class" | "teacher" | "room">("class");
+  const [reviewIndex, setReviewIndex] = useState(0);
   const [compareClassSearchQuery, setCompareClassSearchQuery] = useState("");
   const [compareTeacherSearchQuery, setCompareTeacherSearchQuery] = useState("");
   const [compareRoomSearchQuery, setCompareRoomSearchQuery] = useState("");
@@ -2086,6 +2089,31 @@ export default function Home() {
       isTeacherNameMatch(q, teacher.name) || teacher.id.toLowerCase().includes(q.toLowerCase())
     );
   }, [sortedTeachersByFirstName, compareTeacherSearchQuery]);
+
+  // ── Review mode: sync compare selection ──────────────────────────────────
+  useEffect(() => {
+    if (!reviewMode) return;
+    const reviewList =
+      reviewEntityType === "class" ? sortedClasses :
+      reviewEntityType === "teacher" ? sortedTeachersByFirstName :
+      displayRoomOptions;
+    const clamped = Math.max(0, Math.min(reviewIndex, reviewList.length - 1));
+    const entity = reviewList[clamped];
+    if (!entity) return;
+    if (reviewEntityType === "class") {
+      setSelectedClassCompareIds([entity.id]);
+      setSelectedTeacherCompareIds([]);
+      setSelectedRoomCompareIds([]);
+    } else if (reviewEntityType === "teacher") {
+      setSelectedClassCompareIds([]);
+      setSelectedTeacherCompareIds([entity.id]);
+      setSelectedRoomCompareIds([]);
+    } else {
+      setSelectedClassCompareIds([]);
+      setSelectedTeacherCompareIds([]);
+      setSelectedRoomCompareIds([entity.id]);
+    }
+  }, [reviewMode, reviewEntityType, reviewIndex, sortedClasses, sortedTeachersByFirstName, displayRoomOptions]);
 
   const teacherOnSiteSummaries = useMemo(() => {
     const weekLabels = enableAlternatingWeeks ? (["A", "B"] as const) : (["A"] as const);
@@ -9500,6 +9528,25 @@ export default function Home() {
           >
             Slett generert timeplan
           </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={schedule.length === 0}
+            onClick={() => {
+              if (reviewMode) {
+                setReviewMode(false);
+                setSelectedClassCompareIds([]);
+                setSelectedTeacherCompareIds([]);
+                setSelectedRoomCompareIds([]);
+              } else {
+                setReviewMode(true);
+                setReviewIndex(0);
+                setReviewEntityType("class");
+              }
+            }}
+          >
+            {reviewMode ? "Avslutt gjennomgang" : "Se gjennom"}
+          </button>
           {/* ── Schedule snapshot save/restore ── */}
           <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%" }}>
             {savedScheduleSnapshots.length > 0 && (
@@ -9655,7 +9702,57 @@ export default function Home() {
 
         <section className="card">
           <h2>Timetabell</h2>
-          <div className="compare-controls">
+          {reviewMode && (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px", padding: "10px 12px", background: "#1a1a2e", borderRadius: "6px" }}>
+              {(["class", "teacher", "room"] as const).map((type) => {
+                const labels = { class: "Klasser", teacher: "Lærere", room: "Rom" };
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    className={reviewEntityType === type ? "" : "secondary"}
+                    style={{ minWidth: "80px" }}
+                    onClick={() => { setReviewEntityType(type); setReviewIndex(0); }}
+                  >
+                    {labels[type]}
+                  </button>
+                );
+              })}
+              <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 4px" }} />
+              {(() => {
+                const reviewList =
+                  reviewEntityType === "class" ? sortedClasses :
+                  reviewEntityType === "teacher" ? sortedTeachersByFirstName :
+                  displayRoomOptions;
+                const clamped = Math.max(0, Math.min(reviewIndex, reviewList.length - 1));
+                const entity = reviewList[clamped];
+                return (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={clamped === 0}
+                      onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
+                    >
+                      ← Forrige
+                    </button>
+                    <span style={{ fontWeight: 600, minWidth: "120px", textAlign: "center", color: "#fff" }}>
+                      {entity ? entity.name : "—"} ({clamped + 1}/{reviewList.length})
+                    </span>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={clamped >= reviewList.length - 1}
+                      onClick={() => setReviewIndex((i) => Math.min(reviewList.length - 1, i + 1))}
+                    >
+                      Neste →
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
+          <div className="compare-controls" style={reviewMode ? { opacity: 0.35, pointerEvents: "none" } : {}}>
             <div className="compare-group">
               <label>Sammenlign klasser</label>
               <input
