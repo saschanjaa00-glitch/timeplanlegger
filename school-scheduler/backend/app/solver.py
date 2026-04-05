@@ -2404,7 +2404,7 @@ def _generate_schedule_staged(
                     )
 
                     # Soft preference: avoid creating gaps for classes within the same day.
-                    # Weighted by class year (younger = higher weight). Low priority.
+                    # Weighted by class year (younger = higher weight).
                     class_gap_penalty = 0
                     if subject.class_ids:
                         valid_periods_today = day_valid_periods.get(ts.day, set())
@@ -2418,7 +2418,7 @@ def _generate_schedule_staged(
                                     1 for p in range(min_p_gap + 1, max_p_gap)
                                     if p not in all_ps and p in valid_periods_today
                                 )
-                                class_gap_penalty += gap_count * _class_year_gap_weight(class_id)
+                                class_gap_penalty += gap_count * _class_year_gap_weight(class_id) * 5
 
                     score = (
                         would_overshoot,
@@ -2426,6 +2426,7 @@ def _generate_schedule_staged(
                         norsk_pair_setup_penalty,
                         same_day_repeat_penalty,
                         teacher_four_session_penalty,
+                        class_gap_penalty,
                         thursday_math_penalty,
                         single_unit_penalty,
                         odd_tail_priority_penalty,
@@ -2438,7 +2439,6 @@ def _generate_schedule_staged(
                         boundary_penalty,
                         boundary_repeat_penalty,
                         day_load,
-                        class_gap_penalty,
                         ts.day,
                         ts.period,
                     )
