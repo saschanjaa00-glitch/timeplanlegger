@@ -8194,6 +8194,37 @@ export default function Home() {
             </section>
           </div>
         </article>
+
+        {/* Missing teacher status for Fellesfag */}
+        {(() => {
+          const missing = subjects
+            .filter((s) => s.subject_type === "fellesfag")
+            .filter((s) => {
+              const allTids = Array.from(new Set([...(s.teacher_id ? [s.teacher_id] : []), ...(s.teacher_ids ?? [])].filter(Boolean)));
+              return allTids.length === 0;
+            })
+            .sort((a, b) => a.name.localeCompare(b.name, "nb"));
+          if (missing.length === 0) return null;
+          return (
+            <article className="card" style={{ gridColumn: "1 / -1" }}>
+              <details>
+                <summary style={{ cursor: "pointer", fontWeight: 600, color: "#b45309" }}>
+                  ⚠️ {missing.length} fellesfag mangler lærer
+                </summary>
+                <ul style={{ marginTop: "8px", fontSize: "0.88rem" }}>
+                  {missing.map((s) => {
+                    const classNames = (s.class_ids ?? []).map((cid) => classes.find((c) => c.id === cid)?.name ?? cid).join(", ");
+                    return (
+                      <li key={s.id}>
+                        <strong>{s.name}</strong>{classNames ? ` — ${classNames}` : ""}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            </article>
+          );
+        })()}
       </section>
       )}
 
@@ -8540,6 +8571,38 @@ export default function Home() {
             </div>
           )}
         </article>
+
+        {/* Missing teacher status for Blokker */}
+        {(() => {
+          const missingEntries: { blockName: string; subjName: string }[] = [];
+          for (const block of blocks) {
+            for (const entry of block.subject_entries ?? []) {
+              const allTids = Array.from(new Set([
+                ...(entry.teacher_id ? [entry.teacher_id] : []),
+                ...(entry.teacher_ids ?? []),
+              ].filter(Boolean)));
+              if (allTids.length === 0) {
+                const subjName = subjects.find((s) => s.id === entry.subject_id)?.name ?? entry.subject_id;
+                missingEntries.push({ blockName: block.name, subjName });
+              }
+            }
+          }
+          if (missingEntries.length === 0) return null;
+          return (
+            <article className="card" style={{ gridColumn: "1 / -1" }}>
+              <details>
+                <summary style={{ cursor: "pointer", fontWeight: 600, color: "#b45309" }}>
+                  ⚠️ {missingEntries.length} blokkfag mangler lærer
+                </summary>
+                <ul style={{ marginTop: "8px", fontSize: "0.88rem" }}>
+                  {missingEntries.map((e, i) => (
+                    <li key={i}><strong>{e.subjName}</strong> — {e.blockName}</li>
+                  ))}
+                </ul>
+              </details>
+            </article>
+          );
+        })()}
       </section>
       )}
 
