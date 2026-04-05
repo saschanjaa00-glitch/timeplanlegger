@@ -10872,12 +10872,13 @@ export default function Home() {
         const subjectById: Record<string, Subject> = {};
         for (const s of subjects) subjectById[s.id] = s;
 
-        // Collect all block subject ids
         const blockSubjectIds = new Set<string>();
         for (const block of blocks) {
           for (const entry of block.subject_entries) blockSubjectIds.add(entry.subject_id);
           for (const sid of (block.subject_ids || [])) blockSubjectIds.add(sid);
         }
+
+        const dayOrder: Record<string, number> = { Monday: 0, Tuesday: 1, Wednesday: 2, Thursday: 3, Friday: 4 };
 
         function slotLabel(tsId: string, weekType?: string | null): string {
           const ts = timeslotById[tsId];
@@ -10891,19 +10892,43 @@ export default function Home() {
           return teacherById[tid]?.name || tid;
         }
 
+        function typeLabel(subjectId: string): string {
+          return blockSubjectIds.has(subjectId) ? "Blokk" : "Vanlig";
+        }
+
+        function blockNameFor(subjectId: string): string {
+          for (const block of blocks) {
+            const inEntries = block.subject_entries.some(e => e.subject_id === subjectId);
+            const inIds = (block.subject_ids || []).includes(subjectId);
+            if (inEntries || inIds) return block.name;
+          }
+          return "";
+        }
+
+        function slotsStr(items: ScheduledItem[]): string {
+          return [...items]
+            .sort((a, b) => {
+              const da = dayOrder[a.day] ?? 9;
+              const db = dayOrder[b.day] ?? 9;
+              if (da !== db) return da - db;
+              return a.period - b.period;
+            })
+            .map(it => slotLabel(it.timeslot_id, it.week_type))
+            .join(", ");
+        }
+
+        const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, "nb"));
+        const sortedTeachers = [...teachers].sort((a, b) => a.name.localeCompare(b.name, "nb"));
+
         function buildLines(): string[] {
           const lines: string[] = [];
 
-          // ─── PER CLASS ───────────────────────────────────────────────
           lines.push("=== PER KLASSE ===");
           lines.push("");
-
-          const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, "nb"));
 
           for (const cls of sortedClasses) {
             lines.push(`── ${cls.name} ──`);
 
-            // Regular (non-block) subjects for this class
             const classSubjects = subjects
               .filter(s => s.class_ids.includes(cls.id) && !blockSubjectIds.has(s.id))
               .sort((a, b) => a.name.localeCompare(b.name, "nb"));
@@ -10911,15 +10936,10 @@ export default function Home() {
             for (const subj of classSubjects) {
               const tNames = [...new Set([subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean).map(teacherName).join(", ");
               const items = schedule.filter(it => it.subject_id === subj.id && it.class_ids.includes(cls.id));
-              if (items.length === 0) {
-                lines.push(`  ${subj.name}  [${tNames || "–"}]  (ikke plassert)`);
-              } else {
-                const slots = items.map(it => slotLabel(it.timeslot_id, it.week_type)).join(", ");
-                lines.push(`  ${subj.name}  [${tNames || "–"}]  ${slots}`);
-              }
+              const slots = items.length > 0 ? slotsStr(items) : "(ikke plassert)";
+              lines.push(`  ${subj.name}  [${tNames || "–"}]  ${slots}`);
             }
 
-            // Block subjects for this class
             const classBlocks = blocks.filter(b => b.class_ids.includes(cls.id));
             for (const block of classBlocks) {
               const occLabels = block.occurrences.map(occ => {
@@ -10930,9 +10950,8 @@ export default function Home() {
 
               const allEntries = [...block.subject_entries];
               for (const sid of (block.subject_ids || [])) {
-                if (!allEntries.some(e => e.subject_id === sid)) {
+                if (!allEntries.some(e => e.subject_id === sid))
                   allEntries.push({ subject_id: sid, teacher_id: "", teacher_ids: [], preferred_room_id: "" });
-                }
               }
               for (const entry of allEntries) {
                 const subj = subjectById[entry.subject_id];
@@ -10940,60 +10959,46 @@ export default function Home() {
                 const tids = [...new Set([entry.teacher_id, ...(entry.teacher_ids || []), subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean);
                 const tNames = tids.map(teacherName).join(", ");
                 const items = schedule.filter(it => it.subject_id === entry.subject_id && it.class_ids.includes(cls.id));
-                const slots = items.length > 0 ? items.map(it => slotLabel(it.timeslot_id, it.week_type)).join(", ") : "(ikke plassert)";
+                const slots = items.length > 0 ? slotsStr(items) : "(ikke plassert)";
                 lines.push(`    ${subj.name}  [${tNames || "–"}]  ${slots}`);
               }
             }
-
             lines.push("");
           }
 
-          // ─── PER TEACHER ─────────────────────────────────────────────
           lines.push("=== PER LÆRER (alfabetisk) ===");
           lines.push("");
 
-          const sortedTeachers = [...teachers].sort((a, b) => a.name.localeCompare(b.name, "nb"));
-
           for (const teacher of sortedTeachers) {
             lines.push(`── ${teacher.name} ──`);
-
-            // Group schedule items by subject for this teacher
-            const teacherItems = schedule.filter(it => {
-              const allTids = [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean);
-              return allTids.includes(teacher.id);
-            });
-
+            const teacherItems = schedule.filter(it =>
+              [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(teacher.id)
+            );
             const bySubject = new Map<string, ScheduledItem[]>();
             for (const it of teacherItems) {
               const arr = bySubject.get(it.subject_id) || [];
               arr.push(it);
               bySubject.set(it.subject_id, arr);
             }
-
-            const subjectEntries = [...bySubject.entries()].sort((a, b) => {
-              const nameA = subjectById[a[0]]?.name || a[0];
-              const nameB = subjectById[b[0]]?.name || b[0];
-              return nameA.localeCompare(nameB, "nb");
-            });
-
+            const subjectEntries = [...bySubject.entries()].sort((a, b) =>
+              (subjectById[a[0]]?.name || a[0]).localeCompare(subjectById[b[0]]?.name || b[0], "nb")
+            );
             if (subjectEntries.length === 0) {
               lines.push("  (ingen plasserte fag)");
             } else {
               for (const [sid, items] of subjectEntries) {
                 const subj = subjectById[sid];
                 const classNames = [...new Set(items.flatMap(it => it.class_ids).map(cid => classById[cid]?.name || cid))].join(", ");
-                const slots = items.map(it => slotLabel(it.timeslot_id, it.week_type)).join(", ");
-                lines.push(`  ${subj?.name || sid}  [${classNames}]  ${slots}`);
+                lines.push(`  ${subj?.name || sid}  [${classNames}]  ${slotsStr(items)}`);
               }
             }
-
             lines.push("");
           }
 
           return lines;
         }
 
-        function handleDownload() {
+        function handleDownloadTxt() {
           const text = buildLines().join("\n");
           const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
           const url = URL.createObjectURL(blob);
@@ -11004,19 +11009,129 @@ export default function Home() {
           URL.revokeObjectURL(url);
         }
 
+        function handleDownloadExcel() {
+          const wb = XLSX.utils.book_new();
+
+          // ── Sheet 1: Per klasse ──────────────────────────────────────
+          const classRows: (string | number)[][] = [
+            ["Klasse", "Fag", "Type", "Blokk", "Lærer(e)", "Timeslot(er)"],
+          ];
+          for (const cls of sortedClasses) {
+            const classSubjects = subjects
+              .filter(s => s.class_ids.includes(cls.id) && !blockSubjectIds.has(s.id))
+              .sort((a, b) => a.name.localeCompare(b.name, "nb"));
+            for (const subj of classSubjects) {
+              const tNames = [...new Set([subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean).map(teacherName).join(", ");
+              const items = schedule.filter(it => it.subject_id === subj.id && it.class_ids.includes(cls.id));
+              classRows.push([cls.name, subj.name, "Vanlig", "", tNames || "–", slotsStr(items) || "(ikke plassert)"]);
+            }
+            const classBlocks = blocks.filter(b => b.class_ids.includes(cls.id));
+            for (const block of classBlocks) {
+              const allEntries = [...block.subject_entries];
+              for (const sid of (block.subject_ids || [])) {
+                if (!allEntries.some(e => e.subject_id === sid))
+                  allEntries.push({ subject_id: sid, teacher_id: "", teacher_ids: [], preferred_room_id: "" });
+              }
+              for (const entry of allEntries) {
+                const subj = subjectById[entry.subject_id];
+                if (!subj) continue;
+                const tids = [...new Set([entry.teacher_id, ...(entry.teacher_ids || []), subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean);
+                const tNames = tids.map(teacherName).join(", ");
+                const items = schedule.filter(it => it.subject_id === entry.subject_id && it.class_ids.includes(cls.id));
+                classRows.push([cls.name, subj.name, "Blokk", block.name, tNames || "–", slotsStr(items) || "(ikke plassert)"]);
+              }
+            }
+          }
+          const ws1 = XLSX.utils.aoa_to_sheet(classRows);
+          ws1["!cols"] = [{ wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 60 }];
+          XLSX.utils.book_append_sheet(wb, ws1, "Per klasse");
+
+          // ── Sheet 2: Per lærer ───────────────────────────────────────
+          const teacherRows: (string | number)[][] = [
+            ["Lærer", "Fag", "Type", "Blokk", "Klasse(r)", "Timeslot(er)"],
+          ];
+          for (const teacher of sortedTeachers) {
+            const teacherItems = schedule.filter(it =>
+              [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(teacher.id)
+            );
+            const bySubject = new Map<string, ScheduledItem[]>();
+            for (const it of teacherItems) {
+              const arr = bySubject.get(it.subject_id) || [];
+              arr.push(it);
+              bySubject.set(it.subject_id, arr);
+            }
+            const subjectEntries = [...bySubject.entries()].sort((a, b) =>
+              (subjectById[a[0]]?.name || a[0]).localeCompare(subjectById[b[0]]?.name || b[0], "nb")
+            );
+            if (subjectEntries.length === 0) {
+              teacherRows.push([teacher.name, "(ingen plasserte fag)", "", "", "", ""]);
+            } else {
+              for (const [sid, items] of subjectEntries) {
+                const subj = subjectById[sid];
+                const classNames = [...new Set(items.flatMap(it => it.class_ids).map(cid => classById[cid]?.name || cid))].join(", ");
+                teacherRows.push([teacher.name, subj?.name || sid, typeLabel(sid), blockNameFor(sid), classNames, slotsStr(items)]);
+              }
+            }
+          }
+          const ws2 = XLSX.utils.aoa_to_sheet(teacherRows);
+          ws2["!cols"] = [{ wch: 25 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 60 }];
+          XLSX.utils.book_append_sheet(wb, ws2, "Per lærer");
+
+          // ── Sheet 3: Alle plasseringer (én rad per slot) ─────────────
+          const allRows: (string | number)[][] = [
+            ["Klasse(r)", "Fag", "Type", "Blokk", "Lærer(e)", "Dag", "Periode", "Klokkeslett", "Uke"],
+          ];
+          const sortedSchedule = [...schedule].sort((a, b) => {
+            const ca = classById[a.class_ids[0]]?.name || "";
+            const cb = classById[b.class_ids[0]]?.name || "";
+            const cc = ca.localeCompare(cb, "nb");
+            if (cc !== 0) return cc;
+            const da = dayOrder[a.day] ?? 9;
+            const db = dayOrder[b.day] ?? 9;
+            if (da !== db) return da - db;
+            return a.period - b.period;
+          });
+          for (const it of sortedSchedule) {
+            const ts = timeslotById[it.timeslot_id];
+            const timeRange = ts?.start_time && ts?.end_time ? `${ts.start_time}–${ts.end_time}` : "";
+            const classNames = it.class_ids.map(cid => classById[cid]?.name || cid).join(", ");
+            const allTids = [...new Set([it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean))];
+            const tNames = allTids.map(teacherName).join(", ");
+            const uke = it.week_type === "A" ? "A-uke" : it.week_type === "B" ? "B-uke" : "Begge uker";
+            allRows.push([classNames, it.subject_name, typeLabel(it.subject_id), blockNameFor(it.subject_id), tNames || "–", toNorwegianDay(it.day), it.period, timeRange, uke]);
+          }
+          const ws3 = XLSX.utils.aoa_to_sheet(allRows);
+          ws3["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 }];
+          XLSX.utils.book_append_sheet(wb, ws3, "Alle plasseringer");
+
+          const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+          const blob = new Blob([wbout], { type: "application/octet-stream" });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = "timeplan-eksport.xlsx";
+          a.click();
+          URL.revokeObjectURL(url);
+        }
+
         const lines = schedule.length > 0 ? buildLines() : null;
 
         return (
           <section className="card">
             <h2>Eksporter timeplan</h2>
-            <p>Genererer en tekstlig oversikt per klasse og per lærer basert på gjeldende timeplan.</p>
+            <p>Eksporter timeplanen per klasse og per lærer. Excel-filen har tre ark: «Per klasse», «Per lærer» og «Alle plasseringer» (én rad per timeslot – egnet for filtrering og pivottabeller).</p>
             {schedule.length === 0 ? (
               <p style={{ color: "#888" }}>Ingen timeplan generert ennå. Gå til «Generer»-fanen først.</p>
             ) : (
               <>
-                <button type="button" onClick={handleDownload} style={{ marginBottom: "16px" }}>
-                  Last ned som .txt
-                </button>
+                <div style={{ display: "flex", gap: "10px", marginBottom: "16px" }}>
+                  <button type="button" onClick={handleDownloadExcel}>
+                    Last ned som .xlsx
+                  </button>
+                  <button type="button" className="secondary" onClick={handleDownloadTxt}>
+                    Last ned som .txt
+                  </button>
+                </div>
                 <pre style={{
                   background: "#f6f8fa",
                   border: "1px solid #dde1e9",
