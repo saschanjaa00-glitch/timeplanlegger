@@ -1319,7 +1319,7 @@ export default function Home() {
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
-  const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
+  const solverTimeoutSeconds = 90;
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
