@@ -1,7 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import { supabase, type CloudSavefile } from "../lib/supabase";
+import type { User } from "@supabase/supabase-js";
 
 type Subject = {
   id: string;
@@ -1355,6 +1357,17 @@ export default function Home() {
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [savedJsonExports, setSavedJsonExports] = useState<SavedJsonExport[]>([]);
+
+  // ── Supabase cloud save state ──────────────────────────────────────────────
+  const [cloudUser, setCloudUser] = useState<User | null>(null);
+  const [cloudEmail, setCloudEmail] = useState("");
+  const [cloudAuthStatus, setCloudAuthStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [cloudAuthError, setCloudAuthError] = useState("");
+  const [cloudSavefiles, setCloudSavefiles] = useState<CloudSavefile[]>([]);
+  const [cloudLoading, setCloudLoading] = useState(false);
+  const [cloudSaveStatus, setCloudSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [renamingCloudId, setRenamingCloudId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
   const [showUltrawideTimeline, setShowUltrawideTimeline] = useState(true);
   const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
   const [hoveredTimelineSubjectId, setHoveredTimelineSubjectId] = useState<string | null>(null);
@@ -1677,6 +1690,105 @@ export default function Home() {
     }
   }
 
+  // ── Supabase cloud helpers ─────────────────────────────────────────────────
+
+  async function sendMagicLink(email: string) {
+    setCloudAuthStatus("sending");
+    setCloudAuthError("");
+    const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) {
+      setCloudAuthStatus("error");
+      setCloudAuthError(error.message);
+    } else {
+      setCloudAuthStatus("sent");
+    }
+  }
+
+  async function signOutCloud() {
+    await supabase.auth.signOut();
+    setCloudUser(null);
+    setCloudSavefiles([]);
+    setCloudAuthStatus("idle");
+  }
+
+  const loadCloudSavefiles = useCallback(async () => {
+    setCloudLoading(true);
+    const { data, error } = await supabase
+      .from("savefiles")
+      .select("id, user_id, name, created_at, updated_at")
+      .order("updated_at", { ascending: false });
+    setCloudLoading(false);
+    if (!error && data) setCloudSavefiles(data as CloudSavefile[]);
+  }, []);
+
+  async function saveToCloud(name?: string) {
+    if (!cloudUser) return;
+    setCloudSaveStatus("saving");
+    const saveName = (name && name.trim()) ? name.trim() : `Lagret ${new Date().toLocaleString("nb-NO")}`;
+    const payload = JSON.stringify(buildPersistedState());
+    const { error } = await supabase.from("savefiles").insert({
+      user_id: cloudUser.id,
+      name: saveName,
+      data: payload,
+    });
+    if (error) {
+      setCloudSaveStatus("error");
+    } else {
+      setCloudSaveStatus("saved");
+      await loadCloudSavefiles();
+      setTimeout(() => setCloudSaveStatus("idle"), 2500);
+    }
+  }
+
+  async function upsertAutosave() {
+    if (!cloudUser) return;
+    const payload = JSON.stringify(buildPersistedState());
+    // Try to update existing _autosave row first
+    const { data: existing } = await supabase
+      .from("savefiles")
+      .select("id")
+      .eq("name", "_autosave")
+      .eq("user_id", cloudUser.id)
+      .maybeSingle();
+    if (existing?.id) {
+      await supabase.from("savefiles").update({ data: payload }).eq("id", existing.id);
+    } else {
+      await supabase.from("savefiles").insert({ user_id: cloudUser.id, name: "_autosave", data: payload });
+    }
+  }
+
+  async function loadCloudSavefile(save: CloudSavefile) {
+    // Fetch data field separately
+    const { data, error } = await supabase.from("savefiles").select("data").eq("id", save.id).single();
+    if (error || !data) { setStatusText("Kunne ikke laste ned skyfil."); return; }
+    const proceed = window.confirm(`Last inn «${save.name}»? Dette erstatter gjeldende data.`);
+    if (!proceed) return;
+    try {
+      const parsed = JSON.parse((data as { data: string }).data) as Partial<PersistedState>;
+      applyPersistedState(parsed);
+      setStatusText(`Lastet inn «${save.name}» fra skyen.`);
+    } catch {
+      setStatusText("Kunne ikke tolke skyfil.");
+    }
+  }
+
+  async function deleteCloudSavefile(id: string) {
+    const proceed = window.confirm("Slett denne lagrede filen fra skyen?");
+    if (!proceed) return;
+    await supabase.from("savefiles").delete().eq("id", id);
+    setCloudSavefiles((prev) => prev.filter((s) => s.id !== id));
+  }
+
+  async function renameCloudSavefile(id: string, newName: string) {
+    if (!newName.trim()) return;
+    const { error } = await supabase.from("savefiles").update({ name: newName.trim() }).eq("id", id);
+    if (!error) {
+      setCloudSavefiles((prev) => prev.map((s) => s.id === id ? { ...s, name: newName.trim() } : s));
+      setRenamingCloudId(null);
+      setRenameValue("");
+    }
+  }
+
   useEffect(() => {
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
@@ -1712,6 +1824,20 @@ export default function Home() {
       setIsStorageHydrated(true);
     }
   }, []);
+
+  // ── Supabase auth listener ─────────────────────────────────────────────────
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setCloudUser(session?.user ?? null);
+      if (session?.user) loadCloudSavefiles();
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setCloudUser(session?.user ?? null);
+      if (session?.user) loadCloudSavefiles();
+      else setCloudSavefiles([]);
+    });
+    return () => subscription.unsubscribe();
+  }, [loadCloudSavefiles]);
 
   useEffect(() => {
     if (!isStorageHydrated) {
@@ -1779,6 +1905,16 @@ export default function Home() {
     weekView,
     savedJsonExports,
   ]);
+
+  // ── Autosave to cloud (debounced 8s) ──────────────────────────────────────
+  const autosaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!cloudUser || !isStorageHydrated) return;
+    if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current);
+    autosaveTimerRef.current = setTimeout(() => { upsertAutosave(); }, 8000);
+    return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudUser, isStorageHydrated, subjects, teachers, meetings, rooms, sportsHalls, classes, timeslots, weekCalendarSetups, blocks, schedule]);
 
   useEffect(() => {
     if (!isStorageHydrated) {
@@ -6477,8 +6613,114 @@ export default function Home() {
 
       {activeTab === "files" && (
       <section className="grid">
+
+        {/* ── Cloud save panel ──────────────────────────────────────────── */}
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Filer</h2>
+          <h2>Skylagring</h2>
+
+          {!cloudUser ? (
+            /* Login form */
+            <div>
+              <p>Logg inn med e-post for å lagre og synkronisere skoleplanen din i skyen (ingen passord nødvendig — du mottar en innloggingslenke).</p>
+              <form
+                onSubmit={(e) => { e.preventDefault(); sendMagicLink(cloudEmail); }}
+                style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "10px" }}
+              >
+                <input
+                  type="email"
+                  placeholder="din@epost.no"
+                  value={cloudEmail}
+                  onChange={(e) => setCloudEmail(e.target.value)}
+                  required
+                  style={{ flex: "1 1 200px" }}
+                  disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}
+                />
+                <button type="submit" disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}>
+                  {cloudAuthStatus === "sending" ? "Sender…" : "Send innloggingslenke"}
+                </button>
+              </form>
+              {cloudAuthStatus === "sent" && (
+                <p style={{ color: "green", marginTop: "8px" }}>
+                  Sjekk e-posten din for en innloggingslenke. Klikk på lenken for å logge inn.
+                </p>
+              )}
+              {cloudAuthStatus === "error" && (
+                <p style={{ color: "red", marginTop: "8px" }}>{cloudAuthError}</p>
+              )}
+            </div>
+          ) : (
+            /* Logged in */
+            <div>
+              <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap", marginBottom: "14px" }}>
+                <span style={{ fontSize: "0.9rem" }}>Logget inn som <strong>{cloudUser.email}</strong></span>
+                <button type="button" className="secondary" onClick={signOutCloud} style={{ fontSize: "0.8rem" }}>Logg ut</button>
+                <button
+                  type="button"
+                  onClick={() => saveToCloud()}
+                  disabled={cloudSaveStatus === "saving"}
+                  style={{ fontSize: "0.9rem" }}
+                >
+                  {cloudSaveStatus === "saving" ? "Lagrer…" : cloudSaveStatus === "saved" ? "Lagret ✓" : "Lagre ny fil"}
+                </button>
+                {cloudSaveStatus === "error" && <span style={{ color: "red", fontSize: "0.85rem" }}>Feil ved lagring</span>}
+              </div>
+
+              {cloudLoading ? (
+                <p>Laster skyfiler…</p>
+              ) : cloudSavefiles.length === 0 ? (
+                <p style={{ color: "#777" }}>Ingen lagrede filer ennå.</p>
+              ) : (
+                <div className="list">
+                  {cloudSavefiles.map((save) => (
+                    <div key={save.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 200px" }}>
+                        {renamingCloudId === save.id ? (
+                          <form
+                            onSubmit={(e) => { e.preventDefault(); renameCloudSavefile(save.id, renameValue); }}
+                            style={{ display: "flex", gap: "6px" }}
+                          >
+                            <input
+                              autoFocus
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              style={{ flex: 1 }}
+                            />
+                            <button type="submit">OK</button>
+                            <button type="button" className="secondary" onClick={() => setRenamingCloudId(null)}>Avbryt</button>
+                          </form>
+                        ) : (
+                          <>
+                            <strong>{save.name === "_autosave" ? "⏱ Autosave" : save.name}</strong>
+                            <div style={{ fontSize: "0.78rem", color: "#5a5a5a" }}>
+                              {new Date(save.updated_at).toLocaleString("nb-NO")}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      {renamingCloudId !== save.id && (
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <button type="button" className="secondary" onClick={() => loadCloudSavefile(save)}>Last inn</button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => { setRenamingCloudId(save.id); setRenameValue(save.name); }}
+                          >
+                            Gi nytt navn
+                          </button>
+                          <button type="button" className="secondary" onClick={() => deleteCloudSavefile(save.id)}>Slett</button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </article>
+
+        {/* ── Local JSON export/import ─────────────────────────────────── */}
+        <article className="card" style={{ gridColumn: "1 / -1" }}>
+          <h2>Lokal JSON-backup</h2>
           <p>Eksporter gjeldende arbeidsområdestatus til JSON, importer en JSON-fil og gjenopprett tidligere eksporter fra denne menyen.</p>
 
           <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
