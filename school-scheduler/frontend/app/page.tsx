@@ -5747,6 +5747,38 @@ export default function Home() {
       }
 
       setGenerationPhase("Fase 2/4: Kobler til backend...");
+      // Probe the health endpoint with a short timeout to detect cold-start (Render free tier).
+      // If the probe takes more than 2s, switch status to "waking up" while we wait.
+      try {
+        const probeBase = API_BASE_CANDIDATES[0];
+        const probeController = new AbortController();
+        const probeTimeout = window.setTimeout(() => probeController.abort(), 2000);
+        const probeStart = Date.now();
+        try {
+          await fetch(`${probeBase}/health`, { method: "GET", signal: probeController.signal, cache: "no-store" });
+          window.clearTimeout(probeTimeout);
+        } catch {
+          window.clearTimeout(probeTimeout);
+          // Either timed out (cold start) or unreachable — show wake-up message.
+          const elapsed = Date.now() - probeStart;
+          if (elapsed >= 1900) {
+            setGenerationPhase("Fase 2/4: Backend våkner opp (kan ta ~30 sek)...");
+            // Keep pinging until alive (max 45s)
+            const deadline = Date.now() + 45_000;
+            while (Date.now() < deadline) {
+              await new Promise<void>((r) => window.setTimeout(r, 3000));
+              try {
+                const wakeController = new AbortController();
+                const wakeTimeout = window.setTimeout(() => wakeController.abort(), 4000);
+                await fetch(`${probeBase}/health`, { method: "GET", signal: wakeController.signal, cache: "no-store" });
+                window.clearTimeout(wakeTimeout);
+                break; // backend is up
+              } catch { /* still sleeping */ }
+            }
+          }
+        }
+      } catch { /* ignore probe errors entirely */ }
+
       // fetch resolves only when backend responds, which includes solver time.
       // Show this explicitly so long waits are not misread as request upload time.
       setGenerationPhase("Fase 3/4: Backend l\u00f8ser timeplan...");
