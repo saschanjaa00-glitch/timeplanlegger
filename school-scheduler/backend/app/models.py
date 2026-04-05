@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -111,6 +111,8 @@ class ScheduleRequest(BaseModel):
     sports_halls: List[SportsHall] = Field(default_factory=list)
     alternating_weeks_enabled: bool = False
     alternate_non_block_subjects: bool = False
+    solver_engine: Literal["staged", "cp_sat_experimental"] = "cp_sat_experimental"
+    solver_timeout_seconds: int = Field(default=90, ge=5, le=600)
 
 
 class ScheduledItem(BaseModel):
@@ -133,3 +135,4 @@ class ScheduleResponse(BaseModel):
     message: str
     schedule: List[ScheduledItem]
     metadata: Dict[str, float] = Field(default_factory=dict)
+    diagnostics: Dict[str, Any] = Field(default_factory=dict)

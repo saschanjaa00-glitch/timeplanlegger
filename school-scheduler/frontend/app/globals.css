@@ -2444,6 +2444,93 @@ button.secondary {
   margin: 0.15rem 0;
 }
 
+.generation-popup-overlay {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 2000;
+  pointer-events: none;
+}
+
+.generation-popup {
+  width: min(440px, calc(100vw - 24px));
+  border: 1px solid #c9c9c4;
+  background: #fffdfa;
+  color: #1a1a18;
+  box-shadow: var(--shadow-soft);
+  padding: 0.62rem 0.72rem;
+  pointer-events: auto;
+  animation: rise-in 220ms ease-out;
+}
+
+.generation-popup-running {
+  border-color: #8da0bc;
+  background: #f2f6ff;
+}
+
+.generation-popup-success {
+  border-color: #8fa889;
+  background: #edf6ef;
+}
+
+.generation-popup-error {
+  border-color: #cd7e7e;
+  background: #fff0f0;
+}
+
+.generation-popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.generation-popup-header strong {
+  font-size: 0.84rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.generation-popup p {
+  margin: 0.38rem 0 0;
+  font-size: 0.83rem;
+  color: #22211f;
+}
+
+.generation-popup-details {
+  margin-top: 0.28rem;
+  font-size: 0.75rem;
+  letter-spacing: 0.02em;
+  color: #4c4a44;
+}
+
+.generation-popup-progress {
+  margin-top: 0.42rem;
+  display: flex;
+  align-items: center;
+  gap: 0.44rem;
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4b5461;
+}
+
+.generation-popup-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #9ea8b9;
+  border-top-color: #2f3a4d;
+  animation: generation-spin 700ms linear infinite;
+}
+
+.generation-popup-close {
+  min-width: auto;
+  width: auto;
+  padding: 0.18rem 0.48rem;
+  font-size: 0.7rem;
+}
+
 .table-wrap {
   overflow: auto;
   border: 1px solid #d4d3ce;
@@ -3197,7 +3284,23 @@ th {
   }
 }
 
+@keyframes generation-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 @media (max-width: 720px) {
+  .generation-popup-overlay {
+    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+
+  .generation-popup {
+    width: 100%;
+  }
+
   main {
     padding-top: 0.75rem;
   }
