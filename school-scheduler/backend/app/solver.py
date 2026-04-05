@@ -540,9 +540,10 @@ def _assign_rooms_to_schedule(
             if preferred_rooms and mode == "always":
                 return (2, once_grant_count, item.subject_id)
             if preferred_rooms and mode == "once_per_week":
-                # After the once-per-week requirement is satisfied, deprioritize
-                # further preferred-room claims so base rooms can be used.
-                return (4, once_grant_count, item.subject_id)
+                # Once guaranteed, compete at the same level as "always" so the
+                # preferred room is still used for remaining sessions when free.
+                # The grant_count tiebreaker spreads the room fairly across subjects.
+                return (2, once_grant_count, item.subject_id)
             return (3, once_grant_count, item.subject_id)
 
         sorted_items = sorted(items, key=item_priority)
@@ -619,15 +620,19 @@ def _assign_rooms_to_schedule(
             elif preferred_rooms and mode == "once_per_week":
                 once_scope_keys = _once_scope_keys_for_item(item, subject, week_key)
                 once_pending = any(not once_mode_satisfied[key] for key in once_scope_keys)
-                if once_pending and available_preferred:
+                if available_preferred:
+                    # Always prefer the preferred room whenever it's free.
+                    # The priority sort above ensures subjects needing the once-guarantee
+                    # get processed first; grant-count tiebreaker spreads fairly.
                     assigned_room_id = _pick_with_consistency(
                         available_preferred,
                         item.subject_id,
                         week_key,
                         item.timeslot_id,
                     )
-                    for scope_key in once_scope_keys:
-                        once_mode_satisfied[scope_key] = True
+                    if once_pending:
+                        for scope_key in once_scope_keys:
+                            once_mode_satisfied[scope_key] = True
                 elif base_room_id and base_room_id not in used_rooms:
                     assigned_room_id = base_room_id
                 elif available_non_preferred_non_prioritized:
@@ -647,13 +652,6 @@ def _assign_rooms_to_schedule(
                 elif available_non_preferred_prioritized:
                     assigned_room_id = _pick_with_consistency(
                         available_non_preferred_prioritized,
-                        item.subject_id,
-                        week_key,
-                        item.timeslot_id,
-                    )
-                elif available_preferred:
-                    assigned_room_id = _pick_with_consistency(
-                        available_preferred,
                         item.subject_id,
                         week_key,
                         item.timeslot_id,

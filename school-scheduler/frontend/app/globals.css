@@ -1607,6 +1607,12 @@ p {
   padding: 4px;
   border-bottom: 1px solid #eee;
   font-size: 0.78rem;
+  border-radius: 3px;
+  transition: background 100ms ease;
+}
+
+.room-list-item:hover {
+  background: #f0f4ff;
 }
 
 .room-base-select-unset {
