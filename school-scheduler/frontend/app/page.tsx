@@ -6454,7 +6454,10 @@ export default function Home() {
             key={tab.id}
             type="button"
             className={`tab-button ${activeTab === tab.id ? "active" : ""}`}
-            onClick={() => setActiveTab(tab.id)}
+            onClick={() => {
+              setActiveTab(tab.id);
+              fetch(`${API_BASE_CANDIDATES[0]}/health`, { method: "GET", cache: "no-store" }).catch(() => {});
+            }}
           >
             <span>{tab.id === "files" ? 0 : index}</span>
             {tab.label}
