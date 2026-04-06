@@ -17,6 +17,19 @@ from .models import Block, BlockOccurrence, BlockSubjectEntry, ScheduleRequest, 
 
 
 MAX_WEEKLY_WORK_MINUTES_100_PERCENT = 29 * 60
+
+# Honour an explicit override so low-CPU deployments (e.g. Render free tier)
+# can set CP_SAT_WORKERS=1 to avoid over-subscribing the allocated CPU.
+# Default: use all available cores (local dev behaviour unchanged).
+def _cp_sat_workers() -> int:
+    env = os.environ.get("CP_SAT_WORKERS")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return max(1, min(8, os.cpu_count() or 1))
+
 PREFERRED_AVOID_WEIGHT = 20
 DAY_IMBALANCE_WEIGHT = 1
 BOUNDARY_SLOT_WEIGHT = 1
@@ -6135,7 +6148,7 @@ def _generate_schedule_cp_sat_experimental(
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(max(1, min(600, solver_timeout_seconds)))
-    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+    solver.parameters.num_search_workers = _cp_sat_workers()
     if random_seed != 0:
         solver.parameters.random_seed = random_seed
 
@@ -8079,7 +8092,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
             solver = cp_model.CpSolver()
             solver.parameters.max_time_in_seconds = 15.0
-            solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+            solver.parameters.num_search_workers = _cp_sat_workers()
             status = solver.Solve(model)
             if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
                 return False
@@ -11413,7 +11426,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(max(5, min(600, data.solver_timeout_seconds)))
-    solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+    solver.parameters.num_search_workers = _cp_sat_workers()
     solver.parameters.search_branching = cp_model.FIXED_SEARCH
     solver.parameters.random_seed = cp_solver_seed
 

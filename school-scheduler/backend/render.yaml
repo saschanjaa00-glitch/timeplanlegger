@@ -8,3 +8,5 @@ services:
     envVars:
       - key: CORS_ORIGINS
         sync: false
+      - key: CP_SAT_WORKERS
+        value: "1"
