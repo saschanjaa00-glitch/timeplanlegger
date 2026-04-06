@@ -1508,7 +1508,7 @@ export default function Home() {
         }
         return {
           ...prev,
-          details: `${generationPhaseRef.current || "Jobber..."} Sp\u00e5rt ${generationElapsedLabel()}.`,
+          details: `${generationPhaseRef.current || "Jobber..."} Tid: ${generationElapsedLabel()}.`,
         };
       });
     }, 1000);
@@ -9891,22 +9891,31 @@ export default function Home() {
             </div>
           ) : null}
           {reviewMode && (
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", margin: "10px 0", padding: "10px 12px", background: "#1a1a2e", borderRadius: "6px" }}>
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "nowrap", margin: "10px 0", padding: "6px 10px", background: "#f0f2f5", border: "1px solid #d0d5dd", borderRadius: "6px" }}>
               {(["class", "teacher", "room"] as const).map((type) => {
                 const labels = { class: "Klasser", teacher: "Lærere", room: "Rom" };
+                const active = reviewEntityType === type;
                 return (
                   <button
                     key={type}
                     type="button"
-                    className={reviewEntityType === type ? "" : "secondary"}
-                    style={{ minWidth: "80px" }}
+                    style={{
+                      padding: "4px 14px",
+                      fontSize: "0.85rem",
+                      background: active ? "#334155" : "#e2e8f0",
+                      color: active ? "#fff" : "#334155",
+                      border: "1px solid " + (active ? "#334155" : "#c8d0dc"),
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontWeight: active ? 600 : 400,
+                    }}
                     onClick={() => { setReviewEntityType(type); setReviewIndex(0); }}
                   >
                     {labels[type]}
                   </button>
                 );
               })}
-              <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 4px" }} />
+              <div style={{ width: "1px", height: "20px", background: "#c8d0dc", margin: "0 4px", flexShrink: 0 }} />
               {(() => {
                 const reviewList =
                   reviewEntityType === "class" ? sortedClasses :
@@ -9918,18 +9927,18 @@ export default function Home() {
                   <>
                     <button
                       type="button"
-                      className="secondary"
+                      style={{ padding: "4px 12px", fontSize: "0.85rem", background: "#e2e8f0", color: "#334155", border: "1px solid #c8d0dc", borderRadius: "4px", cursor: "pointer" }}
                       disabled={clamped === 0}
                       onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
                     >
                       ← Forrige
                     </button>
-                    <span style={{ fontWeight: 600, minWidth: "120px", textAlign: "center", color: "#fff" }}>
-                      {entity ? entity.name : "—"} ({clamped + 1}/{reviewList.length})
+                    <span style={{ fontWeight: 600, minWidth: "130px", textAlign: "center", color: "#1e293b", fontSize: "0.9rem", flexShrink: 0 }}>
+                      {entity ? entity.name : "—"} <span style={{ fontWeight: 400, color: "#64748b" }}>({clamped + 1}/{reviewList.length})</span>
                     </span>
                     <button
                       type="button"
-                      className="secondary"
+                      style={{ padding: "4px 12px", fontSize: "0.85rem", background: "#e2e8f0", color: "#334155", border: "1px solid #c8d0dc", borderRadius: "4px", cursor: "pointer" }}
                       disabled={clamped >= reviewList.length - 1}
                       onClick={() => setReviewIndex((i) => Math.min(reviewList.length - 1, i + 1))}
                     >

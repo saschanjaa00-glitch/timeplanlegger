@@ -3,10 +3,8 @@
     {
       "id": "subject_geografi",
       "name": "Geografi",
-      "teacher_id": "teacher_liesbeth_breesch",
-      "teacher_ids": [
-        "teacher_liesbeth_breesch"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1sta"
       ],
@@ -23,10 +21,8 @@
     {
       "id": "subject_samfunnskunnskap_1sta",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_kjerand_tangen",
-      "teacher_ids": [
-        "teacher_kjerand_tangen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1sta"
       ],
@@ -43,10 +39,8 @@
     {
       "id": "subject_geografi_1stb",
       "name": "Geografi",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stb"
       ],
@@ -63,10 +57,8 @@
     {
       "id": "subject_samfunnskunnskap_1stb",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_marit_topnes_serigstad",
-      "teacher_ids": [
-        "teacher_marit_topnes_serigstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stb"
       ],
@@ -83,10 +75,8 @@
     {
       "id": "subject_geografi_1stc",
       "name": "Geografi",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stc"
       ],
@@ -103,10 +93,8 @@
     {
       "id": "subject_samfunnskunnskap_1stc",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_camilla_berthelsen",
-      "teacher_ids": [
-        "teacher_camilla_berthelsen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stc"
       ],
@@ -123,10 +111,8 @@
     {
       "id": "subject_geografi_1std",
       "name": "Geografi",
-      "teacher_id": "teacher_anders_bratteli",
-      "teacher_ids": [
-        "teacher_anders_bratteli"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1std"
       ],
@@ -143,10 +129,8 @@
     {
       "id": "subject_samfunnskunnskap_1std",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_trond_waage_ids_e",
-      "teacher_ids": [
-        "teacher_trond_waage_ids_e"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1std"
       ],
@@ -163,10 +147,8 @@
     {
       "id": "subject_geografi_1ste",
       "name": "Geografi",
-      "teacher_id": "teacher_anders_bratteli",
-      "teacher_ids": [
-        "teacher_anders_bratteli"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ste"
       ],
@@ -183,10 +165,8 @@
     {
       "id": "subject_samfunnskunnskap_1ste",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_trondr_breiland",
-      "teacher_ids": [
-        "teacher_trondr_breiland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ste"
       ],
@@ -203,10 +183,8 @@
     {
       "id": "subject_geografi_1stf",
       "name": "Geografi",
-      "teacher_id": "teacher_liesbeth_breesch",
-      "teacher_ids": [
-        "teacher_liesbeth_breesch"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stf"
       ],
@@ -223,10 +201,8 @@
     {
       "id": "subject_samfunnskunnskap_1stf",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_helene_huseland",
-      "teacher_ids": [
-        "teacher_helene_huseland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stf"
       ],
@@ -243,9 +219,9 @@
     {
       "id": "subject_geografi_1tid",
       "name": "Geografi",
-      "teacher_id": "teacher_hanne_jakobsen",
+      "teacher_id": "teacher_atle_bergstad_amundsen",
       "teacher_ids": [
-        "teacher_hanne_jakobsen"
+        "teacher_atle_bergstad_amundsen"
       ],
       "class_ids": [
         "class_1tid"
@@ -263,9 +239,9 @@
     {
       "id": "subject_samfunnskunnskap_1tid",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_marianne_sandberg",
+      "teacher_id": "teacher_christer_corneliussen",
       "teacher_ids": [
-        "teacher_marianne_sandberg"
+        "teacher_christer_corneliussen"
       ],
       "class_ids": [
         "class_1tid"
@@ -283,10 +259,8 @@
     {
       "id": "subject_geografi_1tmt",
       "name": "Geografi",
-      "teacher_id": "teacher_hanne_jakobsen",
-      "teacher_ids": [
-        "teacher_hanne_jakobsen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1tmt"
       ],
@@ -303,10 +277,8 @@
     {
       "id": "subject_samfunnskunnskap_1tmt",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_hanne_stokka_hold",
-      "teacher_ids": [
-        "teacher_hanne_stokka_hold"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1tmt"
       ],
@@ -323,10 +295,8 @@
     {
       "id": "subject_geografi_2ida",
       "name": "Geografi",
-      "teacher_id": "teacher_hanne_jakobsen",
-      "teacher_ids": [
-        "teacher_hanne_jakobsen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2ida"
       ],
@@ -343,10 +313,8 @@
     {
       "id": "subject_samfunnskunnskap_2ida",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_marianne_sandberg",
-      "teacher_ids": [
-        "teacher_marianne_sandberg"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2ida"
       ],
@@ -363,10 +331,8 @@
     {
       "id": "subject_geografi_2idb",
       "name": "Geografi",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2idb"
       ],
@@ -383,10 +349,8 @@
     {
       "id": "subject_samfunnskunnskap_2idb",
       "name": "Samfunnskunnskap",
-      "teacher_id": "teacher_marianne_sandberg",
-      "teacher_ids": [
-        "teacher_marianne_sandberg"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2idb"
       ],
@@ -403,10 +367,8 @@
     {
       "id": "subject_engelsk_vg1_1sta",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_trond_waage_ids_e",
-      "teacher_ids": [
-        "teacher_trond_waage_ids_e"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1sta"
       ],
@@ -423,10 +385,8 @@
     {
       "id": "subject_engelsk_vg1_1stb",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_kelly_london",
-      "teacher_ids": [
-        "teacher_kelly_london"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stb"
       ],
@@ -443,10 +403,8 @@
     {
       "id": "subject_engelsk_vg1_1stc",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_randi_selvik",
-      "teacher_ids": [
-        "teacher_randi_selvik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stc"
       ],
@@ -463,10 +421,8 @@
     {
       "id": "subject_engelsk_vg1_1std",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_trond_waage_ids_e",
-      "teacher_ids": [
-        "teacher_trond_waage_ids_e"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1std"
       ],
@@ -483,10 +439,8 @@
     {
       "id": "subject_engelsk_vg1_1ste",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_anders_bratteli",
-      "teacher_ids": [
-        "teacher_anders_bratteli"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ste"
       ],
@@ -503,10 +457,8 @@
     {
       "id": "subject_engelsk_vg1_1stf",
       "name": "Engelsk vg1",
-      "teacher_id": "teacher_alba_de_la_vega_fernandez",
-      "teacher_ids": [
-        "teacher_alba_de_la_vega_fernandez"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stf"
       ],
@@ -523,33 +475,26 @@
     {
       "id": "subject_naturfag_1ida",
       "name": "Naturfag",
-      "teacher_id": "teacher_ida_soltvedt_johannessen",
-      "teacher_ids": [
-        "teacher_ida_soltvedt_johannessen",
-        "teacher_tormod_sthus"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ida"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 6,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1ida",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_elisabeth_nordlander",
-      "teacher_ids": [
-        "teacher_elisabeth_nordlander"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ida"
       ],
@@ -566,11 +511,8 @@
     {
       "id": "subject_naturfag_1idb",
       "name": "Naturfag",
-      "teacher_id": "teacher_aud_charlotte_ullestad",
-      "teacher_ids": [
-        "teacher_aud_charlotte_ullestad",
-        "teacher_svanhild_haugvaldstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1idb"
       ],
@@ -581,18 +523,14 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1idb",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_agnethe_j_rpeland",
-      "teacher_ids": [
-        "teacher_agnethe_j_rpeland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1idb"
       ],
@@ -609,9 +547,9 @@
     {
       "id": "subject_naturfag_1sta",
       "name": "Naturfag",
-      "teacher_id": "teacher_karen_synn_ve_ohm",
+      "teacher_id": "teacher_bengt_david_gabrielsen",
       "teacher_ids": [
-        "teacher_karen_synn_ve_ohm"
+        "teacher_bengt_david_gabrielsen"
       ],
       "class_ids": [
         "class_1sta"
@@ -623,18 +561,14 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1sta",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_jon_arne_pollestad",
-      "teacher_ids": [
-        "teacher_jon_arne_pollestad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1sta"
       ],
@@ -651,10 +585,8 @@
     {
       "id": "subject_naturfag_1stb",
       "name": "Naturfag",
-      "teacher_id": "teacher_zeynep_aylin_mersin",
-      "teacher_ids": [
-        "teacher_zeynep_aylin_mersin"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stb"
       ],
@@ -665,18 +597,14 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1stb",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_knut_tjosevik",
-      "teacher_ids": [
-        "teacher_knut_tjosevik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stb"
       ],
@@ -693,32 +621,26 @@
     {
       "id": "subject_naturfag_1stc",
       "name": "Naturfag",
-      "teacher_id": "teacher_jo_berg_svalland",
-      "teacher_ids": [
-        "teacher_jo_berg_svalland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stc"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 6,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1stc",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_randi_selvik",
-      "teacher_ids": [
-        "teacher_randi_selvik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stc"
       ],
@@ -735,33 +657,26 @@
     {
       "id": "subject_naturfag_1std",
       "name": "Naturfag",
-      "teacher_id": "teacher_stein_v_rlid",
-      "teacher_ids": [
-        "teacher_stein_v_rlid",
-        "teacher_tormod_sthus"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1std"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 6,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1std",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_tone_helen_tj_rstad",
-      "teacher_ids": [
-        "teacher_tone_helen_tj_rstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1std"
       ],
@@ -778,32 +693,26 @@
     {
       "id": "subject_naturfag_1ste",
       "name": "Naturfag",
-      "teacher_id": "teacher_aud_charlotte_ullestad",
-      "teacher_ids": [
-        "teacher_aud_charlotte_ullestad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ste"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 6,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1ste",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_anja_helen_steinsland",
-      "teacher_ids": [
-        "teacher_anja_helen_steinsland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1ste"
       ],
@@ -820,10 +729,8 @@
     {
       "id": "subject_naturfag_1stf",
       "name": "Naturfag",
-      "teacher_id": "teacher_hilde_ekrheim_mosand",
-      "teacher_ids": [
-        "teacher_hilde_ekrheim_mosand"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stf"
       ],
@@ -834,18 +741,14 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1stf",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_marit_topnes_serigstad",
-      "teacher_ids": [
-        "teacher_marit_topnes_serigstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1stf"
       ],
@@ -862,31 +765,29 @@
     {
       "id": "subject_naturfag_1tid",
       "name": "Naturfag",
-      "teacher_id": "teacher_ida_soltvedt_johannessen",
+      "teacher_id": "teacher_cato_tveit",
       "teacher_ids": [
-        "teacher_ida_soltvedt_johannessen"
+        "teacher_cato_tveit"
       ],
       "class_ids": [
         "class_1tid"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 5,
+      "sessions_per_week": 6,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1tid",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_hilde_maren_todnem",
+      "teacher_id": "teacher_aud_charlotte_ullestad",
       "teacher_ids": [
-        "teacher_hilde_maren_todnem"
+        "teacher_aud_charlotte_ullestad"
       ],
       "class_ids": [
         "class_1tid"
@@ -904,10 +805,8 @@
     {
       "id": "subject_naturfag_1tmt",
       "name": "Naturfag",
-      "teacher_id": "teacher_ine_reppen_farrell",
-      "teacher_ids": [
-        "teacher_ine_reppen_farrell"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1tmt"
       ],
@@ -918,18 +817,14 @@
       "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
     },
     {
       "id": "subject_norsk_vg1_1tmt",
       "name": "Norsk vg1",
-      "teacher_id": "teacher_hanne_h_vardstein",
-      "teacher_ids": [
-        "teacher_hanne_h_vardstein"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1tmt"
       ],
@@ -944,12 +839,362 @@
       "room_requirement_mode": "always"
     },
     {
+      "id": "subject_kjemi_1",
+      "name": "Kjemi 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 5,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_kjemi_1_2",
+      "name": "Kjemi 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 1,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_kjemi_1_3",
+      "name": "Kjemi 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_entrepren_rskap",
+      "name": "Entreprenørskap",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_biologi_1",
+      "name": "Biologi 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_biologi_2",
+      "name": "Biologi 2",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_r1",
+      "name": "R1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_r1_2",
+      "name": "R1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 5,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_r1_3",
+      "name": "R1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 5,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_s1",
+      "name": "S1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 5,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_s1_2",
+      "name": "S1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 5,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_matematikk_2p",
+      "name": "Matematikk 2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 2,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p_2",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p_3",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p_4",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p_5",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_2p_6",
+      "name": "2P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_engelsk_2",
+      "name": "Engelsk 2",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_biologi_1_2",
+      "name": "Biologi 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_breddeidrett_1",
+      "name": "Breddeidrett 1",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_r1_2_2",
+      "name": "R1-2",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
       "id": "subject_historie_vg2_2ida",
       "name": "Historie vg2",
-      "teacher_id": "teacher_randi_selvik",
-      "teacher_ids": [
-        "teacher_randi_selvik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2ida"
       ],
@@ -966,10 +1211,8 @@
     {
       "id": "subject_historie_vg2_2idb",
       "name": "Historie vg2",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2idb"
       ],
@@ -986,10 +1229,8 @@
     {
       "id": "subject_historie_vg2_2sta",
       "name": "Historie vg2",
-      "teacher_id": "teacher_malin_topnes_j_rgensen",
-      "teacher_ids": [
-        "teacher_malin_topnes_j_rgensen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2sta"
       ],
@@ -1006,10 +1247,8 @@
     {
       "id": "subject_historie_vg2_2stb",
       "name": "Historie vg2",
-      "teacher_id": "teacher_knut_tjosevik",
-      "teacher_ids": [
-        "teacher_knut_tjosevik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stb"
       ],
@@ -1026,10 +1265,8 @@
     {
       "id": "subject_historie_vg2_2stc",
       "name": "Historie vg2",
-      "teacher_id": "teacher_knut_tjosevik",
-      "teacher_ids": [
-        "teacher_knut_tjosevik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stc"
       ],
@@ -1046,10 +1283,8 @@
     {
       "id": "subject_historie_vg2_2std",
       "name": "Historie vg2",
-      "teacher_id": "teacher_kyrre_alexander_grevstad",
-      "teacher_ids": [
-        "teacher_kyrre_alexander_grevstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2std"
       ],
@@ -1066,10 +1301,8 @@
     {
       "id": "subject_historie_vg2_2ste",
       "name": "Historie vg2",
-      "teacher_id": "teacher_christer_thoresen",
-      "teacher_ids": [
-        "teacher_christer_thoresen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2ste"
       ],
@@ -1086,10 +1319,8 @@
     {
       "id": "subject_historie_vg2_2stf",
       "name": "Historie vg2",
-      "teacher_id": "teacher_jon_arne_pollestad",
-      "teacher_ids": [
-        "teacher_jon_arne_pollestad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stf"
       ],
@@ -1106,10 +1337,8 @@
     {
       "id": "subject_historie_vg2_2tid",
       "name": "Historie vg2",
-      "teacher_id": "teacher_annett_titlestad",
-      "teacher_ids": [
-        "teacher_annett_titlestad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2tid"
       ],
@@ -1126,10 +1355,8 @@
     {
       "id": "subject_historie_vg2_2tmt",
       "name": "Historie vg2",
-      "teacher_id": "teacher_tor_thorvaldsen",
-      "teacher_ids": [
-        "teacher_tor_thorvaldsen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2tmt"
       ],
@@ -1146,34 +1373,16 @@
     {
       "id": "subject_kropps_ving_vg2_2sta",
       "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_stian_sigmund_liebich",
-      "teacher_ids": [
-        "teacher_stian_sigmund_liebich"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2sta"
       ],
       "subject_type": "fellesfag",
       "sessions_per_week": 2,
-      "force_place": true,
-      "force_timeslot_id": "Wed-2",
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
+      "force_place": false,
+      "force_timeslot_id": null,
+      "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
       "preferred_room_ids": [],
@@ -1182,10 +1391,8 @@
     {
       "id": "subject_kropps_ving_vg2_2stb",
       "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_gunhild_bru_nyb",
-      "teacher_ids": [
-        "teacher_gunhild_bru_nyb"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stb"
       ],
@@ -1193,23 +1400,7 @@
       "sessions_per_week": 2,
       "force_place": false,
       "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
+      "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
       "preferred_room_ids": [],
@@ -1218,10 +1409,8 @@
     {
       "id": "subject_kropps_ving_vg2_2stc",
       "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_p_l_kristian_gulbrandsen",
-      "teacher_ids": [
-        "teacher_p_l_kristian_gulbrandsen"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stc"
       ],
@@ -1229,23 +1418,7 @@
       "sessions_per_week": 2,
       "force_place": false,
       "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
+      "allowed_timeslots": null,
       "allowed_block_ids": null,
       "link_group_id": null,
       "preferred_room_ids": [],
@@ -1254,10 +1427,8 @@
     {
       "id": "subject_norsk_vg2_2stb",
       "name": "Norsk vg2",
-      "teacher_id": "teacher_gunhild_bru_nyb",
-      "teacher_ids": [
-        "teacher_gunhild_bru_nyb"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stb"
       ],
@@ -1274,10 +1445,8 @@
     {
       "id": "subject_norsk_vg2_2stc",
       "name": "Norsk vg2",
-      "teacher_id": "teacher_knut_tjosevik",
-      "teacher_ids": [
-        "teacher_knut_tjosevik"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2stc"
       ],
@@ -1294,10 +1463,8 @@
     {
       "id": "subject_norsk_vg2_2std",
       "name": "Norsk vg2",
-      "teacher_id": "teacher_kyrre_alexander_grevstad",
-      "teacher_ids": [
-        "teacher_kyrre_alexander_grevstad"
-      ],
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_2std"
       ],
@@ -1312,975 +1479,13 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_kropps_ving_vg1_1sta",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_kjerand_tangen",
-      "teacher_ids": [
-        "teacher_kjerand_tangen"
-      ],
-      "class_ids": [
-        "class_1sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": true,
-      "force_timeslot_id": "Wed-2",
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_vg1_1ida",
-      "name": "Engelsk vg1",
-      "teacher_id": "teacher_ida_elise_nymoen_eltervaag",
-      "teacher_ids": [
-        "teacher_ida_elise_nymoen_eltervaag"
-      ],
-      "class_ids": [
-        "class_1ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_vg1_1idb",
-      "name": "Engelsk vg1",
-      "teacher_id": "teacher_agnethe_j_rpeland",
-      "teacher_ids": [
-        "teacher_agnethe_j_rpeland"
-      ],
-      "class_ids": [
-        "class_1idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_vg1_1tid",
-      "name": "Engelsk vg1",
-      "teacher_id": "teacher_hilde_maren_todnem",
-      "teacher_ids": [
-        "teacher_hilde_maren_todnem"
-      ],
-      "class_ids": [
-        "class_1tid"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_vg1_1tmt",
-      "name": "Engelsk vg1",
-      "teacher_id": "teacher_shild_naustdal_jakobsen",
-      "teacher_ids": [
-        "teacher_shild_naustdal_jakobsen"
-      ],
-      "class_ids": [
-        "class_1tmt"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg1_1stb",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_alexander_gabrielsen",
-      "teacher_ids": [
-        "teacher_alexander_gabrielsen"
-      ],
-      "class_ids": [
-        "class_1stb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg1_1stc",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_eline_s_ter",
-      "teacher_ids": [
-        "teacher_eline_s_ter"
-      ],
-      "class_ids": [
-        "class_1stc"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg1_1std",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_daniel_kanstad",
-      "teacher_ids": [
-        "teacher_daniel_kanstad"
-      ],
-      "class_ids": [
-        "class_1std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg1_1ste",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_alexandra_kristina_norling",
-      "teacher_ids": [
-        "teacher_alexandra_kristina_norling"
-      ],
-      "class_ids": [
-        "class_1ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg1_1stf",
-      "name": "Kroppsøving vg1",
-      "teacher_id": "teacher_marit_topnes_serigstad",
-      "teacher_ids": [
-        "teacher_marit_topnes_serigstad"
-      ],
-      "class_ids": [
-        "class_1stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg2_2std",
-      "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_daniel_kanstad",
-      "teacher_ids": [
-        "teacher_daniel_kanstad"
-      ],
-      "class_ids": [
-        "class_2std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg2_2ste",
-      "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_christer_corneliussen",
-      "teacher_ids": [
-        "teacher_christer_corneliussen"
-      ],
-      "class_ids": [
-        "class_2ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg2_2stf",
-      "name": "Kroppsøving vg2",
-      "teacher_id": "teacher_marit_topnes_serigstad",
-      "teacher_ids": [
-        "teacher_marit_topnes_serigstad"
-      ],
-      "class_ids": [
-        "class_2stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2ida",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_randi_selvik",
-      "teacher_ids": [
-        "teacher_randi_selvik"
-      ],
-      "class_ids": [
-        "class_2ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2idb",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_hanne_h_vardstein",
-      "teacher_ids": [
-        "teacher_hanne_h_vardstein"
-      ],
-      "class_ids": [
-        "class_2idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2sta",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_malin_topnes_j_rgensen",
-      "teacher_ids": [
-        "teacher_malin_topnes_j_rgensen"
-      ],
-      "class_ids": [
-        "class_2sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2ste",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_hanne_stokka_hold",
-      "teacher_ids": [
-        "teacher_hanne_stokka_hold"
-      ],
-      "class_ids": [
-        "class_2ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2stf",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_gunnbj_rg_rpen",
-      "teacher_ids": [
-        "teacher_gunnbj_rg_rpen"
-      ],
-      "class_ids": [
-        "class_2stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2tid",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_lene_h_iland",
-      "teacher_ids": [
-        "teacher_lene_h_iland"
-      ],
-      "class_ids": [
-        "class_2tid"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg2_2tmt",
-      "name": "Norsk vg2",
-      "teacher_id": "teacher_shild_naustdal_jakobsen",
-      "teacher_ids": [
-        "teacher_shild_naustdal_jakobsen"
-      ],
-      "class_ids": [
-        "class_2tmt"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3stf",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_eline_s_ter",
-      "teacher_ids": [
-        "teacher_eline_s_ter"
-      ],
-      "class_ids": [
-        "class_3stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3ste",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_alexander_gabrielsen",
-      "teacher_ids": [
-        "teacher_alexander_gabrielsen"
-      ],
-      "class_ids": [
-        "class_3ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3std",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_alexandra_kristina_norling",
-      "teacher_ids": [
-        "teacher_alexandra_kristina_norling"
-      ],
-      "class_ids": [
-        "class_3std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3stc",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_daniel_kanstad",
-      "teacher_ids": [
-        "teacher_daniel_kanstad"
-      ],
-      "class_ids": [
-        "class_3stc"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3stb",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_eline_s_ter",
-      "teacher_ids": [
-        "teacher_eline_s_ter"
-      ],
-      "class_ids": [
-        "class_3stb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kropps_ving_vg3_3sta",
-      "name": "Kroppsøving vg3",
-      "teacher_id": "teacher_gunhild_bru_nyb",
-      "teacher_ids": [
-        "teacher_gunhild_bru_nyb"
-      ],
-      "class_ids": [
-        "class_3sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": true,
-      "force_timeslot_id": "Wed-2",
-      "allowed_timeslots": [
-        "Mon-2",
-        "Mon-3",
-        "Mon-4",
-        "Tue-2",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-2",
-        "Thu-3",
-        "Thu-4",
-        "Fri-2",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_1_2",
-      "name": "Psykologi 1",
-      "teacher_id": "teacher_anne_lunde",
-      "teacher_ids": [
-        "teacher_anne_lunde"
-      ],
+      "id": "subject_spansk_ii",
+      "name": "Spansk II",
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [],
       "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3tmt",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_marit_topnes_serigstad",
-      "teacher_ids": [
-        "teacher_marit_topnes_serigstad"
-      ],
-      "class_ids": [
-        "class_3tmt"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3tid",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_tor_thorvaldsen",
-      "teacher_ids": [
-        "teacher_tor_thorvaldsen"
-      ],
-      "class_ids": [
-        "class_3tid"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3stf",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_kjersti_eide_torstrup",
-      "teacher_ids": [
-        "teacher_kjersti_eide_torstrup"
-      ],
-      "class_ids": [
-        "class_3stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3ste",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_hanne_stokka_hold",
-      "teacher_ids": [
-        "teacher_hanne_stokka_hold"
-      ],
-      "class_ids": [
-        "class_3ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3std",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_siri_st_ldal",
-      "teacher_ids": [
-        "teacher_siri_st_ldal"
-      ],
-      "class_ids": [
-        "class_3std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3stc",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_agnethe_j_rpeland",
-      "teacher_ids": [
-        "teacher_agnethe_j_rpeland"
-      ],
-      "class_ids": [
-        "class_3stc"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3stb",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_gry_heidi_d_vik_skadsem",
-      "teacher_ids": [
-        "teacher_gry_heidi_d_vik_skadsem"
-      ],
-      "class_ids": [
-        "class_3stb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3sta",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_hilde_maren_todnem",
-      "teacher_ids": [
-        "teacher_hilde_maren_todnem"
-      ],
-      "class_ids": [
-        "class_3sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3idb",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_elisabeth_nordlander",
-      "teacher_ids": [
-        "teacher_elisabeth_nordlander"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_norsk_vg3_3ida",
-      "name": "Norsk vg3",
-      "teacher_id": "teacher_jon_arne_pollestad",
-      "teacher_ids": [
-        "teacher_jon_arne_pollestad"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 6,
+      "sessions_per_week": 2,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
@@ -2306,17 +1511,13 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_religion_og_etikk_3tmt",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_ida_elise_nymoen_eltervaag",
-      "teacher_ids": [
-        "teacher_ida_elise_nymoen_eltervaag"
-      ],
-      "class_ids": [
-        "class_3tmt"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
+      "id": "subject_1p",
+      "name": "1P",
+      "teacher_id": "",
+      "teacher_ids": [],
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 3,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
@@ -2326,292 +1527,15 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_religion_og_etikk_3tid",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_kjersti_eide_torstrup",
-      "teacher_ids": [
-        "teacher_kjersti_eide_torstrup"
-      ],
-      "class_ids": [
-        "class_3tid"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3stf",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_christer_thoresen",
-      "teacher_ids": [
-        "teacher_christer_thoresen"
-      ],
-      "class_ids": [
-        "class_3stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3ste",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_agata_anna_zwierzynska",
-      "teacher_ids": [
-        "teacher_agata_anna_zwierzynska"
-      ],
-      "class_ids": [
-        "class_3ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3std",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_tor_thorvaldsen",
-      "teacher_ids": [
-        "teacher_tor_thorvaldsen"
-      ],
-      "class_ids": [
-        "class_3std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3stc",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_kjersti_eide_torstrup",
-      "teacher_ids": [
-        "teacher_kjersti_eide_torstrup"
-      ],
-      "class_ids": [
-        "class_3stc"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3stb",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_kjersti_eide_torstrup",
-      "teacher_ids": [
-        "teacher_kjersti_eide_torstrup"
-      ],
-      "class_ids": [
-        "class_3stb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3sta",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_agata_anna_zwierzynska",
-      "teacher_ids": [
-        "teacher_agata_anna_zwierzynska"
-      ],
-      "class_ids": [
-        "class_3sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3idb",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_christer_thoresen",
-      "teacher_ids": [
-        "teacher_christer_thoresen"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_religion_og_etikk_3ida",
-      "name": "Religion og etikk",
-      "teacher_id": "teacher_ida_elise_nymoen_eltervaag",
-      "teacher_ids": [
-        "teacher_ida_elise_nymoen_eltervaag"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg2_2idb",
-      "name": "Aktivitetslære vg2",
-      "teacher_id": "teacher_j_rund_tore_skadberg",
-      "teacher_ids": [
-        "teacher_j_rund_tore_skadberg",
-        "teacher_tiril_d_vre",
-        "teacher_christer_corneliussen"
-      ],
-      "class_ids": [
-        "class_2idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg2_mnm12gc6",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg2_2ida",
-      "name": "Aktivitetslære vg2",
-      "teacher_id": "teacher_alexandra_kristina_norling",
-      "teacher_ids": [
-        "teacher_alexandra_kristina_norling",
-        "teacher_p_l_kristian_gulbrandsen"
-      ],
-      "class_ids": [
-        "class_2ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": [
-        "Mon-3",
-        "Mon-4",
-        "Tue-3",
-        "Tue-4",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-3",
-        "Thu-4",
-        "Fri-3",
-        "Fri-4"
-      ],
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg2_mnm12gc6",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg3_3ida",
-      "name": "Aktivitetslære vg3",
-      "teacher_id": "teacher_hege_kleiberg_mj_lsnes",
-      "teacher_ids": [
-        "teacher_hege_kleiberg_mj_lsnes",
-        "teacher_roger_os"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg3_mnm12hmr",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg3_3idb",
-      "name": "Aktivitetslære vg3",
-      "teacher_id": "teacher_olav_vistnes",
-      "teacher_ids": [
-        "teacher_olav_vistnes",
-        "teacher_stian_sigmund_liebich"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg3_mnm12hmr",
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsl_re_vg1_1ida",
-      "name": "Treningslære vg1",
+      "id": "subject_engelsk_vg1_id_1ida",
+      "name": "Engelsk vg1 ID",
       "teacher_id": "",
       "teacher_ids": [],
       "class_ids": [
         "class_1ida"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 2,
+      "sessions_per_week": 1,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
@@ -2621,590 +1545,14 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_treningsl_re_vg1_1idb",
-      "name": "Treningslære vg1",
-      "teacher_id": "teacher_daniel_kanstad",
-      "teacher_ids": [
-        "teacher_daniel_kanstad"
-      ],
+      "id": "subject_engelsk_vg1_id_1idb",
+      "name": "Engelsk vg1 ID",
+      "teacher_id": "",
+      "teacher_ids": [],
       "class_ids": [
         "class_1idb"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsl_re_vg2_2ida",
-      "name": "Treningslære vg2",
-      "teacher_id": "teacher_alexandra_kristina_norling",
-      "teacher_ids": [
-        "teacher_alexandra_kristina_norling"
-      ],
-      "class_ids": [
-        "class_2ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsl_re_vg2_2idb",
-      "name": "Treningslære vg2",
-      "teacher_id": "teacher_tiril_d_vre",
-      "teacher_ids": [
-        "teacher_tiril_d_vre"
-      ],
-      "class_ids": [
-        "class_2idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kjemi_1",
-      "name": "Kjemi 1",
-      "teacher_id": "teacher_hilde_ekrheim_mosand",
-      "teacher_ids": [
-        "teacher_hilde_ekrheim_mosand"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": [
-        "block_blokk_1"
-      ],
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_treningsl_re_vg3_3ida",
-      "name": "Treningslære vg3",
-      "teacher_id": "teacher_hege_kleiberg_mj_lsnes",
-      "teacher_ids": [
-        "teacher_hege_kleiberg_mj_lsnes"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsl_re_vg3_3idb",
-      "name": "Treningslære vg3",
-      "teacher_id": "teacher_olav_vistnes",
-      "teacher_ids": [
-        "teacher_olav_vistnes"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 5,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3ida",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_jon_arne_pollestad",
-      "teacher_ids": [
-        "teacher_jon_arne_pollestad"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3idb",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_lene_h_iland",
-      "teacher_ids": [
-        "teacher_lene_h_iland"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3sta",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_knut_tjosevik",
-      "teacher_ids": [
-        "teacher_knut_tjosevik"
-      ],
-      "class_ids": [
-        "class_3sta"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3stb",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_kyrre_alexander_grevstad",
-      "teacher_ids": [
-        "teacher_kyrre_alexander_grevstad"
-      ],
-      "class_ids": [
-        "class_3stb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3stc",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_lene_h_iland",
-      "teacher_ids": [
-        "teacher_lene_h_iland"
-      ],
-      "class_ids": [
-        "class_3stc"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3std",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_siri_st_ldal",
-      "teacher_ids": [
-        "teacher_siri_st_ldal"
-      ],
-      "class_ids": [
-        "class_3std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3ste",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_anders_bratteli",
-      "teacher_ids": [
-        "teacher_anders_bratteli"
-      ],
-      "class_ids": [
-        "class_3ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3stf",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_christer_thoresen",
-      "teacher_ids": [
-        "teacher_christer_thoresen"
-      ],
-      "class_ids": [
-        "class_3stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3tid",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_tor_thorvaldsen",
-      "teacher_ids": [
-        "teacher_tor_thorvaldsen"
-      ],
-      "class_ids": [
-        "class_3tid"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_historie_vg3_3tmt",
-      "name": "Historie vg3",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
-      "class_ids": [
-        "class_3tmt"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_idrett_og_samfunn_vg2_2ida",
-      "name": "Idrett og samfunn vg2",
-      "teacher_id": "teacher_daniel_kanstad",
-      "teacher_ids": [
-        "teacher_daniel_kanstad"
-      ],
-      "class_ids": [
-        "class_2ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_idrett_og_samfunn_vg2_2idb",
-      "name": "Idrett og samfunn vg2",
-      "teacher_id": "teacher_christer_corneliussen",
-      "teacher_ids": [
-        "teacher_christer_corneliussen"
-      ],
-      "class_ids": [
-        "class_2idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_karen_synn_ve_ohm",
-      "teacher_ids": [
-        "teacher_karen_synn_ve_ohm"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg1",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_trude_hassel_dessingue",
-      "teacher_ids": [
-        "teacher_trude_hassel_dessingue"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_idrett",
-      "name": "Idrett",
-      "teacher_id": "",
-      "teacher_ids": [],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_kelly_london",
-      "teacher_ids": [
-        "teacher_kelly_london"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fysikk_2",
-      "name": "Fysikk 2",
-      "teacher_id": "teacher_rjan_augedal",
-      "teacher_ids": [
-        "teacher_rjan_augedal"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r114"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_kjemi_1_2",
-      "name": "Kjemi 1",
-      "teacher_id": "teacher_zeynep_aylin_mersin",
-      "teacher_ids": [
-        "teacher_zeynep_aylin_mersin"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_kjemi_1_3",
-      "name": "Kjemi 1",
-      "teacher_id": "teacher_katrine_aske",
-      "teacher_ids": [
-        "teacher_katrine_aske"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_entrepren_rskap_og_bedriftsutvikling_1",
-      "name": "Entreprenørskap og bedriftsutvikling 1",
-      "teacher_id": "teacher_malin_topnes_j_rgensen",
-      "teacher_ids": [
-        "teacher_malin_topnes_j_rgensen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": [
-        "block_blokk_1"
-      ],
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fysikk_1",
-      "name": "Fysikk 1",
-      "teacher_id": "teacher_olav_omlid",
-      "teacher_ids": [
-        "teacher_olav_omlid"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": [
-        "block_blokk_1"
-      ],
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r114"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_psykologi_1_3",
-      "name": "Rettslæte 1",
-      "teacher_id": "teacher_vibeke_bj_rnestad",
-      "teacher_ids": [
-        "teacher_vibeke_bj_rnestad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": [
-        "block_blokk_1"
-      ],
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunns_konomi_1",
-      "name": "Samfunnsøkonomi 1",
-      "teacher_id": "teacher_tirill_aslesen",
-      "teacher_ids": [
-        "teacher_tirill_aslesen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": [
-        "block_blokk_1"
-      ],
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsledelse_1_2ida",
-      "name": "Treningsledelse 1",
-      "teacher_id": "teacher_p_l_kristian_gulbrandsen",
-      "teacher_ids": [
-        "teacher_p_l_kristian_gulbrandsen"
-      ],
-      "class_ids": [
-        "class_2ida"
-      ],
-      "subject_type": "fellesfag",
       "sessions_per_week": 1,
       "force_place": false,
       "force_timeslot_id": null,
@@ -3215,1287 +1563,17 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_treningsledelse_1_2idb",
-      "name": "Treningsledelse 1",
-      "teacher_id": "teacher_eline_s_ter",
-      "teacher_ids": [
-        "teacher_eline_s_ter"
-      ],
-      "class_ids": [
-        "class_2idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsledelse_2_3ida",
-      "name": "Treningsledelse 2",
-      "teacher_id": "teacher_roger_os",
-      "teacher_ids": [
-        "teacher_roger_os"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_treningsledelse_2_3idb",
-      "name": "Treningsledelse 2",
-      "teacher_id": "teacher_olav_vistnes",
-      "teacher_ids": [
-        "teacher_olav_vistnes"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 1,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p_2",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_zeynep_aylin_mersin",
-      "teacher_ids": [
-        "teacher_zeynep_aylin_mersin"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p_3",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_ida_soltvedt_johannessen",
-      "teacher_ids": [
-        "teacher_ida_soltvedt_johannessen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p_4",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_olav_omlid",
-      "teacher_ids": [
-        "teacher_olav_omlid"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p_5",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_jo_berg_svalland",
-      "teacher_ids": [
-        "teacher_jo_berg_svalland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1p_6",
-      "name": "Matematikk 1P",
-      "teacher_id": "teacher_katrine_aske",
-      "teacher_ids": [
-        "teacher_katrine_aske"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_liesbeth_breesch",
-      "teacher_ids": [
-        "teacher_liesbeth_breesch"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t_2",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_cato_tveit",
-      "teacher_ids": [
-        "teacher_cato_tveit"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t_3",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_stein_v_rlid",
-      "teacher_ids": [
-        "teacher_stein_v_rlid"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t_4",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_rjan_augedal",
-      "teacher_ids": [
-        "teacher_rjan_augedal"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t_5",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_tormod_sthus",
-      "teacher_ids": [
-        "teacher_tormod_sthus"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_1t_6",
-      "name": "Matematikk 1T",
-      "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-      "teacher_ids": [
-        "teacher_fredrik_samuel_read_v_nsk"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematik_2p",
-      "name": "Matematik 2P",
-      "teacher_id": "teacher_katrine_aske",
-      "teacher_ids": [
-        "teacher_katrine_aske",
-        "teacher_zeynep_aylin_mersin"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_cato_tveit",
-      "teacher_ids": [
-        "teacher_cato_tveit"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p_2",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-      "teacher_ids": [
-        "teacher_fredrik_samuel_read_v_nsk"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p_3",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_michael_christensen",
-      "teacher_ids": [
-        "teacher_michael_christensen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p_4",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_rjan_augedal",
-      "teacher_ids": [
-        "teacher_rjan_augedal"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p_5",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_christian_magnus_mikalsen_johannessen",
-      "teacher_ids": [
-        "teacher_christian_magnus_mikalsen_johannessen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_2p_6",
-      "name": "Matematikk 2P",
-      "teacher_id": "teacher_karen_synn_ve_ohm",
-      "teacher_ids": [
-        "teacher_karen_synn_ve_ohm"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_r1",
-      "name": "Matematikk R1",
-      "teacher_id": "teacher_olav_omlid",
-      "teacher_ids": [
-        "teacher_olav_omlid"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_r1_2",
-      "name": "Matematikk R1",
-      "teacher_id": "teacher_svein_ove_h_iland",
-      "teacher_ids": [
-        "teacher_svein_ove_h_iland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_r1_3",
-      "name": "Matematikk R1",
-      "teacher_id": "teacher_tormod_sthus",
-      "teacher_ids": [
-        "teacher_tormod_sthus"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_s1",
-      "name": "Matematikk S1",
-      "teacher_id": "teacher_aud_charlotte_ullestad",
-      "teacher_ids": [
-        "teacher_aud_charlotte_ullestad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_s1_2",
-      "name": "Matematikk S1",
-      "teacher_id": "teacher_stein_v_rlid",
-      "teacher_ids": [
-        "teacher_stein_v_rlid"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_biologi_1",
-      "name": "Biologi 1",
-      "teacher_id": "teacher_solvor_motland_kirkemo",
-      "teacher_ids": [
-        "teacher_solvor_motland_kirkemo"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r108"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_biologi_2",
-      "name": "Biologi 2",
-      "teacher_id": "teacher_ida_soltvedt_johannessen",
-      "teacher_ids": [
-        "teacher_ida_soltvedt_johannessen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r108"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_breddeidrett_1",
-      "name": "Breddeidrett 1",
-      "teacher_id": "teacher_gunhild_bru_nyb",
-      "teacher_ids": [
-        "teacher_gunhild_bru_nyb"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_1",
-      "name": "Engelsk 1",
-      "teacher_id": "teacher_kyrre_alexander_grevstad",
-      "teacher_ids": [
-        "teacher_kyrre_alexander_grevstad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fysikk_1_2",
-      "name": "Fysikk 1",
-      "teacher_id": "teacher_olav_omlid",
-      "teacher_ids": [
-        "teacher_olav_omlid",
-        "teacher_rjan_augedal"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r114"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_geofag_1",
-      "name": "Geofag 1",
-      "teacher_id": "teacher_ine_reppen_farrell",
-      "teacher_ids": [
-        "teacher_ine_reppen_farrell"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_markedsf_ring_og_ledelse_1",
-      "name": "Markedsføring og ledelse 1",
-      "teacher_id": "teacher_camilla_berthelsen",
-      "teacher_ids": [
-        "teacher_camilla_berthelsen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_markedsf_ring_og_ledelse_2",
-      "name": "Markedsføring og ledelse 2",
-      "teacher_id": "teacher_michael_christensen",
-      "teacher_ids": [
-        "teacher_michael_christensen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_r2",
-      "name": "Matematikk R2",
-      "teacher_id": "teacher_cato_tveit",
-      "teacher_ids": [
-        "teacher_cato_tveit"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_1",
-      "name": "Psykologi 1",
-      "teacher_id": "teacher_trondr_breiland",
-      "teacher_ids": [
-        "teacher_trondr_breiland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_2",
-      "name": "Psykologi 2",
+      "id": "subject_engelsk_vg1_id_1tid",
+      "name": "Engelsk vg1 ID",
       "teacher_id": "teacher_anne_lunde",
       "teacher_ids": [
         "teacher_anne_lunde"
       ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_rettsl_re_2",
-      "name": "Rettslære 2",
-      "teacher_id": "teacher_marianne_sandberg",
-      "teacher_ids": [
-        "teacher_marianne_sandberg"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunns_konomi_1_2",
-      "name": "Samfunnsøkonomi 1",
-      "teacher_id": "teacher_tirill_aslesen",
-      "teacher_ids": [
-        "teacher_tirill_aslesen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunns_konomi_2",
-      "name": "Samfunnsøkonomi 2",
-      "teacher_id": "teacher_trond_ystein_magne",
-      "teacher_ids": [
-        "teacher_trond_ystein_magne"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_sosialkunnskap",
-      "name": "Sosialkunnskap",
-      "teacher_id": "teacher_trond_waage_ids_e",
-      "teacher_ids": [
-        "teacher_trond_waage_ids_e"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_sosiologi_og_sosialantropologi",
-      "name": "Sosiologi og sosialantropologi",
-      "teacher_id": "teacher_vibeke_bj_rnestad",
-      "teacher_ids": [
-        "teacher_vibeke_bj_rnestad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_biologi_1_2",
-      "name": "Biologi 1",
-      "teacher_id": "teacher_solvor_motland_kirkemo",
-      "teacher_ids": [
-        "teacher_solvor_motland_kirkemo"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r108"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_breddeidrett_1_2",
-      "name": "Breddeidrett 1",
-      "teacher_id": "teacher_kjerand_tangen",
-      "teacher_ids": [
-        "teacher_kjerand_tangen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_breddeidrett_1_3",
-      "name": "Breddeidrett 1",
-      "teacher_id": "teacher_gunhild_bru_nyb",
-      "teacher_ids": [
-        "teacher_gunhild_bru_nyb"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_1_2",
-      "name": "Engelsk 1",
-      "teacher_id": "teacher_shild_naustdal_jakobsen",
-      "teacher_ids": [
-        "teacher_shild_naustdal_jakobsen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_entrepren_rskap_og_bedriftsutvikling_1_2",
-      "name": "Entreprenørskap og bedriftsutvikling 1",
-      "teacher_id": "teacher_camilla_berthelsen",
-      "teacher_ids": [
-        "teacher_camilla_berthelsen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fysikk_1_3",
-      "name": "Fysikk 1",
-      "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-      "teacher_ids": [
-        "teacher_fredrik_samuel_read_v_nsk"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r114"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_geofag_2",
-      "name": "Geofag 2",
-      "teacher_id": "teacher_liesbeth_breesch",
-      "teacher_ids": [
-        "teacher_liesbeth_breesch"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r106b"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_kjemi_1_5",
-      "name": "Kjemi 1",
-      "teacher_id": "teacher_hilde_ekrheim_mosand",
-      "teacher_ids": [
-        "teacher_hilde_ekrheim_mosand"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_kjemi_2",
-      "name": "Kjemi 2",
-      "teacher_id": "teacher_katrine_aske",
-      "teacher_ids": [
-        "teacher_katrine_aske"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_markedsf_ring_og_ledelse_1_2",
-      "name": "Markedsføring og ledelse 1",
-      "teacher_id": "teacher_michael_christensen",
-      "teacher_ids": [
-        "teacher_michael_christensen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_r2_2",
-      "name": "Matematikk R2",
-      "teacher_id": "teacher_svein_ove_h_iland",
-      "teacher_ids": [
-        "teacher_svein_ove_h_iland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_s2",
-      "name": "Matematikk S2",
-      "teacher_id": "teacher_cato_tveit",
-      "teacher_ids": [
-        "teacher_cato_tveit"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_1_4",
-      "name": "Psykologi 1",
-      "teacher_id": "teacher_trondr_breiland",
-      "teacher_ids": [
-        "teacher_trondr_breiland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_2_2",
-      "name": "Psykologi 2",
-      "teacher_id": "teacher_hanne_jakobsen",
-      "teacher_ids": [
-        "teacher_hanne_jakobsen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_rettsl_re_1",
-      "name": "Rettslære 1",
-      "teacher_id": "teacher_marianne_sandberg",
-      "teacher_ids": [
-        "teacher_marianne_sandberg"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_rettsl_re_2_2",
-      "name": "Rettslære 2",
-      "teacher_id": "teacher_vibeke_bj_rnestad",
-      "teacher_ids": [
-        "teacher_vibeke_bj_rnestad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunns_konomi_1_3",
-      "name": "Samfunnsøkonomi 1",
-      "teacher_id": "teacher_tirill_aslesen",
-      "teacher_ids": [
-        "teacher_tirill_aslesen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_sosialkunnskap_2",
-      "name": "Sosialkunnskap",
-      "teacher_id": "teacher_lene_h_iland",
-      "teacher_ids": [
-        "teacher_lene_h_iland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_sosiologi_og_sosialantropologi_2",
-      "name": "Sosiologi og sosialantropologi",
-      "teacher_id": "teacher_christer_thoresen",
-      "teacher_ids": [
-        "teacher_christer_thoresen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_engelsk_2",
-      "name": "Engelsk 2",
-      "teacher_id": "teacher_anders_bratteli",
-      "teacher_ids": [
-        "teacher_anders_bratteli"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_kjemi_2_2",
-      "name": "Kjemi 2",
-      "teacher_id": "teacher_jo_berg_svalland",
-      "teacher_ids": [
-        "teacher_jo_berg_svalland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [
-        "room_r110"
-      ],
-      "room_requirement_mode": "once_per_week"
-    },
-    {
-      "id": "subject_markedsf_ring_og_ledelse_2_2",
-      "name": "Markedsføring og ledelse 2",
-      "teacher_id": "teacher_camilla_berthelsen",
-      "teacher_ids": [
-        "teacher_camilla_berthelsen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_markedsf_ring_og_ledelse_2_3",
-      "name": "Markedsføring og ledelse 2",
-      "teacher_id": "teacher_michael_christensen",
-      "teacher_ids": [
-        "teacher_michael_christensen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_matematikk_s2_2",
-      "name": "Matematikk S2",
-      "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-      "teacher_ids": [
-        "teacher_fredrik_samuel_read_v_nsk"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_psykologi_2_3",
-      "name": "Psykologi 2",
-      "teacher_id": "teacher_trondr_breiland",
-      "teacher_ids": [
-        "teacher_trondr_breiland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunns_konomi_2_2",
-      "name": "Samfunnsøkonomi 2",
-      "teacher_id": "teacher_tirill_aslesen",
-      "teacher_ids": [
-        "teacher_tirill_aslesen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_samfunnsgeografi",
-      "name": "Samfunnsgeografi",
-      "teacher_id": "teacher_johan_siqveland",
-      "teacher_ids": [
-        "teacher_johan_siqveland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg1_1stf",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_helene_huseland",
-      "teacher_ids": [
-        "teacher_helene_huseland"
-      ],
       "class_ids": [
-        "class_1stf"
+        "class_1tid"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 4,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
@@ -4505,466 +1583,56 @@
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_spansk_ii_vg1_1ste",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_sabine_roemer",
-      "teacher_ids": [
-        "teacher_sabine_roemer"
-      ],
-      "class_ids": [
-        "class_1ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg1_1std",
-      "name": "Tysk II vg1",
-      "teacher_id": "teacher_tone_helen_tj_rstad",
-      "teacher_ids": [
-        "teacher_tone_helen_tj_rstad"
-      ],
-      "class_ids": [
-        "class_1std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2_2ste",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_agata_anna_zwierzynska",
-      "teacher_ids": [
-        "teacher_agata_anna_zwierzynska"
-      ],
-      "class_ids": [
-        "class_2ste"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg2_2std",
-      "name": "Tysk II vg2",
-      "teacher_id": "teacher_sabine_roemer",
-      "teacher_ids": [
-        "teacher_sabine_roemer"
-      ],
-      "class_ids": [
-        "class_2std"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2_2stf",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_alba_de_la_vega_fernandez",
-      "teacher_ids": [
-        "teacher_alba_de_la_vega_fernandez"
-      ],
-      "class_ids": [
-        "class_2stf"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fransk_ii_vg1",
-      "name": "Fransk II vg1",
-      "teacher_id": "teacher_sabine_roemer",
-      "teacher_ids": [
-        "teacher_sabine_roemer"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg1_2",
-      "name": "Tysk II vg1",
-      "teacher_id": "teacher_annett_titlestad",
-      "teacher_ids": [
-        "teacher_annett_titlestad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_i_ii_vg1",
-      "name": "Tysk I+II vg1",
-      "teacher_id": "teacher_kelly_london",
-      "teacher_ids": [
-        "teacher_kelly_london"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fransk_ii_vg1_2",
-      "name": "Fransk II vg1",
-      "teacher_id": "teacher_elisabeth_nordlander",
-      "teacher_ids": [
-        "teacher_elisabeth_nordlander"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg1_3",
-      "name": "Tysk II vg1",
-      "teacher_id": "teacher_gunnbj_rg_rpen",
-      "teacher_ids": [
-        "teacher_gunnbj_rg_rpen"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg1_3",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_agata_anna_zwierzynska",
-      "teacher_ids": [
-        "teacher_agata_anna_zwierzynska"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg1_4",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_alba_de_la_vega_fernandez",
-      "teacher_ids": [
-        "teacher_alba_de_la_vega_fernandez"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg1_5",
-      "name": "Spansk II vg1",
-      "teacher_id": "teacher_helene_huseland",
-      "teacher_ids": [
-        "teacher_helene_huseland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fransk_ii_vg2",
-      "name": "Fransk II vg2",
-      "teacher_id": "teacher_sabine_roemer",
-      "teacher_ids": [
-        "teacher_sabine_roemer"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg2_2",
-      "name": "Tysk II vg2",
-      "teacher_id": "teacher_tone_helen_tj_rstad",
-      "teacher_ids": [
-        "teacher_tone_helen_tj_rstad"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_i_ii_vg2",
-      "name": "Tysk I+II vg2",
-      "teacher_id": "teacher_hege_kleiberg_mj_lsnes",
-      "teacher_ids": [
-        "teacher_hege_kleiberg_mj_lsnes"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_tysk_ii_vg2_3",
-      "name": "Tysk II vg2",
-      "teacher_id": "teacher_siri_st_ldal",
-      "teacher_ids": [
-        "teacher_siri_st_ldal"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2_3",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_alba_de_la_vega_fernandez",
-      "teacher_ids": [
-        "teacher_alba_de_la_vega_fernandez"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2_4",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_agata_anna_zwierzynska",
-      "teacher_ids": [
-        "teacher_agata_anna_zwierzynska"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_spansk_ii_vg2_5",
-      "name": "Spansk II vg2",
-      "teacher_id": "teacher_helene_huseland",
-      "teacher_ids": [
-        "teacher_helene_huseland"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_fransk_ii_vg2_2",
-      "name": "Fransk II vg2",
-      "teacher_id": "teacher_elisabeth_nordlander",
-      "teacher_ids": [
-        "teacher_elisabeth_nordlander"
-      ],
-      "class_ids": [],
-      "subject_type": "programfag",
-      "sessions_per_week": 2,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_idrett_og_samfunn_vg3_3ida",
-      "name": "Idrett og samfunn vg3",
-      "teacher_id": "teacher_vibeke_bj_rnestad",
-      "teacher_ids": [
-        "teacher_vibeke_bj_rnestad"
-      ],
-      "class_ids": [
-        "class_3ida"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_idrett_og_samfunn_vg3_3idb",
-      "name": "Idrett og samfunn vg3",
-      "teacher_id": "teacher_stian_sigmund_liebich",
-      "teacher_ids": [
-        "teacher_stian_sigmund_liebich"
-      ],
-      "class_ids": [
-        "class_3idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 3,
-      "force_place": false,
-      "force_timeslot_id": null,
-      "allowed_timeslots": null,
-      "allowed_block_ids": null,
-      "link_group_id": null,
-      "preferred_room_ids": [],
-      "room_requirement_mode": "always"
-    },
-    {
-      "id": "subject_aktivitetsl_re_vg1_1ida",
-      "name": "Aktivitetslære vg1",
+      "id": "subject_engelsk_vg1_id_1tmt",
+      "name": "Engelsk vg1 ID",
       "teacher_id": "",
       "teacher_ids": [],
       "class_ids": [
-        "class_1ida"
+        "class_1tmt"
       ],
       "subject_type": "fellesfag",
-      "sessions_per_week": 4,
+      "sessions_per_week": 5,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg1_mnm12emw",
+      "link_group_id": null,
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
     {
-      "id": "subject_aktivitetsl_re_vg1_1idb",
-      "name": "Aktivitetslære vg1",
+      "id": "subject_spansk_ii_2",
+      "name": "Spansk II",
       "teacher_id": "",
       "teacher_ids": [],
-      "class_ids": [
-        "class_1idb"
-      ],
-      "subject_type": "fellesfag",
-      "sessions_per_week": 4,
+      "class_ids": [],
+      "subject_type": "programfag",
+      "sessions_per_week": 2,
       "force_place": false,
       "force_timeslot_id": null,
       "allowed_timeslots": null,
       "allowed_block_ids": null,
-      "link_group_id": "link_aktivitetsl_re_vg1_mnm12emw",
+      "link_group_id": null,
+      "preferred_room_ids": [],
+      "room_requirement_mode": "always"
+    },
+    {
+      "id": "subject_kropps_ving_vg1_1sta",
+      "name": "Kroppsøving vg1",
+      "teacher_id": "teacher_marit_topnes_serigstad",
+      "teacher_ids": [
+        "teacher_marit_topnes_serigstad"
+      ],
+      "class_ids": [
+        "class_1sta"
+      ],
+      "subject_type": "fellesfag",
+      "sessions_per_week": 2,
+      "force_place": true,
+      "force_timeslot_id": "Wed-2",
+      "allowed_timeslots": null,
+      "allowed_block_ids": null,
+      "link_group_id": null,
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
     }
@@ -4994,9 +1662,7 @@
       "preferred_avoid_timeslots": [],
       "unavailable_timeslots": [],
       "workload_percent": 100,
-      "preferred_room_ids": [
-        "room_r206"
-      ],
+      "preferred_room_ids": [],
       "room_requirement_mode": "always"
     },
     {
@@ -5147,7 +1813,9 @@
       "id": "teacher_ine_reppen_farrell",
       "name": "Ine Reppen Farrell",
       "preferred_avoid_timeslots": [],
-      "unavailable_timeslots": [],
+      "unavailable_timeslots": [
+        "Mon-2"
+      ],
       "workload_percent": 100,
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
@@ -5795,17 +2463,7 @@
       "id": "teacher_stein_v_rlid",
       "name": "Stein Vårlid",
       "preferred_avoid_timeslots": [],
-      "unavailable_timeslots": [
-        "Mon-1",
-        "Tue-1",
-        "Wed-1",
-        "Wed-2",
-        "Wed-3",
-        "Wed-4",
-        "Wed-5",
-        "Thu-1",
-        "Fri-1"
-      ],
+      "unavailable_timeslots": [],
       "workload_percent": 100,
       "preferred_room_ids": [],
       "room_requirement_mode": "always"
@@ -5833,92 +2491,92 @@
     {
       "id": "class_1sta",
       "name": "1STA",
-      "base_room_id": "room_r218"
+      "base_room_id": null
     },
     {
       "id": "class_1stb",
       "name": "1STB",
-      "base_room_id": "room_r219"
+      "base_room_id": null
     },
     {
       "id": "class_1stc",
       "name": "1STC",
-      "base_room_id": "room_r223"
+      "base_room_id": null
     },
     {
       "id": "class_1std",
       "name": "1STD",
-      "base_room_id": "room_r224"
+      "base_room_id": null
     },
     {
       "id": "class_1ste",
       "name": "1STE",
-      "base_room_id": "room_r312"
+      "base_room_id": null
     },
     {
       "id": "class_1stf",
       "name": "1STF",
-      "base_room_id": "room_r313"
+      "base_room_id": null
     },
     {
       "id": "class_2sta",
       "name": "2STA",
-      "base_room_id": "room_r106a"
+      "base_room_id": null
     },
     {
       "id": "class_2stb",
       "name": "2STB",
-      "base_room_id": "room_r110"
+      "base_room_id": null
     },
     {
       "id": "class_2stc",
       "name": "2STC",
-      "base_room_id": "room_r316"
+      "base_room_id": null
     },
     {
       "id": "class_2std",
       "name": "2STD",
-      "base_room_id": "room_r206"
+      "base_room_id": null
     },
     {
       "id": "class_2ste",
       "name": "2STE",
-      "base_room_id": "room_r116"
+      "base_room_id": null
     },
     {
       "id": "class_2stf",
       "name": "2STF",
-      "base_room_id": "room_r301"
+      "base_room_id": null
     },
     {
       "id": "class_3sta",
       "name": "3STA",
-      "base_room_id": "room_r205"
+      "base_room_id": null
     },
     {
       "id": "class_3stb",
       "name": "3STB",
-      "base_room_id": "room_r221"
+      "base_room_id": null
     },
     {
       "id": "class_3stc",
       "name": "3STC",
-      "base_room_id": "room_r305"
+      "base_room_id": null
     },
     {
       "id": "class_3std",
       "name": "3STD",
-      "base_room_id": "room_r222"
+      "base_room_id": null
     },
     {
       "id": "class_3ste",
       "name": "3STE",
-      "base_room_id": "room_r207"
+      "base_room_id": null
     },
     {
       "id": "class_3stf",
       "name": "3STF",
-      "base_room_id": "room_r318"
+      "base_room_id": null
     },
     {
       "id": "class_1ida",
@@ -5933,52 +2591,52 @@
     {
       "id": "class_2ida",
       "name": "2IDA",
-      "base_room_id": "room_r216"
+      "base_room_id": null
     },
     {
       "id": "class_2idb",
       "name": "2IDB",
-      "base_room_id": "room_r217"
+      "base_room_id": null
     },
     {
       "id": "class_3ida",
       "name": "3IDA",
-      "base_room_id": "room_r317"
+      "base_room_id": null
     },
     {
       "id": "class_3idb",
       "name": "3IDB",
-      "base_room_id": "room_r319"
+      "base_room_id": null
     },
     {
       "id": "class_1tid",
       "name": "1TID",
-      "base_room_id": "room_r117"
+      "base_room_id": "room_r208"
     },
     {
       "id": "class_2tid",
       "name": "2TID",
-      "base_room_id": "room_r208"
+      "base_room_id": null
     },
     {
       "id": "class_3tid",
       "name": "3TID",
-      "base_room_id": "room_r302"
+      "base_room_id": null
     },
     {
       "id": "class_1tmt",
       "name": "1TMT",
-      "base_room_id": "room_r210"
+      "base_room_id": null
     },
     {
       "id": "class_2tmt",
       "name": "2TMT",
-      "base_room_id": "room_r204"
+      "base_room_id": null
     },
     {
       "id": "class_3tmt",
       "name": "3TMT",
-      "base_room_id": "room_r309"
+      "base_room_id": null
     }
   ],
   "timeslots": [
@@ -6212,71 +2870,17 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_psykologi_1_2",
-          "teacher_id": "teacher_anne_lunde",
-          "teacher_ids": [
-            "teacher_anne_lunde"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_kjemi_1",
+          "subject_id": "subject_kjemi_1_3",
           "teacher_id": "teacher_hilde_ekrheim_mosand",
           "teacher_ids": [
             "teacher_hilde_ekrheim_mosand"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_kjemi_1_2",
-          "teacher_id": "teacher_zeynep_aylin_mersin",
-          "teacher_ids": [
-            "teacher_zeynep_aylin_mersin"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_entrepren_rskap_og_bedriftsutvikling_1",
-          "teacher_id": "teacher_malin_topnes_j_rgensen",
-          "teacher_ids": [
-            "teacher_malin_topnes_j_rgensen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fysikk_1",
-          "teacher_id": "teacher_olav_omlid",
-          "teacher_ids": [
-            "teacher_olav_omlid"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_1_3",
-          "teacher_id": "teacher_vibeke_bj_rnestad",
-          "teacher_ids": [
-            "teacher_vibeke_bj_rnestad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunns_konomi_1",
-          "teacher_id": "teacher_tirill_aslesen",
-          "teacher_ids": [
-            "teacher_tirill_aslesen"
           ],
           "preferred_room_id": ""
         }
       ],
       "timeslot_ids": [],
       "week_pattern": null,
-      "subject_ids": [
-        "subject_kjemi_1",
-        "subject_entrepren_rskap_og_bedriftsutvikling_1",
-        "subject_fysikk_1",
-        "subject_psykologi_1_3",
-        "subject_samfunns_konomi_1"
-      ]
+      "subject_ids": []
     },
     {
       "id": "block_blokk_2",
@@ -6324,139 +2928,10 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_kjemi_1_3",
-          "teacher_id": "teacher_katrine_aske",
-          "teacher_ids": [
-            "teacher_katrine_aske"
-          ],
-          "preferred_room_id": ""
-        },
-        {
           "subject_id": "subject_biologi_1",
           "teacher_id": "teacher_solvor_motland_kirkemo",
           "teacher_ids": [
             "teacher_solvor_motland_kirkemo"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_biologi_2",
-          "teacher_id": "teacher_ida_soltvedt_johannessen",
-          "teacher_ids": [
-            "teacher_ida_soltvedt_johannessen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_breddeidrett_1",
-          "teacher_id": "teacher_gunhild_bru_nyb",
-          "teacher_ids": [
-            "teacher_gunhild_bru_nyb"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_engelsk_1",
-          "teacher_id": "teacher_kyrre_alexander_grevstad",
-          "teacher_ids": [
-            "teacher_kyrre_alexander_grevstad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fysikk_1_2",
-          "teacher_id": "teacher_olav_omlid",
-          "teacher_ids": [
-            "teacher_olav_omlid",
-            "teacher_rjan_augedal"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_geofag_1",
-          "teacher_id": "teacher_ine_reppen_farrell",
-          "teacher_ids": [
-            "teacher_ine_reppen_farrell"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_markedsf_ring_og_ledelse_1",
-          "teacher_id": "teacher_camilla_berthelsen",
-          "teacher_ids": [
-            "teacher_camilla_berthelsen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_markedsf_ring_og_ledelse_2",
-          "teacher_id": "teacher_michael_christensen",
-          "teacher_ids": [
-            "teacher_michael_christensen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_r2",
-          "teacher_id": "teacher_cato_tveit",
-          "teacher_ids": [
-            "teacher_cato_tveit"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_1",
-          "teacher_id": "teacher_trondr_breiland",
-          "teacher_ids": [
-            "teacher_trondr_breiland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_2",
-          "teacher_id": "teacher_anne_lunde",
-          "teacher_ids": [
-            "teacher_anne_lunde"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_rettsl_re_2",
-          "teacher_id": "teacher_marianne_sandberg",
-          "teacher_ids": [
-            "teacher_marianne_sandberg"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunns_konomi_1_2",
-          "teacher_id": "teacher_tirill_aslesen",
-          "teacher_ids": [
-            "teacher_tirill_aslesen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunns_konomi_2",
-          "teacher_id": "teacher_trond_ystein_magne",
-          "teacher_ids": [
-            "teacher_trond_ystein_magne"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_sosialkunnskap",
-          "teacher_id": "teacher_trond_waage_ids_e",
-          "teacher_ids": [
-            "teacher_trond_waage_ids_e"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_sosiologi_og_sosialantropologi",
-          "teacher_id": "teacher_vibeke_bj_rnestad",
-          "teacher_ids": [
-            "teacher_vibeke_bj_rnestad"
           ],
           "preferred_room_id": ""
         }
@@ -6467,7 +2942,7 @@
     },
     {
       "id": "block_blokk_3_st",
-      "name": "Matematikk 2P/R1/S1",
+      "name": "Blokk 3 ST",
       "occurrences": [
         {
           "id": "occ_1774809913944",
@@ -6484,7 +2959,7 @@
           "week_type": "B"
         },
         {
-          "id": "occ_1775244850083",
+          "id": "occ_1774819113372",
           "day": "Thursday",
           "start_time": "12:00",
           "end_time": "13:30",
@@ -6503,42 +2978,18 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_matematikk_r1",
-          "teacher_id": "teacher_olav_omlid",
+          "subject_id": "subject_r1",
+          "teacher_id": "teacher_hilde_ekrheim_mosand",
           "teacher_ids": [
-            "teacher_olav_omlid"
+            "teacher_hilde_ekrheim_mosand"
           ],
           "preferred_room_id": ""
         },
         {
-          "subject_id": "subject_matematikk_r1_2",
-          "teacher_id": "teacher_svein_ove_h_iland",
+          "subject_id": "subject_r1_2_2",
+          "teacher_id": "teacher_olav_vistnes",
           "teacher_ids": [
-            "teacher_svein_ove_h_iland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_r1_3",
-          "teacher_id": "teacher_tormod_sthus",
-          "teacher_ids": [
-            "teacher_tormod_sthus"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_s1",
-          "teacher_id": "teacher_aud_charlotte_ullestad",
-          "teacher_ids": [
-            "teacher_aud_charlotte_ullestad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_s1_2",
-          "teacher_id": "teacher_stein_v_rlid",
-          "teacher_ids": [
-            "teacher_stein_v_rlid"
+            "teacher_olav_vistnes"
           ],
           "preferred_room_id": ""
         }
@@ -6549,7 +3000,7 @@
     },
     {
       "id": "block_blokk_3_id",
-      "name": "Matematikk 2P",
+      "name": "Blokk 3 ID",
       "occurrences": [
         {
           "id": "occ_1774810078496",
@@ -6572,59 +3023,10 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_matematik_2p",
-          "teacher_id": "teacher_katrine_aske",
-          "teacher_ids": [
-            "teacher_katrine_aske",
-            "teacher_zeynep_aylin_mersin"
-          ],
-          "preferred_room_id": ""
-        },
-        {
           "subject_id": "subject_matematikk_2p",
-          "teacher_id": "teacher_cato_tveit",
+          "teacher_id": "teacher_zeynep_aylin_mersin",
           "teacher_ids": [
-            "teacher_cato_tveit"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_2p_2",
-          "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-          "teacher_ids": [
-            "teacher_fredrik_samuel_read_v_nsk"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_2p_3",
-          "teacher_id": "teacher_michael_christensen",
-          "teacher_ids": [
-            "teacher_michael_christensen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_2p_4",
-          "teacher_id": "teacher_rjan_augedal",
-          "teacher_ids": [
-            "teacher_rjan_augedal"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_2p_5",
-          "teacher_id": "teacher_christian_magnus_mikalsen_johannessen",
-          "teacher_ids": [
-            "teacher_christian_magnus_mikalsen_johannessen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_2p_6",
-          "teacher_id": "teacher_karen_synn_ve_ohm",
-          "teacher_ids": [
-            "teacher_karen_synn_ve_ohm"
+            "teacher_zeynep_aylin_mersin"
           ],
           "preferred_room_id": ""
         }
@@ -6685,150 +3087,6 @@
             "teacher_solvor_motland_kirkemo"
           ],
           "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_breddeidrett_1_2",
-          "teacher_id": "teacher_kjerand_tangen",
-          "teacher_ids": [
-            "teacher_kjerand_tangen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_breddeidrett_1_3",
-          "teacher_id": "teacher_gunhild_bru_nyb",
-          "teacher_ids": [
-            "teacher_gunhild_bru_nyb"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_engelsk_1_2",
-          "teacher_id": "teacher_shild_naustdal_jakobsen",
-          "teacher_ids": [
-            "teacher_shild_naustdal_jakobsen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_entrepren_rskap_og_bedriftsutvikling_1_2",
-          "teacher_id": "teacher_camilla_berthelsen",
-          "teacher_ids": [
-            "teacher_camilla_berthelsen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fysikk_1_3",
-          "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-          "teacher_ids": [
-            "teacher_fredrik_samuel_read_v_nsk"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_geofag_2",
-          "teacher_id": "teacher_liesbeth_breesch",
-          "teacher_ids": [
-            "teacher_liesbeth_breesch"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_kjemi_1_5",
-          "teacher_id": "teacher_hilde_ekrheim_mosand",
-          "teacher_ids": [
-            "teacher_hilde_ekrheim_mosand"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_kjemi_2",
-          "teacher_id": "teacher_katrine_aske",
-          "teacher_ids": [
-            "teacher_katrine_aske"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_markedsf_ring_og_ledelse_1_2",
-          "teacher_id": "teacher_michael_christensen",
-          "teacher_ids": [
-            "teacher_michael_christensen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_r2_2",
-          "teacher_id": "teacher_svein_ove_h_iland",
-          "teacher_ids": [
-            "teacher_svein_ove_h_iland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_s2",
-          "teacher_id": "teacher_cato_tveit",
-          "teacher_ids": [
-            "teacher_cato_tveit"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_1_4",
-          "teacher_id": "teacher_trondr_breiland",
-          "teacher_ids": [
-            "teacher_trondr_breiland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_2_2",
-          "teacher_id": "teacher_hanne_jakobsen",
-          "teacher_ids": [
-            "teacher_hanne_jakobsen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_rettsl_re_1",
-          "teacher_id": "teacher_marianne_sandberg",
-          "teacher_ids": [
-            "teacher_marianne_sandberg"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_rettsl_re_2_2",
-          "teacher_id": "teacher_vibeke_bj_rnestad",
-          "teacher_ids": [
-            "teacher_vibeke_bj_rnestad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunns_konomi_1_3",
-          "teacher_id": "teacher_tirill_aslesen",
-          "teacher_ids": [
-            "teacher_tirill_aslesen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_sosialkunnskap_2",
-          "teacher_id": "teacher_lene_h_iland",
-          "teacher_ids": [
-            "teacher_lene_h_iland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_sosiologi_og_sosialantropologi_2",
-          "teacher_id": "teacher_christer_thoresen",
-          "teacher_ids": [
-            "teacher_christer_thoresen"
-          ],
-          "preferred_room_id": ""
         }
       ],
       "timeslot_ids": [],
@@ -6873,74 +3131,10 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_fysikk_2",
-          "teacher_id": "teacher_rjan_augedal",
-          "teacher_ids": [
-            "teacher_rjan_augedal"
-          ],
-          "preferred_room_id": ""
-        },
-        {
           "subject_id": "subject_engelsk_2",
           "teacher_id": "teacher_anders_bratteli",
           "teacher_ids": [
             "teacher_anders_bratteli"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_kjemi_2_2",
-          "teacher_id": "teacher_jo_berg_svalland",
-          "teacher_ids": [
-            "teacher_jo_berg_svalland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_markedsf_ring_og_ledelse_2_2",
-          "teacher_id": "teacher_camilla_berthelsen",
-          "teacher_ids": [
-            "teacher_camilla_berthelsen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_markedsf_ring_og_ledelse_2_3",
-          "teacher_id": "teacher_michael_christensen",
-          "teacher_ids": [
-            "teacher_michael_christensen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_s2_2",
-          "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-          "teacher_ids": [
-            "teacher_fredrik_samuel_read_v_nsk"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_psykologi_2_3",
-          "teacher_id": "teacher_trondr_breiland",
-          "teacher_ids": [
-            "teacher_trondr_breiland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunns_konomi_2_2",
-          "teacher_id": "teacher_tirill_aslesen",
-          "teacher_ids": [
-            "teacher_tirill_aslesen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_samfunnsgeografi",
-          "teacher_id": "teacher_johan_siqveland",
-          "teacher_ids": [
-            "teacher_johan_siqveland"
           ],
           "preferred_room_id": ""
         }
@@ -6979,74 +3173,10 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_spansk_ii_vg2",
-          "teacher_id": "teacher_kelly_london",
-          "teacher_ids": [
-            "teacher_kelly_london"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fransk_ii_vg2",
-          "teacher_id": "teacher_sabine_roemer",
-          "teacher_ids": [
-            "teacher_sabine_roemer"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_ii_vg2_2",
-          "teacher_id": "teacher_tone_helen_tj_rstad",
-          "teacher_ids": [
-            "teacher_tone_helen_tj_rstad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_i_ii_vg2",
-          "teacher_id": "teacher_hege_kleiberg_mj_lsnes",
-          "teacher_ids": [
-            "teacher_hege_kleiberg_mj_lsnes"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_ii_vg2_3",
-          "teacher_id": "teacher_siri_st_ldal",
-          "teacher_ids": [
-            "teacher_siri_st_ldal"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg2_3",
-          "teacher_id": "teacher_alba_de_la_vega_fernandez",
-          "teacher_ids": [
-            "teacher_alba_de_la_vega_fernandez"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg2_4",
-          "teacher_id": "teacher_agata_anna_zwierzynska",
-          "teacher_ids": [
-            "teacher_agata_anna_zwierzynska"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg2_5",
+          "subject_id": "subject_spansk_ii",
           "teacher_id": "teacher_helene_huseland",
           "teacher_ids": [
             "teacher_helene_huseland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fransk_ii_vg2_2",
-          "teacher_id": "teacher_elisabeth_nordlander",
-          "teacher_ids": [
-            "teacher_elisabeth_nordlander"
           ],
           "preferred_room_id": ""
         }
@@ -7151,99 +3281,9 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_matematikk_1p",
-          "teacher_id": "teacher_karen_synn_ve_ohm",
-          "teacher_ids": [
-            "teacher_karen_synn_ve_ohm"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1p_2",
-          "teacher_id": "teacher_zeynep_aylin_mersin",
-          "teacher_ids": [
-            "teacher_zeynep_aylin_mersin"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1p_3",
-          "teacher_id": "teacher_ida_soltvedt_johannessen",
-          "teacher_ids": [
-            "teacher_ida_soltvedt_johannessen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1p_4",
-          "teacher_id": "teacher_olav_omlid",
-          "teacher_ids": [
-            "teacher_olav_omlid"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1p_5",
-          "teacher_id": "teacher_jo_berg_svalland",
-          "teacher_ids": [
-            "teacher_jo_berg_svalland"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1p_6",
-          "teacher_id": "teacher_katrine_aske",
-          "teacher_ids": [
-            "teacher_katrine_aske"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t",
-          "teacher_id": "teacher_liesbeth_breesch",
-          "teacher_ids": [
-            "teacher_liesbeth_breesch"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t_2",
-          "teacher_id": "teacher_cato_tveit",
-          "teacher_ids": [
-            "teacher_cato_tveit"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t_3",
-          "teacher_id": "teacher_stein_v_rlid",
-          "teacher_ids": [
-            "teacher_stein_v_rlid"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t_4",
-          "teacher_id": "teacher_rjan_augedal",
-          "teacher_ids": [
-            "teacher_rjan_augedal"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t_5",
-          "teacher_id": "teacher_tormod_sthus",
-          "teacher_ids": [
-            "teacher_tormod_sthus"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_matematikk_1t_6",
-          "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-          "teacher_ids": [
-            "teacher_fredrik_samuel_read_v_nsk"
-          ],
+          "subject_id": "subject_1p",
+          "teacher_id": "",
+          "teacher_ids": [],
           "preferred_room_id": ""
         }
       ],
@@ -7281,115 +3321,7 @@
       ],
       "subject_entries": [
         {
-          "subject_id": "subject_spansk_ii_vg1",
-          "teacher_id": "teacher_trude_hassel_dessingue",
-          "teacher_ids": [
-            "teacher_trude_hassel_dessingue"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fransk_ii_vg1",
-          "teacher_id": "teacher_sabine_roemer",
-          "teacher_ids": [
-            "teacher_sabine_roemer"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_ii_vg1_2",
-          "teacher_id": "teacher_annett_titlestad",
-          "teacher_ids": [
-            "teacher_annett_titlestad"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_i_ii_vg1",
-          "teacher_id": "teacher_kelly_london",
-          "teacher_ids": [
-            "teacher_kelly_london"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_fransk_ii_vg1_2",
-          "teacher_id": "teacher_elisabeth_nordlander",
-          "teacher_ids": [
-            "teacher_elisabeth_nordlander"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_tysk_ii_vg1_3",
-          "teacher_id": "teacher_gunnbj_rg_rpen",
-          "teacher_ids": [
-            "teacher_gunnbj_rg_rpen"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg1_3",
-          "teacher_id": "teacher_agata_anna_zwierzynska",
-          "teacher_ids": [
-            "teacher_agata_anna_zwierzynska"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg1_4",
-          "teacher_id": "teacher_alba_de_la_vega_fernandez",
-          "teacher_ids": [
-            "teacher_alba_de_la_vega_fernandez"
-          ],
-          "preferred_room_id": ""
-        },
-        {
-          "subject_id": "subject_spansk_ii_vg1_5",
-          "teacher_id": "teacher_helene_huseland",
-          "teacher_ids": [
-            "teacher_helene_huseland"
-          ],
-          "preferred_room_id": ""
-        }
-      ],
-      "timeslot_ids": [],
-      "week_pattern": null,
-      "subject_ids": []
-    },
-    {
-      "id": "block_idrett_vg1",
-      "name": "Idrett vg1",
-      "occurrences": [
-        {
-          "id": "occ_1775222695659",
-          "day": "Wednesday",
-          "start_time": "08:00",
-          "end_time": "10:20",
-          "week_type": "both"
-        },
-        {
-          "id": "occ_1775222704905",
-          "day": "Tuesday",
-          "start_time": "08:00",
-          "end_time": "09:50",
-          "week_type": "both"
-        },
-        {
-          "id": "occ_1775222707793",
-          "day": "Friday",
-          "start_time": "08:00",
-          "end_time": "09:50",
-          "week_type": "both"
-        }
-      ],
-      "class_ids": [
-        "class_1ida",
-        "class_1idb"
-      ],
-      "subject_entries": [
-        {
-          "subject_id": "subject_idrett",
+          "subject_id": "subject_spansk_ii_2",
           "teacher_id": "",
           "teacher_ids": [],
           "preferred_room_id": ""
@@ -7398,49 +3330,12 @@
       "timeslot_ids": [],
       "week_pattern": null,
       "subject_ids": []
-    },
-    {
-      "id": "block_idrett_vg3",
-      "name": "Idrett vg2/3",
-      "occurrences": [
-        {
-          "id": "occ_1775327197414",
-          "day": "Monday",
-          "start_time": "08:00",
-          "end_time": "09:50",
-          "week_type": "both"
-        },
-        {
-          "id": "occ_1775327200138",
-          "day": "Friday",
-          "start_time": "08:00",
-          "end_time": "09:50",
-          "week_type": "both"
-        },
-        {
-          "id": "occ_1775327206862",
-          "day": "Wednesday",
-          "start_time": "08:00",
-          "end_time": "10:20",
-          "week_type": "both"
-        }
-      ],
-      "class_ids": [
-        "class_3ida",
-        "class_3idb",
-        "class_2ida",
-        "class_2idb"
-      ],
-      "subject_entries": [],
-      "timeslot_ids": [],
-      "week_pattern": null,
-      "subject_ids": []
     }
   ],
   "meetings": [
     {
       "id": "meeting_idrettsm_te",
-      "name": "Avdelingsmøte: Idrett",
+      "name": "Idrettsmøte",
       "timeslot_id": "Mon-2",
       "teacher_assignments": [
         {
@@ -8245,329 +4140,12 @@
     },
     {
       "id": "meeting_realfag",
-      "name": "Avdelingsmøte: Realfag",
+      "name": "Realfag",
       "timeslot_id": "Wed-2",
       "teacher_assignments": [
         {
           "teacher_id": "teacher_ine_reppen_farrell",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_anne_lunde",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_aud_charlotte_ullestad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_cato_tveit",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_fredrik_samuel_read_v_nsk",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_hilde_ekrheim_mosand",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_ida_soltvedt_johannessen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_jo_berg_svalland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_karen_synn_ve_ohm",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_katrine_aske",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_liesbeth_breesch",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_rjan_augedal",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_olav_omlid",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_sascha_njaa_tjelta",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_solvor_motland_kirkemo",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_svanhild_haugvaldstad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_tormod_sthus",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_zeynep_aylin_mersin",
-          "mode": "unavailable"
-        }
-      ]
-    },
-    {
-      "id": "meeting_spr_k",
-      "name": "Avdelingsmøte: Språk",
-      "timeslot_id": "Wed-2",
-      "teacher_assignments": [
-        {
-          "teacher_id": "teacher_agata_anna_zwierzynska",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_alba_de_la_vega_fernandez",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_anders_bratteli",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_annjolie_tho_bergtun",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_christin_beenfeldt",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_gunnbj_rg_rpen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_kelly_london",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_kyrre_alexander_grevstad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_randi_selvik",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_sabine_roemer",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_tone_helen_tj_rstad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_trond_waage_ids_e",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_elisabeth_nordlander",
           "mode": "preferred"
-        },
-        {
-          "teacher_id": "teacher_annett_titlestad",
-          "mode": "preferred"
-        },
-        {
-          "teacher_id": "teacher_hege_kleiberg_mj_lsnes",
-          "mode": "preferred"
-        },
-        {
-          "teacher_id": "teacher_siri_st_ldal",
-          "mode": "preferred"
-        },
-        {
-          "teacher_id": "teacher_trude_hassel_dessingue",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_helene_huseland",
-          "mode": "preferred"
-        }
-      ]
-    },
-    {
-      "id": "meeting_samfunnsfag",
-      "name": "Avdelingsmøte: Samfunnsfag",
-      "timeslot_id": "Thu-3",
-      "teacher_assignments": [
-        {
-          "teacher_id": "teacher_bengt_david_gabrielsen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_camilla_berthelsen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_carl_g_johansson",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_christer_thoresen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_hanne_stokka_hold",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_hanne_jakobsen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_helen_halseth_ravnanger",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_ida_elise_nymoen_eltervaag",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_johan_siqveland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_kjerand_tangen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_knut_tjosevik",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_lene_h_iland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_malin_topnes_j_rgensen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_marianne_sandberg",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_michael_christensen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_siri_emilie_bj_rge",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_tirill_aslesen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_trondr_breiland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_vibeke_bj_rnestad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_jon_arne_pollestad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_kjersti_eide_torstrup",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_marit_topnes_serigstad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_siri_st_ldal",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_tor_thorvaldsen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_trond_ystein_magne",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_trond_waage_ids_e",
-          "mode": "preferred"
-        }
-      ]
-    },
-    {
-      "id": "meeting_norsk",
-      "name": "Avdelingsmøte: Norsk",
-      "timeslot_id": "Tue-3",
-      "teacher_assignments": [
-        {
-          "teacher_id": "teacher_agnethe_j_rpeland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_anja_helen_steinsland",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_annett_titlestad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_shild_naustdal_jakobsen",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_gry_heidi_d_vik_skadsem",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_hanne_h_vardstein",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_hilde_maren_todnem",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_jon_arne_pollestad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_kjersti_eide_torstrup",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_lasse_l_tcherath_ihle",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_marit_topnes_serigstad",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_siri_st_ldal",
-          "mode": "unavailable"
-        },
-        {
-          "teacher_id": "teacher_tor_thorvaldsen",
-          "mode": "unavailable"
         }
       ]
     }
@@ -8576,359 +4154,107 @@
     {
       "id": "room_r117",
       "name": "R117",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r202",
       "name": "R202",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r203",
       "name": "R203",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r204",
       "name": "R204",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r205",
       "name": "R205",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r206",
       "name": "R206",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r207",
       "name": "R207",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r208",
       "name": "R208",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r210",
       "name": "R210",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r216",
       "name": "R216",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r217",
       "name": "R217",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r218",
       "name": "R218",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r219",
       "name": "R219",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r221",
       "name": "R221",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r222",
       "name": "R222",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r223",
       "name": "R223",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     },
     {
       "id": "room_r224",
       "name": "R224",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r301",
-      "name": "R301",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r302",
-      "name": "R302",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r305",
-      "name": "R305",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r309",
-      "name": "R309",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r312",
-      "name": "R312",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r313",
-      "name": "R313",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r316",
-      "name": "R316",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r317",
-      "name": "R317",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r318",
-      "name": "R318",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r319",
-      "name": "R319",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r110",
-      "name": "R110",
-      "prioritize_for_preferred_subjects": true
-    },
-    {
-      "id": "room_r108",
-      "name": "R108",
-      "prioritize_for_preferred_subjects": true
-    },
-    {
-      "id": "room_r106a",
-      "name": "R106A",
-      "prioritize_for_preferred_subjects": false
-    },
-    {
-      "id": "room_r106b",
-      "name": "R106B",
-      "prioritize_for_preferred_subjects": true
-    },
-    {
-      "id": "room_r114",
-      "name": "R114",
-      "prioritize_for_preferred_subjects": true
-    },
-    {
-      "id": "room_r116",
-      "name": "R116",
-      "prioritize_for_preferred_subjects": false
+      "prioritize_for_preferred_subjects": false,
+      "room_priority_mode": null
     }
   ],
-  "sports_halls": [
-    {
-      "id": "sh_vikinghallen_1",
-      "name": "Vikinghallen 1",
-      "allowed_subject_ids": [
-        "subject_kropps_ving_vg2",
-        "subject_kropps_ving_vg2_2sta",
-        "subject_kropps_ving_vg2_2stb",
-        "subject_kropps_ving_vg2_2stc",
-        "subject_kropps_ving_vg1",
-        "subject_kropps_ving_vg1_1sta",
-        "subject_kropps_ving_vg1_1stb",
-        "subject_kropps_ving_vg1_1stc",
-        "subject_kropps_ving_vg1_1std",
-        "subject_kropps_ving_vg1_1ste",
-        "subject_kropps_ving_vg1_1stf",
-        "subject_kropps_ving_vg2_2std",
-        "subject_kropps_ving_vg2_2ste",
-        "subject_kropps_ving_vg2_2stf",
-        "subject_kropps_ving_vg3",
-        "subject_kropps_ving_vg3_3stf",
-        "subject_kropps_ving_vg3_3ste",
-        "subject_kropps_ving_vg3_3std",
-        "subject_kropps_ving_vg3_3stc",
-        "subject_kropps_ving_vg3_3stb",
-        "subject_kropps_ving_vg3_3sta",
-        "subject_toppidrett",
-        "subject_aktivitetsl_re_vg1",
-        "subject_aktivitetsl_re_vg2",
-        "subject_aktivitetsl_re_vg3",
-        "subject_aktivitetsl_re_vg1_1ida",
-        "subject_aktivitetsl_re_vg1_1idb",
-        "subject_aktivitetsl_re_vg2_2idb",
-        "subject_aktivitetsl_re_vg2_2ida",
-        "subject_aktivitetsl_re_vg3_3ida",
-        "subject_aktivitetsl_re_vg3_3idb",
-        "subject_idrett",
-        "subject_treningsledelse_1",
-        "subject_treningsledelse_1_2ida",
-        "subject_treningsledelse_1_2idb",
-        "subject_treningsledelse_2",
-        "subject_treningsledelse_2_3ida",
-        "subject_treningsledelse_2_3idb",
-        "subject_breddeidrett_1",
-        "subject_breddeidrett_1_2",
-        "subject_breddeidrett_1_3"
-      ]
-    },
-    {
-      "id": "sh_vikinghallen_2",
-      "name": "Vikinghallen 2",
-      "allowed_subject_ids": [
-        "subject_kropps_ving_vg2",
-        "subject_kropps_ving_vg2_2sta",
-        "subject_kropps_ving_vg2_2stb",
-        "subject_kropps_ving_vg2_2stc",
-        "subject_kropps_ving_vg1",
-        "subject_kropps_ving_vg1_1sta",
-        "subject_kropps_ving_vg1_1stb",
-        "subject_kropps_ving_vg1_1stc",
-        "subject_kropps_ving_vg1_1std",
-        "subject_kropps_ving_vg1_1ste",
-        "subject_kropps_ving_vg1_1stf",
-        "subject_kropps_ving_vg2_2std",
-        "subject_kropps_ving_vg2_2ste",
-        "subject_kropps_ving_vg2_2stf",
-        "subject_kropps_ving_vg3",
-        "subject_kropps_ving_vg3_3stf",
-        "subject_kropps_ving_vg3_3ste",
-        "subject_kropps_ving_vg3_3std",
-        "subject_kropps_ving_vg3_3stc",
-        "subject_kropps_ving_vg3_3stb",
-        "subject_kropps_ving_vg3_3sta",
-        "subject_toppidrett",
-        "subject_aktivitetsl_re_vg1",
-        "subject_aktivitetsl_re_vg2",
-        "subject_aktivitetsl_re_vg3",
-        "subject_aktivitetsl_re_vg1_1ida",
-        "subject_aktivitetsl_re_vg1_1idb",
-        "subject_aktivitetsl_re_vg2_2idb",
-        "subject_aktivitetsl_re_vg2_2ida",
-        "subject_aktivitetsl_re_vg3_3ida",
-        "subject_aktivitetsl_re_vg3_3idb",
-        "subject_idrett",
-        "subject_treningsledelse_1",
-        "subject_treningsledelse_1_2ida",
-        "subject_treningsledelse_1_2idb",
-        "subject_treningsledelse_2",
-        "subject_treningsledelse_2_3ida",
-        "subject_treningsledelse_2_3idb",
-        "subject_breddeidrett_1",
-        "subject_breddeidrett_1_2",
-        "subject_breddeidrett_1_3"
-      ]
-    },
-    {
-      "id": "sh_vikinghallen_3",
-      "name": "Vikinghallen 3",
-      "allowed_subject_ids": [
-        "subject_kropps_ving_vg2",
-        "subject_kropps_ving_vg2_2sta",
-        "subject_kropps_ving_vg2_2stb",
-        "subject_kropps_ving_vg2_2stc",
-        "subject_kropps_ving_vg1",
-        "subject_kropps_ving_vg1_1sta",
-        "subject_kropps_ving_vg1_1stb",
-        "subject_kropps_ving_vg1_1stc",
-        "subject_kropps_ving_vg1_1std",
-        "subject_kropps_ving_vg1_1ste",
-        "subject_kropps_ving_vg1_1stf",
-        "subject_kropps_ving_vg2_2std",
-        "subject_kropps_ving_vg2_2ste",
-        "subject_kropps_ving_vg2_2stf",
-        "subject_kropps_ving_vg3",
-        "subject_kropps_ving_vg3_3stf",
-        "subject_kropps_ving_vg3_3ste",
-        "subject_kropps_ving_vg3_3std",
-        "subject_kropps_ving_vg3_3stc",
-        "subject_kropps_ving_vg3_3stb",
-        "subject_kropps_ving_vg3_3sta",
-        "subject_toppidrett",
-        "subject_aktivitetsl_re_vg1",
-        "subject_aktivitetsl_re_vg2",
-        "subject_aktivitetsl_re_vg3",
-        "subject_aktivitetsl_re_vg1_1ida",
-        "subject_aktivitetsl_re_vg1_1idb",
-        "subject_aktivitetsl_re_vg2_2idb",
-        "subject_aktivitetsl_re_vg2_2ida",
-        "subject_aktivitetsl_re_vg3_3ida",
-        "subject_aktivitetsl_re_vg3_3idb",
-        "subject_idrett",
-        "subject_treningsledelse_1",
-        "subject_treningsledelse_1_2ida",
-        "subject_treningsledelse_1_2idb",
-        "subject_treningsledelse_2",
-        "subject_treningsledelse_2_3ida",
-        "subject_treningsledelse_2_3idb",
-        "subject_breddeidrett_1",
-        "subject_breddeidrett_1_2",
-        "subject_breddeidrett_1_3"
-      ]
-    },
-    {
-      "id": "sh_ynglingen",
-      "name": "Ynglingen",
-      "allowed_subject_ids": [
-        "subject_kropps_ving_vg2",
-        "subject_kropps_ving_vg2_2sta",
-        "subject_kropps_ving_vg2_2stb",
-        "subject_kropps_ving_vg2_2stc",
-        "subject_kropps_ving_vg1",
-        "subject_kropps_ving_vg1_1sta",
-        "subject_kropps_ving_vg1_1stb",
-        "subject_kropps_ving_vg1_1stc",
-        "subject_kropps_ving_vg1_1std",
-        "subject_kropps_ving_vg1_1ste",
-        "subject_kropps_ving_vg1_1stf",
-        "subject_kropps_ving_vg2_2std",
-        "subject_kropps_ving_vg2_2ste",
-        "subject_kropps_ving_vg2_2stf",
-        "subject_kropps_ving_vg3",
-        "subject_kropps_ving_vg3_3stf",
-        "subject_kropps_ving_vg3_3ste",
-        "subject_kropps_ving_vg3_3std",
-        "subject_kropps_ving_vg3_3stc",
-        "subject_kropps_ving_vg3_3stb",
-        "subject_kropps_ving_vg3_3sta",
-        "subject_toppidrett",
-        "subject_aktivitetsl_re_vg1",
-        "subject_aktivitetsl_re_vg2",
-        "subject_aktivitetsl_re_vg3",
-        "subject_aktivitetsl_re_vg1_1ida",
-        "subject_aktivitetsl_re_vg1_1idb",
-        "subject_aktivitetsl_re_vg2_2idb",
-        "subject_aktivitetsl_re_vg2_2ida",
-        "subject_aktivitetsl_re_vg3_3ida",
-        "subject_aktivitetsl_re_vg3_3idb",
-        "subject_idrett",
-        "subject_treningsledelse_1",
-        "subject_treningsledelse_1_2ida",
-        "subject_treningsledelse_1_2idb",
-        "subject_treningsledelse_2",
-        "subject_treningsledelse_2_3ida",
-        "subject_treningsledelse_2_3idb",
-        "subject_breddeidrett_1",
-        "subject_breddeidrett_1_2",
-        "subject_breddeidrett_1_3"
-      ]
-    }
-  ],
+  "sports_halls": [],
   "alternating_weeks_enabled": true,
   "alternate_non_block_subjects": true,
   "solver_engine": "cp_sat_experimental",

@@ -14,6 +14,8 @@ app = FastAPI(title="School Scheduler API", version="0.1.0")
 _default_origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:3001",
+    "http://127.0.0.1:3001",
 ]
 _env_origins = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
 _allowed_origins = list(dict.fromkeys(_default_origins + _env_origins))
