@@ -11365,7 +11365,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     _solver_log(forced_line)
 
     solver = cp_model.CpSolver()
-    solver.parameters.max_time_in_seconds = 90.0 if data.alternating_weeks_enabled else 180.0
+    solver.parameters.max_time_in_seconds = float(max(5, min(600, data.solver_timeout_seconds)))
     solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
     solver.parameters.search_branching = cp_model.FIXED_SEARCH
     solver.parameters.random_seed = cp_solver_seed

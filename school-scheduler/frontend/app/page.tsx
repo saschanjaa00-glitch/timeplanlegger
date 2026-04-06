@@ -1335,7 +1335,7 @@ export default function Home() {
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
-  const solverTimeoutSeconds = 90;
+  const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -9571,9 +9571,24 @@ export default function Home() {
 
 
         <section className="toolbar">
-          <button type="button" onClick={generateSchedule} disabled={loading}>
-            {loading ? "Genererer..." : "Generer timeplan"}
-          </button>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <button type="button" onClick={generateSchedule} disabled={loading}>
+              {loading ? "Genererer..." : "Generer timeplan"}
+            </button>
+            <label style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
+              Tidsgrense:
+              <input
+                type="number"
+                min={5}
+                max={600}
+                step={5}
+                value={solverTimeoutSeconds}
+                onChange={(e) => setSolverTimeoutSeconds(Math.max(5, Math.min(600, Number(e.target.value))))}
+                style={{ width: "64px", fontSize: "0.85rem", padding: "2px 4px" }}
+              />
+              s
+            </label>
+          </div>
           <button
             type="button"
             onClick={clearGeneratedSchedule}
