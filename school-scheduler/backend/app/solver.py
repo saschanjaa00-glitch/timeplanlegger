@@ -2225,6 +2225,8 @@ def _generate_schedule_staged(
                     return True
                 if 3 in periods and 4 in periods:
                     return True
+                if 2 in periods and 3 in periods:
+                    return True
             return False
 
         while units_placed < required_units:
@@ -2444,13 +2446,22 @@ def _generate_schedule_staged(
                     norsk_pair_setup_penalty = 0
                     if is_norsk_vg3 and not _has_norsk_target_pair():
                         day_periods = subject_periods_by_day.get(ts.day, set())
-                        completes_target_pair = (
+                        completes_preferred_pair = (
                             (ts.period == 1 and 2 in day_periods)
                             or (ts.period == 2 and 1 in day_periods)
                             or (ts.period == 3 and 4 in day_periods)
                             or (ts.period == 4 and 3 in day_periods)
                         )
-                        norsk_pair_penalty = 0 if completes_target_pair else 1
+                        completes_fallback_pair = (
+                            (ts.period == 2 and 3 in day_periods)
+                            or (ts.period == 3 and 2 in day_periods)
+                        )
+                        if completes_preferred_pair:
+                            norsk_pair_penalty = 0
+                        elif completes_fallback_pair:
+                            norsk_pair_penalty = 1
+                        else:
+                            norsk_pair_penalty = 2
                         norsk_pair_setup_penalty = 0 if ts.period in {1, 2, 3, 4} else 1
 
                     # Avoid giving a teacher a 4th (or more) session on the same day.
@@ -2476,14 +2487,14 @@ def _generate_schedule_staged(
                                     1 for p in range(min_p_gap + 1, max_p_gap)
                                     if p not in all_ps and p in valid_periods_today
                                 )
-                                class_gap_penalty += gap_count * _class_year_gap_weight(class_id) * 5
+                                class_gap_penalty += gap_count * _class_year_gap_weight(class_id) * 15
 
                     score = (
                         would_overshoot,
+                        teacher_four_session_penalty,
                         norsk_pair_penalty,
                         norsk_pair_setup_penalty,
                         same_day_repeat_penalty,
-                        teacher_four_session_penalty,
                         class_gap_penalty,
                         thursday_math_penalty,
                         single_unit_penalty,
