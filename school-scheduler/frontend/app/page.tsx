@@ -1342,6 +1342,7 @@ export default function Home() {
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
   const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
+  const [solverTimeoutDraft, setSolverTimeoutDraft] = useState("");
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -3185,12 +3186,23 @@ export default function Home() {
   const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
 
   const redigerCollisions = useMemo(() => {
+    // Build a local subject → block_id map so we can skip intra-block pairs.
+    const subjectBlockId = new Map<string, string>();
+    for (const block of blocks) {
+      for (const entry of block.subject_entries ?? []) subjectBlockId.set(entry.subject_id, block.id);
+      for (const sid of block.subject_ids ?? []) subjectBlockId.set(sid, block.id);
+    }
+
     type RedigerCol = { type: "teacher" | "class" | "room"; label: string; idxA: number; idxB: number };
     const cols: RedigerCol[] = [];
     for (let i = 0; i < schedule.length; i++) {
       for (let j = i + 1; j < schedule.length; j++) {
         const a = schedule[i];
         const b = schedule[j];
+        // Subjects in the same block intentionally overlap — not a collision.
+        const aBlock = subjectBlockId.get(a.subject_id);
+        const bBlock = subjectBlockId.get(b.subject_id);
+        if (aBlock && bBlock && aBlock === bBlock) continue;
         if (a.day !== b.day) continue;
         const aSlot = timeslotById[a.timeslot_id];
         const bSlot = timeslotById[b.timeslot_id];
@@ -3218,7 +3230,7 @@ export default function Home() {
       }
     }
     return cols;
-  }, [schedule, timeslotById, teacherNameById, classNameById, roomNameById]);
+  }, [schedule, blocks, timeslotById, teacherNameById, classNameById, roomNameById]);
 
   const redigerCollidingIdxSet = useMemo(() => {
     const set = new Set<number>();
@@ -9690,8 +9702,14 @@ export default function Home() {
                 min={5}
                 max={600}
                 step={5}
-                value={solverTimeoutSeconds}
-                onChange={(e) => setSolverTimeoutSeconds(Math.max(5, Math.min(600, Number(e.target.value))))}
+                value={solverTimeoutDraft !== "" ? solverTimeoutDraft : solverTimeoutSeconds}
+                onChange={(e) => setSolverTimeoutDraft(e.target.value)}
+                onBlur={(e) => {
+                  const parsed = Number(e.target.value);
+                  const clamped = isNaN(parsed) ? solverTimeoutSeconds : Math.max(5, Math.min(600, Math.round(parsed)));
+                  setSolverTimeoutSeconds(clamped);
+                  setSolverTimeoutDraft("");
+                }}
                 style={{ width: "64px", fontSize: "0.85rem", padding: "2px 4px" }}
               />
               s
@@ -10781,15 +10799,105 @@ export default function Home() {
       {activeTab === "rediger" && (
       <>
         <section className="card">
-          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
-            <h2 style={{ marginBottom: 0 }}>Rediger timeplan</h2>
-            <div className="compare-week-view" style={{ minWidth: "160px" }}>
-              <label>Vis</label>
-              <select value={redigerWeekView} onChange={(e) => setRedigerWeekView(parseWeekView(e.target.value))}>
-                <option value="both">Vis begge uker</option>
-                <option value="A">Vis kun A-uke</option>
-                <option value="B">Vis kun B-uke</option>
+          <h2>Rediger timeplan</h2>
+          <div className="compare-controls">
+            <div className="compare-group">
+              <label>Filtrer klasser</label>
+              <input
+                type="text"
+                value={compareClassSearchQuery}
+                onChange={(e) => setCompareClassSearchQuery(e.target.value)}
+                placeholder="Søk klasser"
+              />
+              <select
+                multiple
+                value={selectedClassCompareIds}
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") return;
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedClassCompareIds((prev) =>
+                    prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+                  );
+                }}
+                onChange={() => {}}
+              >
+                {filteredCompareClasses.map((schoolClass) => (
+                  <option key={schoolClass.id} value={schoolClass.id}>{schoolClass.name}</option>
+                ))}
               </select>
+            </div>
+            <div className="compare-group">
+              <label>Filtrer lærere</label>
+              <input
+                type="text"
+                value={compareTeacherSearchQuery}
+                onChange={(e) => setCompareTeacherSearchQuery(e.target.value)}
+                placeholder="Søk lærere"
+              />
+              <select
+                multiple
+                value={selectedTeacherCompareIds}
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") return;
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedTeacherCompareIds((prev) =>
+                    prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+                  );
+                }}
+                onChange={() => {}}
+              >
+                {filteredCompareTeachers.map((teacher) => (
+                  <option key={teacher.id} value={teacher.id}>{teacher.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="compare-group">
+              <label>Filtrer rom</label>
+              <input
+                type="text"
+                value={compareRoomSearchQuery}
+                onChange={(e) => setCompareRoomSearchQuery(e.target.value)}
+                placeholder="Søk rom"
+              />
+              <select
+                multiple
+                value={selectedRoomCompareIds}
+                onMouseDown={(e) => {
+                  const target = e.target as HTMLOptionElement;
+                  if (target.tagName !== "OPTION") return;
+                  e.preventDefault();
+                  const value = target.value;
+                  setSelectedRoomCompareIds((prev) =>
+                    prev.includes(value) ? prev.filter((id) => id !== value) : [...prev, value]
+                  );
+                }}
+                onChange={() => {}}
+              >
+                {filteredCompareRooms.map((room) => (
+                  <option key={room.id} value={room.id}>{room.name}</option>
+                ))}
+              </select>
+            </div>
+            <div className="compare-actions">
+              <div className="compare-week-view">
+                <label>Vis</label>
+                <select value={redigerWeekView} onChange={(e) => setRedigerWeekView(parseWeekView(e.target.value))}>
+                  <option value="both">Vis begge uker</option>
+                  <option value="A">Vis kun A-uke</option>
+                  <option value="B">Vis kun B-uke</option>
+                </select>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setSelectedClassCompareIds([]); setSelectedTeacherCompareIds([]); setSelectedRoomCompareIds([]); }}
+                disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0}
+              >
+                Fjern filter
+              </button>
             </div>
           </div>
           {schedule.length === 0 ? (
@@ -10821,12 +10929,21 @@ export default function Home() {
                   style={{ gridTemplateColumns: `repeat(${calendarDays.length}, minmax(140px, 1fr))` }}
                 >
                   {calendarDays.map((day) => {
+                    const hasFilter = selectedClassCompareIds.length > 0 || selectedTeacherCompareIds.length > 0 || selectedRoomCompareIds.length > 0;
                     const dayItemsRaw = schedule
                       .map((item, idx) => ({ item, idx }))
                       .filter(({ item }) => {
                         if (item.day !== day) return false;
-                        if (redigerWeekView === "both") return true;
-                        return !item.week_type || item.week_type === redigerWeekView;
+                        if (redigerWeekView !== "both" && item.week_type && item.week_type !== redigerWeekView) return false;
+                        if (!hasFilter) return true;
+                        const allTids = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
+                        const matchClass = selectedClassCompareIds.length === 0 || item.class_ids.some((id) => selectedClassCompareIds.includes(id));
+                        const matchTeacher = selectedTeacherCompareIds.length === 0 || allTids.some((id) => selectedTeacherCompareIds.includes(id));
+                        const matchRoom = selectedRoomCompareIds.length === 0 || (item.room_id != null && selectedRoomCompareIds.includes(item.room_id));
+                        if (selectedClassCompareIds.length > 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0) return matchClass;
+                        if (selectedTeacherCompareIds.length > 0 && selectedClassCompareIds.length === 0 && selectedRoomCompareIds.length === 0) return matchTeacher;
+                        if (selectedRoomCompareIds.length > 0 && selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0) return matchRoom;
+                        return matchClass && matchTeacher && matchRoom;
                       });
                     type RedigerEntry = { item: ScheduledItem; idx: number; startMin: number; endMin: number; overlapCol: number; overlapCols: number };
                     const entries: RedigerEntry[] = dayItemsRaw
