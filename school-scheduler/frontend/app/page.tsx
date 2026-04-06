@@ -1336,7 +1336,6 @@ export default function Home() {
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
   const solverTimeoutSeconds = 90;
-  const [useCpSatOnly, setUseCpSatOnly] = useState(false);
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -5979,7 +5978,7 @@ export default function Home() {
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
         alternate_non_block_subjects: alternateNonBlockSubjects,
-        solver_engine: useCpSatOnly ? "cp_sat_only" : "cp_sat_experimental",
+        solver_engine: "cp_sat_experimental",
         solver_timeout_seconds: Math.max(5, Math.min(600, Math.round(solverTimeoutSeconds))),
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
@@ -9575,15 +9574,6 @@ export default function Home() {
           <button type="button" onClick={generateSchedule} disabled={loading}>
             {loading ? "Genererer..." : "Generer timeplan"}
           </button>
-          <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "0.8rem", whiteSpace: "nowrap", cursor: "pointer" }}>
-            <input
-              type="checkbox"
-              checked={useCpSatOnly}
-              onChange={(e) => setUseCpSatOnly(e.target.checked)}
-              disabled={loading}
-            />
-            Full CP-SAT (tregere, garantert komplett)
-          </label>
           <button
             type="button"
             onClick={clearGeneratedSchedule}

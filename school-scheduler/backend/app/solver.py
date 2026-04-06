@@ -5347,7 +5347,7 @@ def _rebalance_1tmt_naturfag_samf_partial(
 def _generate_schedule_cp_sat_experimental(
     data: ScheduleRequest,
     solver_timeout_seconds: int,
-    require_zero_shortfall: bool = False,
+    random_seed: int = 0,
 ) -> ScheduleResponse:
     active_timeslots = list(data.timeslots)
     if not active_timeslots:
@@ -5919,23 +5919,14 @@ def _generate_schedule_cp_sat_experimental(
                     all_coeffs.append(1)
 
         if not all_vars:
-            if require_zero_shortfall:
-                # No candidate slots at all — hard infeasibility, skip shortfall tracking.
-                shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
-            else:
-                shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
+            shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
             shortfall_vars.append(shortfall)
             continue
 
         achieved = sum(var * coeff for var, coeff in zip(all_vars, all_coeffs))
         model.Add(achieved <= required_units)
-        if require_zero_shortfall:
-            # Hard constraint: must place exactly the required units.
-            model.Add(achieved == required_units)
-            shortfall = model.NewIntVar(0, 0, f"shortfall_{subject.id}")
-        else:
-            shortfall = model.NewIntVar(0, required_units, f"shortfall_{subject.id}")
-            model.Add(shortfall == required_units - achieved)
+        shortfall = model.NewIntVar(0, required_units, f"shortfall_{subject.id}")
+        model.Add(shortfall == required_units - achieved)
         shortfall_vars.append(shortfall)
 
     # ── Same-day spread penalty ───────────────────────────────────────────────
@@ -6098,23 +6089,14 @@ def _generate_schedule_cp_sat_experimental(
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(max(1, min(600, solver_timeout_seconds)))
     solver.parameters.num_search_workers = max(1, min(8, os.cpu_count() or 1))
+    if random_seed != 0:
+        solver.parameters.random_seed = random_seed
 
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-        if require_zero_shortfall and status == cp_model.UNKNOWN:
-            msg = (
-                "CP-SAT full mode timed out without finding a complete solution. "
-                "Try increasing the solver timeout or use standard mode."
-            )
-        elif require_zero_shortfall and status == cp_model.INFEASIBLE:
-            msg = (
-                "CP-SAT full mode proved no complete solution exists with the current constraints."
-            )
-        else:
-            msg = "CP-SAT experimental mode could not produce a feasible schedule."
         return ScheduleResponse(
             status="infeasible",
-            message=msg,
+            message="CP-SAT experimental mode could not produce a feasible schedule.",
             schedule=[],
             metadata={"timed_out": 1.0 if status == cp_model.UNKNOWN else 0.0},
         )
@@ -6219,49 +6201,71 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 return True
         return False
 
-    if solver_engine in ("cp_sat_experimental", "cp_sat_only"):
-        _solver_log(f"[ENGINE] {solver_engine} requested; attempting CP-SAT engine.")
-        cp_sat_response = _generate_schedule_cp_sat_experimental(
-            data, solver_timeout_seconds,
-            require_zero_shortfall=(solver_engine == "cp_sat_only"),
-        )
-        # Accept CP-SAT result only if it placed everything, or if cp_sat_only mode
-        # was requested (which already handles infeasibility explicitly).
-        # If cp_sat_experimental returned a partial solution, fall through to the
-        # staged solver which may find a complete placement.
-        cp_sat_complete = (
-            cp_sat_response.status == "success"
-            and not _cp_sat_has_shortfall(cp_sat_response)
-        )
-        if cp_sat_complete or solver_engine == "cp_sat_only":
-            cp_sat_metadata = dict(cp_sat_response.metadata or {})
-            cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
-            cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0
-            cp_sat_metadata["solver_engine_effective_staged"] = 0.0
-            cp_sat_metadata["solver_engine_effective_cp_sat"] = 1.0
-            cp_sat_schedule = list(cp_sat_response.schedule or [])
-            # Top-up any subjects the CP-SAT engine left short (e.g. odd sessions_per_week
-            # where the model relaxes the half-unit to avoid infeasibility). A/B pairing
-            # is a preference, not a hard requirement, so standalone placements are fine.
-            if data.alternating_weeks_enabled:
-                _cp_sat_tum: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
-                cp_sat_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
-                    data, cp_sat_schedule, _cp_sat_tum,
-                )
-                cp_sat_schedule = _fill_regular_slot_shortage_for_partial_weeks(
-                    data, cp_sat_schedule, _cp_sat_tum,
-                )
-            return ScheduleResponse(
-                status=cp_sat_response.status,
-                message=cp_sat_response.message,
-                schedule=cp_sat_schedule,
-                metadata=cp_sat_metadata,
-                diagnostics=dict(cp_sat_response.diagnostics or {}),
-                cautions=_cautions_for(cp_sat_schedule),
+    def _finalize_cp_sat(response: ScheduleResponse) -> ScheduleResponse:
+        cp_sat_metadata = dict(response.metadata or {})
+        cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
+        cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0
+        cp_sat_metadata["solver_engine_effective_staged"] = 0.0
+        cp_sat_metadata["solver_engine_effective_cp_sat"] = 1.0
+        cp_sat_schedule = list(response.schedule or [])
+        if data.alternating_weeks_enabled:
+            _cp_sat_tum: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
+            cp_sat_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
+                data, cp_sat_schedule, _cp_sat_tum,
             )
-        _solver_log(
-            f"[ENGINE] cp_sat_experimental fallback to staged: partial solution "
-            f"(shortfall={_cp_sat_has_shortfall(cp_sat_response)}) or status={cp_sat_response.status}"
+            cp_sat_schedule = _fill_regular_slot_shortage_for_partial_weeks(
+                data, cp_sat_schedule, _cp_sat_tum,
+            )
+        return ScheduleResponse(
+            status=response.status,
+            message=response.message,
+            schedule=cp_sat_schedule,
+            metadata=cp_sat_metadata,
+            diagnostics=dict(response.diagnostics or {}),
+            cautions=_cautions_for(cp_sat_schedule),
+        )
+
+    if solver_engine == "cp_sat_experimental":
+        _solver_log("[ENGINE] cp_sat_experimental requested; running multi-seed CP-SAT.")
+        # Time budget: reserve a small slice per seed, use a per-attempt timeout.
+        # Seeds run sequentially; stop as soon as one produces zero shortfall.
+        CP_SAT_SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
+        time_remaining = deadline_monotonic - time.monotonic()
+        per_seed_timeout = max(5, int(time_remaining / len(CP_SAT_SEEDS)))
+        best_response: ScheduleResponse | None = None
+        for seed in CP_SAT_SEEDS:
+            if time.monotonic() >= deadline_monotonic:
+                generation_timed_out = True
+                break
+            seed_timeout = min(per_seed_timeout, max(5, int(deadline_monotonic - time.monotonic())))
+            _solver_log(f"[CP-SAT] seed={seed} timeout={seed_timeout}s")
+            response = _generate_schedule_cp_sat_experimental(
+                data, seed_timeout, random_seed=seed,
+            )
+            if response.status == "success" and not _cp_sat_has_shortfall(response):
+                _solver_log(f"[CP-SAT] complete solution found at seed={seed}")
+                return _finalize_cp_sat(response)
+            # Keep the best partial (fewest shortfall subjects) as fallback.
+            if best_response is None or (
+                response.status == "success"
+                and (best_response.status != "success" or _cp_sat_has_shortfall(best_response))
+            ):
+                best_response = response
+            elif response.status == "success" and best_response.status == "success":
+                # Both have shortfall — keep whichever has more schedule items.
+                if len(response.schedule or []) > len(best_response.schedule or []):
+                    best_response = response
+        # No seed produced a complete solution — return best partial.
+        _solver_log("[CP-SAT] all seeds exhausted without complete solution; returning best partial.")
+        if best_response and best_response.status == "success":
+            return _finalize_cp_sat(best_response)
+        return _finalize_cp_sat(
+            best_response or ScheduleResponse(
+                status="infeasible",
+                message="CP-SAT could not produce a feasible schedule.",
+                schedule=[],
+                metadata={"timed_out": 1.0 if generation_timed_out else 0.0},
+            )
         )
 
     def _timed_out() -> bool:
