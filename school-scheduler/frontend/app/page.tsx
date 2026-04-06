@@ -11340,6 +11340,7 @@ export default function Home() {
                           const heightPct = ((e.endMin - e.startMin) / TIMELINE_TOTAL_MINUTES) * 100;
                           const laneWidth = 100 / laneCount;
                           const laneLeft = e.laneIndex * laneWidth;
+                          // eslint-disable-next-line @typescript-eslint/no-unused-vars
                           const isMerged = e.mergedIdx !== undefined;
                           const wkSub = _weekSub(e);
                           const effectiveLaneWidth = e.overlapCols > 1 ? laneWidth : (wkSub === "both" ? laneWidth : laneWidth / 2);
