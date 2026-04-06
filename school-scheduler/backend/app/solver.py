@@ -2482,12 +2482,12 @@ def _generate_schedule_staged(
                         norsk_pair_setup_penalty = 0 if ts.period in {1, 2, 3, 4} else 1
 
                     # Avoid giving a teacher a 4th (or more) session on the same day.
-                    teacher_four_session_penalty = (
-                        1 if teacher_ids and any(
-                            teacher_day_count_staged.get((tid, ts.day), 0) >= 3
-                            for tid in teacher_ids
-                        ) else 0
-                    )
+                    # Count how many extra sessions beyond 3 each teacher would accumulate;
+                    # this makes the penalty graded so a 5th session is worse than a 4th.
+                    teacher_four_session_penalty = sum(
+                        max(0, teacher_day_count_staged.get((tid, ts.day), 0) - 2)
+                        for tid in teacher_ids
+                    ) if teacher_ids else 0
 
                     # Soft preference: avoid creating gaps for classes within the same day.
                     # Weighted by class year (younger = higher weight).
@@ -5347,6 +5347,7 @@ def _rebalance_1tmt_naturfag_samf_partial(
 def _generate_schedule_cp_sat_experimental(
     data: ScheduleRequest,
     solver_timeout_seconds: int,
+    require_zero_shortfall: bool = False,
 ) -> ScheduleResponse:
     active_timeslots = list(data.timeslots)
     if not active_timeslots:
@@ -5918,14 +5919,23 @@ def _generate_schedule_cp_sat_experimental(
                     all_coeffs.append(1)
 
         if not all_vars:
-            shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
+            if require_zero_shortfall:
+                # No candidate slots at all — hard infeasibility, skip shortfall tracking.
+                shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
+            else:
+                shortfall = model.NewIntVar(required_units, required_units, f"shortfall_{subject.id}")
             shortfall_vars.append(shortfall)
             continue
 
         achieved = sum(var * coeff for var, coeff in zip(all_vars, all_coeffs))
         model.Add(achieved <= required_units)
-        shortfall = model.NewIntVar(0, required_units, f"shortfall_{subject.id}")
-        model.Add(shortfall == required_units - achieved)
+        if require_zero_shortfall:
+            # Hard constraint: must place exactly the required units.
+            model.Add(achieved == required_units)
+            shortfall = model.NewIntVar(0, 0, f"shortfall_{subject.id}")
+        else:
+            shortfall = model.NewIntVar(0, required_units, f"shortfall_{subject.id}")
+            model.Add(shortfall == required_units - achieved)
         shortfall_vars.append(shortfall)
 
     # ── Same-day spread penalty ───────────────────────────────────────────────
@@ -6042,9 +6052,44 @@ def _generate_schedule_cp_sat_experimental(
                     model.AddBoolOr([subject_extra_b[(sid_i, ts_id)].Not(), subject_extra_b[(sid_j, ts_id)].Not()]).OnlyEnforceIf(both_b.Not())
                     odd_pair_penalties.append(both_b)
 
+    # ── Teacher >3 sessions on a single day penalty ───────────────────────────
+    teacher_day_excess_vars: List[cp_model.IntVar] = []
+    # Build a map: (teacher_id, day_name) → list of subjects taught by that teacher
+    teacher_day_subjects: Dict[Tuple[str, str], List[str]] = defaultdict(list)
+    for subject in data.subjects:
+        if subject.id in block_subject_ids or subject.id in forced_subject_ids:
+            continue
+        for tid in _subject_teacher_ids(subject):
+            for ts_id in timeslots_by_id:
+                day_name = (timeslots_by_id[ts_id].day or "").lower()
+                if day_name:
+                    teacher_day_subjects[(tid, day_name)].append(subject.id)
+    # Deduplicate
+    teacher_day_subjects = {k: list(set(v)) for k, v in teacher_day_subjects.items()}
+
+    for (teacher_id, day_name), subject_ids_on_day in teacher_day_subjects.items():
+        for week_key in week_labels:
+            day_session_terms = []
+            for subject_id in subject_ids_on_day:
+                for ts_id, ts in timeslots_by_id.items():
+                    if (ts.day or "").lower() != day_name:
+                        continue
+                    key = (subject_id, ts_id, week_key)
+                    if key in x:
+                        day_session_terms.append(x[key])
+                    if key in x_tail:
+                        day_session_terms.append(x_tail[key])
+            if not day_session_terms:
+                continue
+            max_sessions = len(day_session_terms)
+            excess = model.NewIntVar(0, max(0, max_sessions - 3), f"t_day_excess_{teacher_id}_{week_key}_{day_name}")
+            model.Add(excess >= sum(day_session_terms) - 3)
+            teacher_day_excess_vars.append(excess)
+
     # ── Objective ─────────────────────────────────────────────────────────────
     model.Minimize(
-        1000 * sum(shortfall_vars)
+        10000 * sum(shortfall_vars)
+        + 500 * sum(teacher_day_excess_vars)
         + 10 * sum(same_day_penalties)
         + 5 * sum(odd_pair_penalties)
         - 15 * sum(norsk_pair_bonus_vars)
@@ -6056,9 +6101,20 @@ def _generate_schedule_cp_sat_experimental(
 
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+        if require_zero_shortfall and status == cp_model.UNKNOWN:
+            msg = (
+                "CP-SAT full mode timed out without finding a complete solution. "
+                "Try increasing the solver timeout or use standard mode."
+            )
+        elif require_zero_shortfall and status == cp_model.INFEASIBLE:
+            msg = (
+                "CP-SAT full mode proved no complete solution exists with the current constraints."
+            )
+        else:
+            msg = "CP-SAT experimental mode could not produce a feasible schedule."
         return ScheduleResponse(
             status="infeasible",
-            message="CP-SAT experimental mode could not produce a feasible schedule.",
+            message=msg,
             schedule=[],
             metadata={"timed_out": 1.0 if status == cp_model.UNKNOWN else 0.0},
         )
@@ -6143,7 +6199,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     if solver_engine in ("cp_sat_experimental", "cp_sat_only"):
         _solver_log(f"[ENGINE] {solver_engine} requested; attempting CP-SAT engine.")
-        cp_sat_response = _generate_schedule_cp_sat_experimental(data, solver_timeout_seconds)
+        cp_sat_response = _generate_schedule_cp_sat_experimental(
+            data, solver_timeout_seconds,
+            require_zero_shortfall=(solver_engine == "cp_sat_only"),
+        )
         if cp_sat_response.status == "success" or solver_engine == "cp_sat_only":
             cp_sat_metadata = dict(cp_sat_response.metadata or {})
             cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
