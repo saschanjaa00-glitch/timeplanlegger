@@ -2459,6 +2459,22 @@ button.secondary {
   margin: 0.15rem 0;
 }
 
+.warning-filter-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.warning-filter-link:hover {
+  text-decoration-style: solid;
+}
+
 .generation-popup-overlay {
   position: fixed;
   right: 18px;

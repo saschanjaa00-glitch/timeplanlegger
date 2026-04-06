@@ -210,8 +210,8 @@ def _subject_teacher_ids(subject: Subject) -> List[str]:
 REPAIR_RELOCATION_DEPTH = 4
 REPAIR_BLOCK_LOCK_SWEEPS = 4
 REPAIR_FINAL_CLEANUP_RELOCATION_DEPTH = 4
-ALT_DETERMINISTIC_SEEDS_PER_BATCH = 4
-ALT_DETERMINISTIC_SEED_BATCHES = 3
+ALT_DETERMINISTIC_SEEDS_PER_BATCH = 5
+ALT_DETERMINISTIC_SEED_BATCHES = 4
 
 
 def _subject_link_group_id(subject: Subject) -> str:
@@ -1716,9 +1716,11 @@ def _generate_schedule_staged(
                 allowed_slots_local -= set(teachers_by_id[tid].unavailable_timeslots)
                 allowed_slots_local -= teacher_meeting_unavailable.get(tid, set())
 
+        is_nv3 = _is_norsk_vg3_subject(subject)
         feasible_count = 0
         feasible_days: Set[str] = set()
         feasible_capacity_units = 0
+        available_by_day_period: Dict[str, Set[int]] = defaultdict(set)
         planning_week_key_local = week_label or "base"
         for ts_id in allowed_slots_local:
             if not _room_capacity_available(subject, ts_id, planning_week_key_local):
@@ -1727,9 +1729,24 @@ def _generate_schedule_staged(
                 continue
             if any((cid, ts_id) in class_occupied for cid in subject.class_ids):
                 continue
+            ts = timeslots_by_id[ts_id]
             feasible_count += 1
-            feasible_days.add(timeslots_by_id[ts_id].day)
+            feasible_days.add(ts.day)
             feasible_capacity_units += timeslot_units_by_id.get(ts_id, 1)
+            if is_nv3:
+                available_by_day_period[ts.day].add(ts.period)
+
+        if is_nv3:
+            # Norsk vg3 requires adjacent period pairs ({1,2} or {3,4}).
+            # Recompute effective capacity as available-pair-count x2 so the
+            # MRV sort correctly places these constrained subjects early.
+            pair_capacity = 0
+            for _day_periods in available_by_day_period.values():
+                if 1 in _day_periods and 2 in _day_periods:
+                    pair_capacity += 2
+                if 3 in _day_periods and 4 in _day_periods:
+                    pair_capacity += 2
+            feasible_capacity_units = pair_capacity
 
         required_units_local = _required_units_for_subject(subject)
         slack_units = feasible_capacity_units - required_units_local
@@ -6124,10 +6141,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     def _cautions_for(schedule: List[ScheduledItem]) -> List[str]:
         return _compute_teacher_overload_cautions(schedule, _gen_teachers_by_id)
 
-    if solver_engine == "cp_sat_experimental":
-        _solver_log("[ENGINE] cp_sat_experimental requested; attempting CP-SAT engine first.")
+    if solver_engine in ("cp_sat_experimental", "cp_sat_only"):
+        _solver_log(f"[ENGINE] {solver_engine} requested; attempting CP-SAT engine.")
         cp_sat_response = _generate_schedule_cp_sat_experimental(data, solver_timeout_seconds)
-        if cp_sat_response.status == "success":
+        if cp_sat_response.status == "success" or solver_engine == "cp_sat_only":
             cp_sat_metadata = dict(cp_sat_response.metadata or {})
             cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
             cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0

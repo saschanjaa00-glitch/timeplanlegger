@@ -178,6 +178,8 @@ type PlacementWarningDetail = {
   required_units: number;
   placed_units: number;
   missing_units: number;
+  class_ids?: string[];
+  teacher_ids?: string[];
 };
 
 type UnplacedStatusDetail = {
@@ -188,6 +190,8 @@ type UnplacedStatusDetail = {
   placed_units: number;
   missing_units: number;
   reason: string;
+  class_ids?: string[];
+  teacher_ids?: string[];
 };
 
 type SavedJsonExport = {
@@ -233,6 +237,11 @@ type PersistedState = {
   weekView: WeekView;
   savedJsonExports?: SavedJsonExport[];
   savedScheduleSnapshots?: SavedScheduleSnapshot[];
+  cautionsList?: string[];
+  placementWarningDetails?: PlacementWarningDetail[];
+  placementWarningSummary?: string;
+  unplacedStatusDetails?: UnplacedStatusDetail[];
+  unplacedStatusSummary?: string;
 };
 
 function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
@@ -459,6 +468,11 @@ function collectPlacementWarningDetails(
         required_units: warningRequiredUnits,
         placed_units: placedUnits,
         missing_units: minimumExpectedUnits - placedUnits,
+        class_ids: subject.class_ids,
+        teacher_ids: Array.from(new Set([
+          ...(subject.teacher_id ? [subject.teacher_id] : []),
+          ...(subject.teacher_ids ?? []),
+        ].filter(Boolean))),
       });
     }
   }
@@ -599,6 +613,8 @@ function collectUnplacedStatusDetails(
       placed_units: placedTotalUnits,
       missing_units: requiredTotalUnits - placedTotalUnits,
       reason: reasonParts.join(" "),
+      class_ids: subject.class_ids,
+      teacher_ids: teacherIds,
     });
   }
 
@@ -1320,6 +1336,7 @@ export default function Home() {
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
   const solverTimeoutSeconds = 90;
+  const [useCpSatOnly, setUseCpSatOnly] = useState(false);
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -1563,6 +1580,11 @@ export default function Home() {
       weekView,
       savedJsonExports,
       savedScheduleSnapshots,
+      cautionsList,
+      placementWarningDetails,
+      placementWarningSummary,
+      unplacedStatusDetails,
+      unplacedStatusSummary,
     };
   }
 
@@ -1619,6 +1641,21 @@ export default function Home() {
         .filter((entry): entry is SavedScheduleSnapshot => Boolean(entry?.id && entry?.name && entry?.created_at && Array.isArray(entry?.schedule)))
         .slice(0, 20);
       setSavedScheduleSnapshots(normalized);
+    }
+    if (Array.isArray(parsed.cautionsList)) {
+      setCautionsList(parsed.cautionsList);
+    }
+    if (Array.isArray(parsed.placementWarningDetails)) {
+      setPlacementWarningDetails(parsed.placementWarningDetails);
+    }
+    if (typeof parsed.placementWarningSummary === "string") {
+      setPlacementWarningSummary(parsed.placementWarningSummary);
+    }
+    if (Array.isArray(parsed.unplacedStatusDetails)) {
+      setUnplacedStatusDetails(parsed.unplacedStatusDetails);
+    }
+    if (typeof parsed.unplacedStatusSummary === "string") {
+      setUnplacedStatusSummary(parsed.unplacedStatusSummary);
     }
   }
 
@@ -1834,6 +1871,11 @@ export default function Home() {
         weekView: WeekView;
         savedJsonExports: SavedJsonExport[];
         savedScheduleSnapshots: SavedScheduleSnapshot[];
+        cautionsList: string[];
+        placementWarningDetails: PlacementWarningDetail[];
+        placementWarningSummary: string;
+        unplacedStatusDetails: UnplacedStatusDetail[];
+        unplacedStatusSummary: string;
       }>;
 
       applyPersistedState(parsed);
@@ -1890,6 +1932,11 @@ export default function Home() {
       weekView,
       savedJsonExports,
       savedScheduleSnapshots,
+      cautionsList,
+      placementWarningDetails,
+      placementWarningSummary,
+      unplacedStatusDetails,
+      unplacedStatusSummary,
     };
 
     const serialized = JSON.stringify(persisted);
@@ -1925,6 +1972,11 @@ export default function Home() {
     weekView,
     savedJsonExports,
     savedScheduleSnapshots,
+    cautionsList,
+    placementWarningDetails,
+    placementWarningSummary,
+    unplacedStatusDetails,
+    unplacedStatusSummary,
   ]);
 
   // ── Autosave to cloud (debounced 8s) ──────────────────────────────────────
@@ -5927,7 +5979,7 @@ export default function Home() {
         timeslots: timeslots ?? [],
         alternating_weeks_enabled: enableAlternatingWeeks,
         alternate_non_block_subjects: alternateNonBlockSubjects,
-        solver_engine: "cp_sat_experimental",
+        solver_engine: useCpSatOnly ? "cp_sat_only" : "cp_sat_experimental",
         solver_timeout_seconds: Math.max(5, Math.min(600, Math.round(solverTimeoutSeconds))),
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
@@ -9521,6 +9573,15 @@ export default function Home() {
           <button type="button" onClick={generateSchedule} disabled={loading}>
             {loading ? "Genererer..." : "Generer timeplan"}
           </button>
+          <label style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "0.8rem", whiteSpace: "nowrap", cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={useCpSatOnly}
+              onChange={(e) => setUseCpSatOnly(e.target.checked)}
+              disabled={loading}
+            />
+            Full CP-SAT (tregere, garantert komplett)
+          </label>
           <button
             type="button"
             onClick={clearGeneratedSchedule}
@@ -9637,7 +9698,12 @@ export default function Home() {
                 <ul>
                   {placementWarningDetails.map((detail) => (
                     <li key={`${detail.subject_id}_${detail.week}`}>
-                      {detail.week}-uke: {detail.subject_name} ({detail.subject_id}) krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e.
+                      {detail.week}-uke:{" "}
+                      <button
+                        className="warning-filter-link"
+                        onClick={() => { setSelectedClassCompareIds(detail.class_ids ?? []); setSelectedTeacherCompareIds([]); }}
+                      >{detail.subject_name}</button>
+                      {" "}krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e.
                     </li>
                   ))}
                 </ul>
@@ -9655,7 +9721,18 @@ export default function Home() {
                 <ul>
                   {unplacedStatusDetails.map((detail) => (
                     <li key={detail.subject_id}>
-                      {detail.subject_name} ({detail.subject_id}) | Lærer: {detail.teacher_label} | Krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e. Årsak: {detail.reason}
+                      <button
+                        className="warning-filter-link"
+                        onClick={() => { setSelectedClassCompareIds(detail.class_ids ?? []); setSelectedTeacherCompareIds([]); }}
+                      >{detail.subject_name}</button>
+                      {" "}| Lærer:{" "}
+                      {(detail.teacher_ids ?? []).length > 0
+                        ? <button
+                            className="warning-filter-link"
+                            onClick={() => { setSelectedTeacherCompareIds(detail.teacher_ids ?? []); setSelectedClassCompareIds([]); }}
+                          >{detail.teacher_label}</button>
+                        : detail.teacher_label}
+                      {" "}| Krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e. Årsak: {detail.reason}
                     </li>
                   ))}
                 </ul>
@@ -9672,9 +9749,27 @@ export default function Home() {
               <div className="status-warning-content">
                 <p>Disse elementene er ikke-blokkerende, men kan kreve manuell gjennomgang:</p>
                 <ul>
-                  {cautionsList.map((msg, idx) => (
-                    <li key={idx}>{msg}</li>
-                  ))}
+                  {cautionsList.map((msg, idx) => {
+                    const m = /^Teacher '(.+?)' has (.+)$/.exec(msg);
+                    if (m) {
+                      const tName = m[1];
+                      const rest = m[2];
+                      const teacher = teachers.find((t) => t.name === tName);
+                      return (
+                        <li key={idx}>
+                          {"Teacher "}
+                          {teacher
+                            ? <button
+                                className="warning-filter-link"
+                                onClick={() => { setSelectedTeacherCompareIds([teacher.id]); setSelectedClassCompareIds([]); }}
+                              >&#39;{tName}&#39;</button>
+                            : `'${tName}'`}
+                          {" has "}{rest}
+                        </li>
+                      );
+                    }
+                    return <li key={idx}>{msg}</li>;
+                  })}
                 </ul>
               </div>
             </details>
