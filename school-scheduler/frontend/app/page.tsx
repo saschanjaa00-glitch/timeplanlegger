@@ -104,7 +104,7 @@ type SportsHall = {
   allowed_subject_ids: string[];
 };
 
-type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate" | "overview" | "export";
+type TabKey = "files" | "calendar" | "classes" | "subjects" | "faggrupper" | "blocks" | "meetings" | "rom" | "teachers" | "generate" | "rediger" | "overview" | "export";
 
 type WeekView = "both" | "A" | "B";
 type OverviewSubtab = "rooms" | "teachers" | "classes" | "constraints";
@@ -636,9 +636,14 @@ type CompareEntity = {
 };
 
 const API_BASE_CANDIDATES: string[] = (() => {
+  // Runtime detection: if the page is served from localhost, always target the local backend.
+  const isLocalhost = typeof window !== "undefined"
+    && (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  if (isLocalhost) return ["http://127.0.0.1:8000", "http://localhost:8000"];
+  // Deployed: use the configured backend URL (set NEXT_PUBLIC_BACKEND_URL in Vercel env vars).
   const envUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
   if (envUrl) return [envUrl.replace(/\/$/, "")];
-  return ["http://127.0.0.1:8000", "http://localhost:8000"];
+  return [];
 })();
 
 async function postGenerateWithFallback(
@@ -738,6 +743,7 @@ const workflowTabs: Array<{ id: TabKey; label: string }> = [
   { id: "rom", label: "Rom" },
   { id: "teachers", label: "Lærere" },
   { id: "generate", label: "Generer" },
+  { id: "rediger", label: "Rediger" },
   { id: "overview", label: "Oversikt" },
   { id: "export", label: "Eksporter" },
 ];
@@ -1399,6 +1405,9 @@ export default function Home() {
   const [hoveredTimelineEventKey, setHoveredTimelineEventKey] = useState<string | null>(null);
   const [hoveredTimelineSubjectId, setHoveredTimelineSubjectId] = useState<string | null>(null);
   const [expandedTimelineEventKey, setExpandedTimelineEventKey] = useState<string | null>(null);
+  const [redigerDropTargetDay, setRedigerDropTargetDay] = useState<string | null>(null);
+  const [redigerWeekView, setRedigerWeekView] = useState<WeekView>("both");
+  const redigerDragRef = useRef<{ idx: number } | null>(null);
   const [overviewHoverCard, setOverviewHoverCard] = useState<{
     x: number;
     y: number;
@@ -3174,6 +3183,51 @@ export default function Home() {
   }, [compareEntities]);
 
   const displaySchedule = useMemo(() => mergeScheduleForDisplay(schedule), [schedule]);
+
+  const redigerCollisions = useMemo(() => {
+    type RedigerCol = { type: "teacher" | "class" | "room"; label: string; idxA: number; idxB: number };
+    const cols: RedigerCol[] = [];
+    for (let i = 0; i < schedule.length; i++) {
+      for (let j = i + 1; j < schedule.length; j++) {
+        const a = schedule[i];
+        const b = schedule[j];
+        if (a.day !== b.day) continue;
+        const aSlot = timeslotById[a.timeslot_id];
+        const bSlot = timeslotById[b.timeslot_id];
+        const aStart = toMinutes(a.start_time ?? aSlot?.start_time);
+        const aEnd = toMinutes(a.end_time ?? aSlot?.end_time);
+        const bStart = toMinutes(b.start_time ?? bSlot?.start_time);
+        const bEnd = toMinutes(b.end_time ?? bSlot?.end_time);
+        if (aStart === Number.MAX_SAFE_INTEGER || aEnd === Number.MAX_SAFE_INTEGER) continue;
+        if (bStart === Number.MAX_SAFE_INTEGER || bEnd === Number.MAX_SAFE_INTEGER) continue;
+        if (aStart >= bEnd || bStart >= aEnd) continue;
+        const aWeek = a.week_type ?? "both";
+        const bWeek = b.week_type ?? "both";
+        if (aWeek !== "both" && bWeek !== "both" && aWeek !== bWeek) continue;
+        const allTA = Array.from(new Set([...(a.teacher_id ? [a.teacher_id] : []), ...(a.teacher_ids ?? [])]));
+        const allTB = Array.from(new Set([...(b.teacher_id ? [b.teacher_id] : []), ...(b.teacher_ids ?? [])]));
+        for (const tid of allTA.filter((id) => allTB.includes(id))) {
+          cols.push({ type: "teacher", label: `Lærerkollisjon (${teacherNameById[tid] ?? tid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+        }
+        for (const cid of a.class_ids.filter((id) => b.class_ids.includes(id))) {
+          cols.push({ type: "class", label: `Klassekollisjon (${classNameById[cid] ?? cid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+        }
+        if (a.room_id && b.room_id && a.room_id === b.room_id) {
+          cols.push({ type: "room", label: `Romkollisjon (${roomNameById[a.room_id] ?? a.room_id}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+        }
+      }
+    }
+    return cols;
+  }, [schedule, timeslotById, teacherNameById, classNameById, roomNameById]);
+
+  const redigerCollidingIdxSet = useMemo(() => {
+    const set = new Set<number>();
+    for (const col of redigerCollisions) {
+      set.add(col.idxA);
+      set.add(col.idxB);
+    }
+    return set;
+  }, [redigerCollisions]);
 
   const teacherFilterSubjectSummaryRows = useMemo(() => {
     const subjectToBlockInfoLocal = new Map<string, { block_id: string; block_name: string; class_ids: string[] }>();
@@ -6644,6 +6698,60 @@ export default function Home() {
       );
     });
   };
+
+  function redigerToggleWeekType(idx: number) {
+    const item = schedule[idx];
+    const next: "A" | "B" | undefined = !item.week_type ? "A" : item.week_type === "A" ? "B" : undefined;
+    const updated = [...schedule];
+    updated[idx] = { ...item, week_type: next };
+    setSchedule(updated);
+  }
+
+  function handleRedigerDrop(e: React.DragEvent<HTMLDivElement>, targetDay: string) {
+    e.preventDefault();
+    setRedigerDropTargetDay(null);
+    const dragData = redigerDragRef.current;
+    if (!dragData) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const yFraction = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height));
+    const targetMinutes = DAY_START_MINUTES + yFraction * TIMELINE_TOTAL_MINUTES;
+    const daySlots = timeslotsByDay[targetDay] ?? [];
+    if (!daySlots.length) return;
+    const nearest = daySlots.reduce((best, slot) => {
+      const s = toMinutes(slot.start_time);
+      const en = toMinutes(slot.end_time);
+      if (s === Number.MAX_SAFE_INTEGER || en === Number.MAX_SAFE_INTEGER) return best;
+      const bs = toMinutes(best.start_time);
+      const ben = toMinutes(best.end_time);
+      if (bs === Number.MAX_SAFE_INTEGER || ben === Number.MAX_SAFE_INTEGER) return slot;
+      return Math.abs((s + en) / 2 - targetMinutes) < Math.abs((bs + ben) / 2 - targetMinutes) ? slot : best;
+    });
+    const draggedItem = schedule[dragData.idx];
+    const sourceSlot = timeslotById[draggedItem.timeslot_id];
+    const srcS = toMinutes(draggedItem.start_time ?? sourceSlot?.start_time);
+    const srcE = toMinutes(draggedItem.end_time ?? sourceSlot?.end_time);
+    const srcDur = srcS !== Number.MAX_SAFE_INTEGER && srcE !== Number.MAX_SAFE_INTEGER ? srcE - srcS : 45;
+    const tgtS = toMinutes(nearest.start_time);
+    const tgtE = toMinutes(nearest.end_time);
+    const tgtDur = tgtS !== Number.MAX_SAFE_INTEGER && tgtE !== Number.MAX_SAFE_INTEGER ? tgtE - tgtS : 45;
+    let newWeekType = draggedItem.week_type;
+    if (srcDur <= 60 && tgtDur > 60 && !newWeekType) {
+      newWeekType = "A";
+    } else if (srcDur > 60 && tgtDur <= 60) {
+      newWeekType = undefined;
+    }
+    const updated = [...schedule];
+    updated[dragData.idx] = {
+      ...draggedItem,
+      timeslot_id: nearest.id,
+      day: nearest.day,
+      period: nearest.period,
+      start_time: undefined,
+      end_time: undefined,
+      week_type: newWeekType,
+    };
+    setSchedule(updated);
+  }
 
   return (
     <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
@@ -10667,6 +10775,196 @@ export default function Home() {
           </section>
         )}
 
+      </>
+      )}
+
+      {activeTab === "rediger" && (
+      <>
+        <section className="card">
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+            <h2 style={{ marginBottom: 0 }}>Rediger timeplan</h2>
+            <div className="compare-week-view" style={{ minWidth: "160px" }}>
+              <label>Vis</label>
+              <select value={redigerWeekView} onChange={(e) => setRedigerWeekView(parseWeekView(e.target.value))}>
+                <option value="both">Vis begge uker</option>
+                <option value="A">Vis kun A-uke</option>
+                <option value="B">Vis kun B-uke</option>
+              </select>
+            </div>
+          </div>
+          {schedule.length === 0 ? (
+            <p style={{ color: "#999" }}>Generer en timeplan for å redigere her.</p>
+          ) : (
+            <div className="weekly-timeline">
+              <div className="weekly-head">
+                <div className="weekly-corner" />
+                {calendarDays.map((day) => (
+                  <div key={day} className="weekly-day-head">{toNorwegianDay(day).toUpperCase()}</div>
+                ))}
+              </div>
+              <div className="weekly-body">
+                <aside className="weekly-axis">
+                  {timelineMarks.map((minutes, index) => {
+                    const topPct = ((minutes - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                    const isFirst = index === 0;
+                    const isLast = index === timelineMarks.length - 1;
+                    const translateY = isFirst ? "0%" : isLast ? "-100%" : "-50%";
+                    return (
+                      <span key={minutes} style={{ top: `${topPct}%`, transform: `translateY(${translateY})` }}>
+                        {minutesToTime(minutes)}
+                      </span>
+                    );
+                  })}
+                </aside>
+                <div
+                  className="weekly-grid"
+                  style={{ gridTemplateColumns: `repeat(${calendarDays.length}, minmax(140px, 1fr))` }}
+                >
+                  {calendarDays.map((day) => {
+                    const dayItemsRaw = schedule
+                      .map((item, idx) => ({ item, idx }))
+                      .filter(({ item }) => {
+                        if (item.day !== day) return false;
+                        if (redigerWeekView === "both") return true;
+                        return !item.week_type || item.week_type === redigerWeekView;
+                      });
+                    type RedigerEntry = { item: ScheduledItem; idx: number; startMin: number; endMin: number; overlapCol: number; overlapCols: number };
+                    const entries: RedigerEntry[] = dayItemsRaw
+                      .map(({ item, idx }) => {
+                        const ts = timeslotById[item.timeslot_id];
+                        const s = toMinutes(item.start_time ?? ts?.start_time);
+                        const en = toMinutes(item.end_time ?? ts?.end_time);
+                        return { item, idx, startMin: s, endMin: en, overlapCol: 0, overlapCols: 1 };
+                      })
+                      .filter((e) => e.startMin !== Number.MAX_SAFE_INTEGER && e.endMin > e.startMin);
+                    entries.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+                    let rActive: Array<{ endMin: number; col: number }> = [];
+                    let rCluster: RedigerEntry[] = [];
+                    let rClusterMax = 1;
+                    const rCommit = () => { for (const e of rCluster) e.overlapCols = Math.max(1, rClusterMax); rCluster = []; rClusterMax = 1; };
+                    for (const e of entries) {
+                      rActive = rActive.filter((a) => a.endMin > e.startMin);
+                      if (rActive.length === 0 && rCluster.length > 0) rCommit();
+                      const used = new Set(rActive.map((a) => a.col));
+                      let col = 0;
+                      while (used.has(col)) col++;
+                      e.overlapCol = col;
+                      rActive.push({ endMin: e.endMin, col });
+                      rCluster.push(e);
+                      rClusterMax = Math.max(rClusterMax, rActive.length);
+                    }
+                    if (rCluster.length > 0) rCommit();
+                    const isDropTarget = redigerDropTargetDay === day;
+                    return (
+                      <div
+                        key={day}
+                        className="weekly-day-track"
+                        style={isDropTarget ? { outline: "2px dashed #2a9d8f", outlineOffset: "-2px" } : undefined}
+                        onDragOver={(e) => { e.preventDefault(); setRedigerDropTargetDay(day); }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setRedigerDropTargetDay(null); }}
+                        onDrop={(e) => handleRedigerDrop(e, day)}
+                      >
+                        {timelineMarks.map((minutes) => {
+                          const topPct = ((minutes - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                          return <div key={`${day}_${minutes}`} className="weekly-line" style={{ top: `${topPct}%` }} />;
+                        })}
+                        {entries.map((e) => {
+                          const topPct = ((e.startMin - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                          const heightPct = ((e.endMin - e.startMin) / TIMELINE_TOTAL_MINUTES) * 100;
+                          const overlapWidth = 100 / Math.max(1, e.overlapCols);
+                          const overlapLeft = e.overlapCol * overlapWidth;
+                          const isColliding = redigerCollidingIdxSet.has(e.idx);
+                          const weekLabel = e.item.week_type === "A" ? "A" : e.item.week_type === "B" ? "B" : "Begge";
+                          const ts = timeslotById[e.item.timeslot_id];
+                          const displayStart = e.item.start_time ?? ts?.start_time ?? "";
+                          const displayEnd = e.item.end_time ?? ts?.end_time ?? "";
+                          const classLabel = e.item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
+                          const allTeacherIds = Array.from(new Set([...(e.item.teacher_id ? [e.item.teacher_id] : []), ...(e.item.teacher_ids ?? [])]));
+                          const teacherLabel = allTeacherIds.map((id) => teacherNameById[id] ?? id).join(", ");
+                          return (
+                            <article
+                              key={e.idx}
+                              className="weekly-event"
+                              draggable
+                              onDragStart={() => { redigerDragRef.current = { idx: e.idx }; }}
+                              onDragEnd={() => { redigerDragRef.current = null; setRedigerDropTargetDay(null); }}
+                              style={{
+                                top: `${topPct}%`,
+                                height: `${Math.max(heightPct, 4)}%`,
+                                left: `calc(${overlapLeft}% + 2px)`,
+                                width: `calc(${overlapWidth}% - 4px)`,
+                                right: "auto",
+                                borderColor: isColliding ? "#c53030" : "#355070",
+                                backgroundColor: isColliding ? "#fde8e8" : "#e6ebf3",
+                                cursor: "grab",
+                              }}
+                            >
+                              <div className="weekly-event-header-row">
+                                <strong>{e.item.subject_name}</strong>
+                                <small>{displayStart}-{displayEnd}</small>
+                              </div>
+                              {classLabel && <small>{classLabel}</small>}
+                              {teacherLabel && <small>{teacherLabel}</small>}
+                              <div style={{ marginTop: "2px" }}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(ev) => ev.stopPropagation()}
+                                  onClick={(ev) => { ev.stopPropagation(); redigerToggleWeekType(e.idx); }}
+                                  style={{
+                                    fontSize: "0.72rem",
+                                    padding: "1px 5px",
+                                    background: e.item.week_type === "A" ? "#d4edda" : e.item.week_type === "B" ? "#d1e7fd" : "#f0f0f0",
+                                    border: "1px solid #aaa",
+                                    borderRadius: "3px",
+                                    cursor: "pointer",
+                                    lineHeight: 1.4,
+                                  }}
+                                >
+                                  Uke: {weekLabel}
+                                </button>
+                              </div>
+                            </article>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
+        </section>
+        {redigerCollisions.length > 0 && (
+          <section className="card">
+            <details open>
+              <summary style={{ cursor: "pointer", fontWeight: 600, color: "#c53030" }}>
+                {redigerCollisions.length} kollisjon{redigerCollisions.length === 1 ? "" : "er"} – klikk for å skjule
+              </summary>
+              <ul style={{ marginTop: "8px", paddingLeft: "20px" }}>
+                {redigerCollisions.map((col, i) => (
+                  <li key={i} style={{ marginBottom: "4px" }}>
+                    <span
+                      style={{
+                        display: "inline-block",
+                        padding: "1px 6px",
+                        marginRight: "6px",
+                        fontSize: "0.75rem",
+                        borderRadius: "3px",
+                        background: col.type === "teacher" ? "#fde8e8" : col.type === "class" ? "#fff3cd" : "#d1e7fd",
+                        border: `1px solid ${col.type === "teacher" ? "#c53030" : col.type === "class" ? "#b87333" : "#2a6bb5"}`,
+                        color: col.type === "teacher" ? "#c53030" : col.type === "class" ? "#7a4f00" : "#1a4a80",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {col.type === "teacher" ? "Lærer" : col.type === "class" ? "Klasse" : "Rom"}
+                    </span>
+                    {col.label}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          </section>
+        )}
       </>
       )}
 

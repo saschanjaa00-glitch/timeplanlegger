@@ -6077,6 +6077,53 @@ def _generate_schedule_cp_sat_experimental(
             model.Add(excess >= sum(day_session_terms) - 3)
             teacher_day_excess_vars.append(excess)
 
+    # ── Search decision strategy: locked classes first ────────────────────────
+    # These class-name prefixes are ordered from most-constrained to least.
+    # Subjects whose classes appear early in this list get their CP-SAT variables
+    # branched on first (CHOOSE_FIRST + SELECT_MAX_VALUE = try to place them
+    # before touching the remaining subjects).
+    _LOCKED_CLASS_PRIORITY: List[str] = [
+        "1STA", "1TMT", "1TID",
+        "2TMT", "2TID", "2STA",
+        "3TMT", "3TID", "3STA",
+    ]
+
+    def _subject_priority_rank(subj: Subject) -> int:
+        """Return the priority rank for a subject (lower = more locked = first)."""
+        best = len(_LOCKED_CLASS_PRIORITY)  # default: not in any locked class
+        for cid in (subj.class_ids or []):
+            for rank, prefix in enumerate(_LOCKED_CLASS_PRIORITY):
+                if cid.upper().startswith(prefix):
+                    best = min(best, rank)
+                    break
+        return best
+
+    # Collect all placement variables per priority bucket.
+    _strategy_buckets: Dict[int, List[cp_model.IntVar]] = defaultdict(list)
+    for _s in data.subjects:
+        if _s.id in block_subject_ids or _s.id in forced_subject_ids:
+            continue
+        _rank = _subject_priority_rank(_s)
+        for _wk in week_labels:
+            for _ts_id in allowed_by_subject_week.get((_s.id, _wk), []):
+                _k = (_s.id, _ts_id, _wk)
+                if _k in x:
+                    _strategy_buckets[_rank].append(x[_k])
+            for _ts_id in tail_slots_by_subject.get(_s.id, []):
+                _kt = (_s.id, _ts_id, _wk)
+                if _kt in x_tail:
+                    _strategy_buckets[_rank].append(x_tail[_kt])
+
+    # Add one strategy per bucket in priority order (locked → unlocked).
+    for _rank in sorted(_strategy_buckets.keys()):
+        _bucket_vars = _strategy_buckets[_rank]
+        if _bucket_vars:
+            model.AddDecisionStrategy(
+                _bucket_vars,
+                cp_model.CHOOSE_FIRST,
+                cp_model.SELECT_MAX_VALUE,
+            )
+
     # ── Objective ─────────────────────────────────────────────────────────────
     model.Minimize(
         10000 * sum(shortfall_vars)
