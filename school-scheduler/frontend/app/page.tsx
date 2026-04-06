@@ -1317,6 +1317,7 @@ function indexToLetters(index: number): string {
 }
 
 const SPORTS_SUBJECT_KEYWORDS = ["kroppsøving", "aktivitetslære", "treningsledelse", "breddeidrett", "idrett", "toppidrett"];
+const SPORTS_SUBJECT_EXCLUSIONS = ["idrett og samfunn"];
 
 export default function Home() {
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -1412,6 +1413,8 @@ export default function Home() {
   // ── Supabase cloud save state ──────────────────────────────────────────────
   const [cloudUser, setCloudUser] = useState<User | null>(null);
   const [cloudSnapshots, setCloudSnapshots] = useState<CloudSavefile[]>([]);
+  const [saveNameModalOpen, setSaveNameModalOpen] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState("");
   const [cloudEmail, setCloudEmail] = useState("");
   const [cloudAuthStatus, setCloudAuthStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [cloudAuthError, setCloudAuthError] = useState("");
@@ -2818,7 +2821,8 @@ export default function Home() {
 
   function autoAssignSubjectIdsToSportsHalls(subjectIds: string[], subjectName: string) {
     const normalizedName = normalizeSearchText(subjectName);
-    const shouldAutoAssign = SPORTS_SUBJECT_KEYWORDS.some((kw) => normalizedName.includes(normalizeSearchText(kw)));
+    const isExcluded = SPORTS_SUBJECT_EXCLUSIONS.some((ex) => normalizedName.includes(normalizeSearchText(ex)));
+    const shouldAutoAssign = !isExcluded && SPORTS_SUBJECT_KEYWORDS.some((kw) => normalizedName.includes(normalizeSearchText(kw)));
     if (!shouldAutoAssign || subjectIds.length === 0) {
       return;
     }
@@ -5230,6 +5234,24 @@ export default function Home() {
     setStatusText(`Fjernet ${clearedCount} lærerilordning(er) på tvers av alle fellesfag.`);
   }
 
+  function clearAllBlockTeachers() {
+    let clearedCount = 0;
+    const nextBlocks = blocks.map((block) => {
+      const newEntries = block.subject_entries.map((entry) => {
+        if (!entry.teacher_id && !(entry.teacher_ids?.length ?? 0)) return entry;
+        clearedCount++;
+        return { ...entry, teacher_id: "", teacher_ids: [] };
+      });
+      return { ...block, subject_entries: newEntries };
+    });
+    if (clearedCount === 0) {
+      setStatusText("Ingen lærerilordninger å fjerne i blokker.");
+      return;
+    }
+    setBlocks(nextBlocks);
+    setStatusText(`Fjernet ${clearedCount} lærerilordning(er) fra blokker.`);
+  }
+
   function addSubjectToClass(subject: Subject, classId: string, currentClassIds: string[]) {
     if (!classId) {
       return;
@@ -7005,7 +7027,7 @@ export default function Home() {
                 <button type="button" className="secondary" onClick={signOutCloud} style={{ fontSize: "0.8rem" }}>Logg ut</button>
                 <button
                   type="button"
-                  onClick={() => saveToCloud()}
+                  onClick={() => { setSaveNameInput(`Lagret ${new Date().toLocaleString("nb-NO")}`); setSaveNameModalOpen(true); }}
                   disabled={cloudSaveStatus === "saving"}
                   style={{ fontSize: "0.9rem" }}
                 >
@@ -8125,7 +8147,7 @@ export default function Home() {
             <h2 style={{ margin: 0 }}>Fellesfag</h2>
             <button
               type="button"
-              onClick={clearAllFellesfagTeachers}
+              onClick={() => { if (window.confirm("Fjerne alle lærerilordninger fra fellesfag?")) clearAllFellesfagTeachers(); }}
               style={{ marginLeft: "auto", width: "auto", minWidth: 0, padding: "3px 8px", fontSize: "0.74rem", lineHeight: 1, whiteSpace: "nowrap" }}
               disabled={
                 !subjects.some((subject) => subject.subject_type === "fellesfag" && (Boolean(subject.teacher_id) || (subject.teacher_ids?.length ?? 0) > 0)) &&
@@ -8671,7 +8693,17 @@ export default function Home() {
         </article>
 
         <article className="card blocks-right-column">
-          <h2>Blokkliste</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
+            <h2 style={{ margin: 0 }}>Blokkliste</h2>
+            <button
+              type="button"
+              onClick={() => { if (window.confirm("Fjerne alle lærerilordninger fra blokker?")) clearAllBlockTeachers(); }}
+              style={{ marginLeft: "auto", width: "auto", minWidth: 0, padding: "3px 8px", fontSize: "0.74rem", lineHeight: 1, whiteSpace: "nowrap" }}
+              disabled={!blocks.some(b => b.subject_entries.some(e => e.teacher_id || (e.teacher_ids?.length ?? 0) > 0))}
+            >
+              Fjern alle lærere
+            </button>
+          </div>
           {blocks.length === 0 ? (
             <p style={{ color: "#999" }}>Ingen blokker lagt til ennå.</p>
           ) : (
@@ -12833,6 +12865,39 @@ export default function Home() {
           </section>
         );
       })()}
+      {saveNameModalOpen && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}
+          onClick={(e) => { if (e.target === e.currentTarget) setSaveNameModalOpen(false); }}
+        >
+          <div style={{
+            background: "#fff", borderRadius: "10px", padding: "28px 32px", minWidth: "340px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", gap: "16px",
+          }}>
+            <h3 style={{ margin: 0, fontSize: "1.1rem" }}>Lagre ny fil</h3>
+            <label style={{ fontSize: "0.9rem", display: "flex", flexDirection: "column", gap: "6px" }}>
+              Filnavn
+              <input
+                autoFocus
+                type="text"
+                value={saveNameInput}
+                onChange={(e) => setSaveNameInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { setSaveNameModalOpen(false); saveToCloud(saveNameInput); }
+                  if (e.key === "Escape") setSaveNameModalOpen(false);
+                }}
+                style={{ fontSize: "0.95rem", padding: "7px 10px", borderRadius: "6px", border: "1px solid #ccc" }}
+              />
+            </label>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button type="button" className="secondary" onClick={() => setSaveNameModalOpen(false)}>Avbryt</button>
+              <button type="button" onClick={() => { setSaveNameModalOpen(false); saveToCloud(saveNameInput); }}>Lagre</button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
