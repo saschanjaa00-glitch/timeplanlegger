@@ -6,6 +6,7 @@ __pycache__/
 # Node
 frontend/node_modules/
 frontend/.next/
+frontend/.next-dev/
 
 # OS
 .DS_Store
