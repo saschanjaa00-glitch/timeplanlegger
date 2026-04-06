@@ -1083,6 +1083,20 @@ function toOpaqueTint(hexColor: string, mixWithWhite = 0.82): string {
   return `rgb(${mixedR}, ${mixedG}, ${mixedB})`;
 }
 
+// Mix a hex colour with black to produce a dark readable text shade.
+function toDarkShade(hexColor: string, blackMix = 0.45): string {
+  const hex = hexColor.trim().replace(/^#/, "");
+  const normalized = hex.length === 3
+    ? `${hex[0]}${hex[0]}${hex[1]}${hex[1]}${hex[2]}${hex[2]}`
+    : hex;
+  if (!/^[0-9a-fA-F]{6}$/.test(normalized)) return "#1a1a2e";
+  const r = Number.parseInt(normalized.slice(0, 2), 16);
+  const g = Number.parseInt(normalized.slice(2, 4), 16);
+  const b = Number.parseInt(normalized.slice(4, 6), 16);
+  const f = Math.min(1, Math.max(0, blackMix));
+  return `rgb(${Math.round(r * (1 - f))}, ${Math.round(g * (1 - f))}, ${Math.round(b * (1 - f))})`;
+}
+
 function toRgbTuple(color: string): [number, number, number] | null {
   const text = color.trim();
   const hex = text.replace(/^#/, "");
@@ -1390,10 +1404,14 @@ export default function Home() {
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
   const [savedJsonExports, setSavedJsonExports] = useState<SavedJsonExport[]>([]);
   const [savedScheduleSnapshots, setSavedScheduleSnapshots] = useState<SavedScheduleSnapshot[]>([]);
+  const [periodicSnapshotsCollapsed, setPeriodicSnapshotsCollapsed] = useState(true);
   const [snapshotName, setSnapshotName] = useState("");
+  const [exportFilterKind, setExportFilterKind] = useState<"all" | "class" | "block" | "teacher" | "room">("all");
+  const [exportFilterId, setExportFilterId] = useState("");
 
   // ── Supabase cloud save state ──────────────────────────────────────────────
   const [cloudUser, setCloudUser] = useState<User | null>(null);
+  const [cloudSnapshots, setCloudSnapshots] = useState<CloudSavefile[]>([]);
   const [cloudEmail, setCloudEmail] = useState("");
   const [cloudAuthStatus, setCloudAuthStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [cloudAuthError, setCloudAuthError] = useState("");
@@ -1408,7 +1426,13 @@ export default function Home() {
   const [expandedTimelineEventKey, setExpandedTimelineEventKey] = useState<string | null>(null);
   const [redigerDropTargetDay, setRedigerDropTargetDay] = useState<string | null>(null);
   const [redigerWeekView, setRedigerWeekView] = useState<WeekView>("both");
-  const redigerDragRef = useRef<{ idx: number } | null>(null);
+  const [redigerTimelineZoom, setRedigerTimelineZoom] = useState<45 | 90>(45);
+  const [selectedRedigerIdx, setSelectedRedigerIdx] = useState<number | null>(null);
+  const redigerHistoryRef = useRef<ScheduledItem[][]>([]);
+  const redigerRedoRef = useRef<ScheduledItem[][]>([]);
+  const [redigerUndoCount, setRedigerUndoCount] = useState(0);
+  const [redigerRedoCount, setRedigerRedoCount] = useState(0);
+  const redigerDragRef = useRef<{ idx: number; mergedIdx?: number } | null>(null);
   const [overviewHoverCard, setOverviewHoverCard] = useState<{
     x: number;
     y: number;
@@ -1698,14 +1722,6 @@ export default function Home() {
     const payloadText = JSON.stringify(buildPersistedState(), null, 2);
 
     downloadJsonFile(fileName, payloadText);
-
-    const saved: SavedJsonExport = {
-      id: `${now.getTime()}_${Math.random().toString(16).slice(2, 8)}`,
-      name: fileName,
-      created_at: now.toISOString(),
-      payload: payloadText,
-    };
-    setSavedJsonExports((prev) => [saved, ...prev].slice(0, 30));
     setStatusText(`Eksportert ${fileName}`);
   }
 
@@ -1780,9 +1796,20 @@ export default function Home() {
     const { data, error } = await supabase
       .from("savefiles")
       .select("id, user_id, name, created_at, updated_at")
+      .not("name", "like", "_snapshot_%")
       .order("updated_at", { ascending: false });
     setCloudLoading(false);
     if (!error && data) setCloudSavefiles(data as CloudSavefile[]);
+  }, []);
+
+  const loadCloudSnapshots = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("savefiles")
+      .select("id, user_id, name, created_at, updated_at")
+      .like("name", "_snapshot_%")
+      .order("created_at", { ascending: false })
+      .limit(20);
+    if (!error && data) setCloudSnapshots(data as CloudSavefile[]);
   }, []);
 
   async function saveToCloud(name?: string) {
@@ -1899,15 +1926,15 @@ export default function Home() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setCloudUser(session?.user ?? null);
-      if (session?.user) loadCloudSavefiles();
+      if (session?.user) { loadCloudSavefiles(); loadCloudSnapshots(); }
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setCloudUser(session?.user ?? null);
-      if (session?.user) loadCloudSavefiles();
-      else setCloudSavefiles([]);
+      if (session?.user) { loadCloudSavefiles(); loadCloudSnapshots(); }
+      else { setCloudSavefiles([]); setCloudSnapshots([]); }
     });
     return () => subscription.unsubscribe();
-  }, [loadCloudSavefiles]);
+  }, [loadCloudSavefiles, loadCloudSnapshots]);
 
   useEffect(() => {
     if (!isStorageHydrated) {
@@ -1997,6 +2024,35 @@ export default function Home() {
     return () => { if (autosaveTimerRef.current) clearTimeout(autosaveTimerRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudUser, isStorageHydrated, subjects, teachers, meetings, rooms, sportsHalls, classes, timeslots, weekCalendarSetups, blocks, schedule]);
+
+  // ── Periodic autosave snapshot to Supabase (every 15 min) ──────────────────
+  const periodicAutosaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  useEffect(() => {
+    if (!isStorageHydrated) return;
+    if (periodicAutosaveIntervalRef.current) clearInterval(periodicAutosaveIntervalRef.current);
+    periodicAutosaveIntervalRef.current = setInterval(async () => {
+      if (!cloudUser) return;
+      const now = new Date();
+      const snapName = `_snapshot_${now.toISOString()}`;
+      const payload = JSON.stringify(buildPersistedState());
+      await supabase.from("savefiles").insert({ user_id: cloudUser.id, name: snapName, data: payload });
+      // Load updated list and trim to 20 oldest
+      const { data } = await supabase
+        .from("savefiles")
+        .select("id, user_id, name, created_at, updated_at")
+        .like("name", "_snapshot_%")
+        .order("created_at", { ascending: false });
+      if (data) {
+        setCloudSnapshots(data as CloudSavefile[]);
+        if (data.length > 20) {
+          const toDelete = (data as CloudSavefile[]).slice(20).map((r) => r.id);
+          await supabase.from("savefiles").delete().in("id", toDelete);
+        }
+      }
+    }, 15 * 60 * 1000);
+    return () => { if (periodicAutosaveIntervalRef.current) clearInterval(periodicAutosaveIntervalRef.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isStorageHydrated, cloudUser]);
 
   useEffect(() => {
     if (!isStorageHydrated) {
@@ -3195,6 +3251,7 @@ export default function Home() {
 
     type RedigerCol = { type: "teacher" | "class" | "room"; label: string; idxA: number; idxB: number };
     const cols: RedigerCol[] = [];
+    const seenKeys = new Set<string>();
     for (let i = 0; i < schedule.length; i++) {
       for (let j = i + 1; j < schedule.length; j++) {
         const a = schedule[i];
@@ -3219,13 +3276,16 @@ export default function Home() {
         const allTA = Array.from(new Set([...(a.teacher_id ? [a.teacher_id] : []), ...(a.teacher_ids ?? [])]));
         const allTB = Array.from(new Set([...(b.teacher_id ? [b.teacher_id] : []), ...(b.teacher_ids ?? [])]));
         for (const tid of allTA.filter((id) => allTB.includes(id))) {
-          cols.push({ type: "teacher", label: `Lærerkollisjon (${teacherNameById[tid] ?? tid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+          const key = `teacher|${tid}|${[a.subject_id, b.subject_id].sort().join("|")}|${a.day}`;
+          if (!seenKeys.has(key)) { seenKeys.add(key); cols.push({ type: "teacher", label: `Lærerkollisjon (${teacherNameById[tid] ?? tid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j }); }
         }
         for (const cid of a.class_ids.filter((id) => b.class_ids.includes(id))) {
-          cols.push({ type: "class", label: `Klassekollisjon (${classNameById[cid] ?? cid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+          const key = `class|${cid}|${[a.subject_id, b.subject_id].sort().join("|")}|${a.day}`;
+          if (!seenKeys.has(key)) { seenKeys.add(key); cols.push({ type: "class", label: `Klassekollisjon (${classNameById[cid] ?? cid}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j }); }
         }
         if (a.room_id && b.room_id && a.room_id === b.room_id) {
-          cols.push({ type: "room", label: `Romkollisjon (${roomNameById[a.room_id] ?? a.room_id}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j });
+          const key = `room|${a.room_id}|${[a.subject_id, b.subject_id].sort().join("|")}|${a.day}`;
+          if (!seenKeys.has(key)) { seenKeys.add(key); cols.push({ type: "room", label: `Romkollisjon (${roomNameById[a.room_id] ?? a.room_id}): ${a.subject_name} og ${b.subject_name} på ${toNorwegianDay(a.day)}`, idxA: i, idxB: j }); }
         }
       }
     }
@@ -6711,11 +6771,65 @@ export default function Home() {
     });
   };
 
+
+  function redigerPushHistory() {
+    redigerHistoryRef.current = [...redigerHistoryRef.current.slice(-49), [...schedule]];
+    redigerRedoRef.current = [];
+    setRedigerUndoCount(redigerHistoryRef.current.length);
+    setRedigerRedoCount(0);
+  }
+
+  function undoSchedule() {
+    const history = redigerHistoryRef.current;
+    if (history.length === 0) return;
+    const prev = history[history.length - 1];
+    redigerHistoryRef.current = history.slice(0, -1);
+    redigerRedoRef.current = [...redigerRedoRef.current, [...schedule]];
+    setRedigerUndoCount(redigerHistoryRef.current.length);
+    setRedigerRedoCount(redigerRedoRef.current.length);
+    setSchedule(prev);
+  }
+
+  function redoSchedule() {
+    const redo = redigerRedoRef.current;
+    if (redo.length === 0) return;
+    const next = redo[redo.length - 1];
+    redigerRedoRef.current = redo.slice(0, -1);
+    redigerHistoryRef.current = [...redigerHistoryRef.current, [...schedule]];
+    setRedigerUndoCount(redigerHistoryRef.current.length);
+    setRedigerRedoCount(redigerRedoRef.current.length);
+    setSchedule(next);
+  }
+
   function redigerToggleWeekType(idx: number) {
+    redigerPushHistory();
     const item = schedule[idx];
     const next: "A" | "B" | undefined = !item.week_type ? "A" : item.week_type === "A" ? "B" : undefined;
     const updated = [...schedule];
     updated[idx] = { ...item, week_type: next };
+    setSchedule(updated);
+  }
+
+  function redigerDuplicate(idx: number) {
+    redigerPushHistory();
+    setSchedule((prev) => [...prev, { ...prev[idx] }]);
+  }
+
+  function redigerToggleDuration(idx: number) {
+    redigerPushHistory();
+    const item = schedule[idx];
+    const ts = timeslotById[item.timeslot_id];
+    const startStr = item.start_time ?? ts?.start_time;
+    if (!startStr) return;
+    const startMin = toMinutes(startStr);
+    if (startMin === Number.MAX_SAFE_INTEGER) return;
+    const currentEnd = item.end_time ?? ts?.end_time;
+    const currentDur = currentEnd ? toMinutes(currentEnd) - startMin : 45;
+    const nextDur = currentDur < 68 ? 90 : 45;
+    const newEndMin = startMin + nextDur;
+    const newEnd = `${String(Math.floor(newEndMin / 60)).padStart(2, "0")}:${String(newEndMin % 60).padStart(2, "0")}`;
+    const updated = [...schedule];
+    updated[idx] = { ...item, end_time: newEnd };
     setSchedule(updated);
   }
 
@@ -6762,6 +6876,19 @@ export default function Home() {
       end_time: undefined,
       week_type: newWeekType,
     };
+    // If this was a merged A+B pair, move the B item to the same slot too
+    if (dragData.mergedIdx !== undefined && dragData.mergedIdx < schedule.length) {
+      const mergedItem = schedule[dragData.mergedIdx];
+      updated[dragData.mergedIdx] = {
+        ...mergedItem,
+        timeslot_id: nearest.id,
+        day: nearest.day,
+        period: nearest.period,
+        start_time: undefined,
+        end_time: undefined,
+      };
+    }
+    redigerPushHistory();
     setSchedule(updated);
   }
 
@@ -6802,7 +6929,7 @@ export default function Home() {
 
       <section className="hero">
         <div className="hero-title-row">
-          <h1>Timeplanleggingsstudio</h1>
+          <h1>Timeplanlegger - St. Svithun vgs</h1>
           <button
             type="button"
             className="secondary hero-ultrawide-toggle"
@@ -6891,8 +7018,8 @@ export default function Home() {
               ) : (
                 <div className="list">
                   {cloudSavefiles.map((save) => (
-                    <div key={save.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                      <div style={{ flex: "1 1 200px" }}>
+                    <div key={save.id} className="item" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 180px", minWidth: 0 }}>
                         {renamingCloudId === save.id ? (
                           <form
                             onSubmit={(e) => { e.preventDefault(); renameCloudSavefile(save.id, renameValue); }}
@@ -6908,25 +7035,39 @@ export default function Home() {
                             <button type="button" className="secondary" onClick={() => setRenamingCloudId(null)}>Avbryt</button>
                           </form>
                         ) : (
-                          <>
-                            <strong>{save.name === "_autosave" ? "⏱ Autosave" : save.name}</strong>
-                            <div style={{ fontSize: "0.78rem", color: "#5a5a5a" }}>
+                          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+                            <strong style={{ whiteSpace: "nowrap" }}>{save.name === "_autosave" ? "⏱ Autosave" : save.name}</strong>
+                            <span style={{ fontSize: "0.78rem", color: "#5a5a5a", whiteSpace: "nowrap" }}>
                               {new Date(save.updated_at).toLocaleString("nb-NO")}
-                            </div>
-                          </>
+                            </span>
+                          </div>
                         )}
                       </div>
                       {renamingCloudId !== save.id && (
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                          <button type="button" className="secondary" onClick={() => loadCloudSavefile(save)}>Last inn</button>
+                        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
+                          <button type="button" className="secondary" style={{ fontSize: "0.82rem", padding: "3px 8px" }} onClick={() => loadCloudSavefile(save)}>Last inn</button>
                           <button
                             type="button"
                             className="secondary"
+                            style={{ fontSize: "0.82rem", padding: "3px 8px" }}
+                            onClick={async () => {
+                              const { data, error } = await supabase.from("savefiles").select("data").eq("id", save.id).single();
+                              if (error || !data) { setStatusText("Nedlasting feilet."); return; }
+                              const displayName = save.name === "_autosave" ? "autosave" : save.name;
+                              downloadJsonFile(`${displayName}.json`, (data as { data: string }).data);
+                            }}
+                          >
+                            Eksporter
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ fontSize: "0.82rem", padding: "3px 8px" }}
                             onClick={() => { setRenamingCloudId(save.id); setRenameValue(save.name); }}
                           >
                             Gi nytt navn
                           </button>
-                          <button type="button" className="secondary" onClick={() => deleteCloudSavefile(save.id)}>Slett</button>
+                          <button type="button" className="secondary" style={{ fontSize: "0.82rem", padding: "3px 8px", color: "#c53030" }} onClick={() => deleteCloudSavefile(save.id)}>Slett</button>
                         </div>
                       )}
                     </div>
@@ -6940,9 +7081,9 @@ export default function Home() {
         {/* ── Local JSON export/import ─────────────────────────────────── */}
         <article className="card" style={{ gridColumn: "1 / -1" }}>
           <h2>Lokal JSON-backup</h2>
-          <p>Eksporter gjeldende arbeidsområdestatus til JSON, importer en JSON-fil og gjenopprett tidligere eksporter fra denne menyen.</p>
+          <p>Eksporter gjeldende arbeidsområdestatus til en JSON-fil på skrivebordet, eller importer en tidligere eksportert fil.</p>
 
-          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "12px" }}>
+          <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
             <button type="button" onClick={() => exportCurrentState()}>
               Eksporter JSON
             </button>
@@ -6962,36 +7103,78 @@ export default function Home() {
             />
           </div>
 
-          <h3>Lagrede eksporter</h3>
-          <div className="list">
-            {savedJsonExports.length === 0 ? (
-              <div className="item">Ingen lagrede eksporter ennå.</div>
-            ) : (
-              savedJsonExports.map((item) => (
-                <div key={item.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center" }}>
-                  <div>
-                    <strong>{item.name}</strong>
-                    <div style={{ fontSize: "0.8rem", color: "#5a5a5a" }}>
-                      {new Date(item.created_at).toLocaleString()}
-                    </div>
+          <div style={{ marginTop: "16px", borderTop: "1px solid #e0e0e0", paddingTop: "12px" }}>
+            <button
+              type="button"
+              className="secondary"
+              style={{ fontSize: "0.85rem", padding: "3px 10px" }}
+              onClick={() => { setPeriodicSnapshotsCollapsed((v) => !v); if (periodicSnapshotsCollapsed && cloudUser) loadCloudSnapshots(); }}
+            >
+              {periodicSnapshotsCollapsed ? "▶" : "▼"} Automatiske øyeblikksbilder ({cloudSnapshots.length}/20)
+            </button>
+            {!periodicSnapshotsCollapsed && (
+              <div style={{ marginTop: "10px" }}>
+                <p style={{ fontSize: "0.82rem", color: "#555", marginBottom: "8px" }}>
+                  Lagres automatisk hvert 15. minutt til Supabase. Klikk «Last inn» for å gjenopprette et øyeblikksbilde.
+                  {!cloudUser && <span style={{ color: "#c53030" }}> (Logg inn for å aktivere.)</span>}
+                </p>
+                {cloudSnapshots.length === 0 ? (
+                  <div style={{ fontSize: "0.85rem", color: "#888" }}>Ingen øyeblikksbilder ennå – første kommer etter 15 minutter (krever innlogging).</div>
+                ) : (
+                  <div className="list">
+                    {cloudSnapshots.map((snap) => (
+                      <div key={snap.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
+                        <div style={{ fontSize: "0.85rem" }}>
+                          <strong>⏱ {new Date(snap.created_at).toLocaleString("nb-NO")}</strong>
+                        </div>
+                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ fontSize: "0.82rem" }}
+                            onClick={async () => {
+                              if (!window.confirm("Last inn dette øyeblikksbildet? Gjeldende data erstattes.")) return;
+                              const { data, error } = await supabase.from("savefiles").select("data").eq("id", snap.id).single();
+                              if (error || !data) { setStatusText("Kunne ikke laste øyeblikksbildet."); return; }
+                              try {
+                                applyPersistedState(JSON.parse((data as { data: string }).data) as Partial<PersistedState>);
+                                setStatusText(`Gjenopprettet øyeblikksbilde fra ${new Date(snap.created_at).toLocaleString("nb-NO")}`);
+                              } catch {
+                                setStatusText("Kunne ikke tolke øyeblikksbildet.");
+                              }
+                            }}
+                          >
+                            Last inn
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ fontSize: "0.82rem" }}
+                            onClick={async () => {
+                              const { data, error } = await supabase.from("savefiles").select("data").eq("id", snap.id).single();
+                              if (error || !data) { setStatusText("Nedlasting feilet."); return; }
+                              downloadJsonFile(`snapshot-${snap.created_at}.json`, (data as { data: string }).data);
+                            }}
+                          >
+                            Last ned
+                          </button>
+                          <button
+                            type="button"
+                            className="secondary"
+                            style={{ fontSize: "0.82rem", color: "#c53030" }}
+                            onClick={async () => {
+                              await supabase.from("savefiles").delete().eq("id", snap.id);
+                              setCloudSnapshots((prev) => prev.filter((s) => s.id !== snap.id));
+                            }}
+                          >
+                            Slett
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
-                    <button type="button" className="secondary" onClick={() => restoreSavedExport(item)}>
-                      Last inn
-                    </button>
-                    <button type="button" className="secondary" onClick={() => downloadJsonFile(item.name, item.payload)}>
-                      Last ned
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary"
-                      onClick={() => setSavedJsonExports((prev) => prev.filter((entry) => entry.id !== item.id))}
-                    >
-                      Fjern
-                    </button>
-                  </div>
-                </div>
-              ))
+                )}
+              </div>
             )}
           </div>
         </article>
@@ -10893,13 +11076,119 @@ export default function Home() {
               </div>
               <button
                 type="button"
+                onClick={() => setRedigerTimelineZoom((z) => z === 45 ? 90 : 45)}
+                style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #aaa", borderRadius: "4px", background: redigerTimelineZoom === 90 ? "#d1e7fd" : "#f0f0f0", cursor: "pointer", color: "#000" }}
+                title="Bytt mellom 45- og 90-minutters visning"
+              >
+                Zoom
+              </button>
+              <div style={{ display: "inline-flex", border: "1px solid #aaa", borderRadius: "4px", overflow: "hidden" }}>
+                <button
+                  type="button"
+                  onClick={undoSchedule}
+                  disabled={redigerUndoCount === 0}
+                  style={{ fontSize: "0.82rem", padding: "3px 8px", border: "none", borderRight: "1px solid #aaa", background: "#fff8e1", color: redigerUndoCount === 0 ? "#aaa" : "#1a1a2e", cursor: redigerUndoCount === 0 ? "default" : "pointer", whiteSpace: "nowrap" }}
+                  title="Angre siste handling"
+                >
+                  ↩{redigerUndoCount > 0 ? ` (${redigerUndoCount})` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={redoSchedule}
+                  disabled={redigerRedoCount === 0}
+                  style={{ fontSize: "0.82rem", padding: "3px 8px", border: "none", background: "#e8f4fd", color: redigerRedoCount === 0 ? "#aaa" : "#1a1a2e", cursor: redigerRedoCount === 0 ? "default" : "pointer", whiteSpace: "nowrap" }}
+                  title="Gjør om siste angring"
+                >
+                  ↪{redigerRedoCount > 0 ? ` (${redigerRedoCount})` : ""}
+                </button>
+              </div>
+              <button
+                type="button"
                 onClick={() => { setSelectedClassCompareIds([]); setSelectedTeacherCompareIds([]); setSelectedRoomCompareIds([]); }}
                 disabled={selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0}
               >
                 Fjern filter
               </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={schedule.length === 0}
+                onClick={() => {
+                  if (reviewMode) {
+                    setReviewMode(false);
+                    setSelectedClassCompareIds([]);
+                    setSelectedTeacherCompareIds([]);
+                    setSelectedRoomCompareIds([]);
+                  } else {
+                    setReviewMode(true);
+                    setReviewIndex(0);
+                    setReviewEntityType("class");
+                  }
+                }}
+              >
+                {reviewMode ? "Avslutt gjennomgang" : "Bla gjennom"}
+              </button>
             </div>
           </div>
+          {reviewMode && (
+            <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "nowrap", margin: "10px 0", padding: "6px 10px", background: "#f0f2f5", border: "1px solid #d0d5dd", borderRadius: "6px" }}>
+              {(["class", "teacher", "room"] as const).map((type) => {
+                const labels = { class: "Klasser", teacher: "Lærere", room: "Rom" };
+                const active = reviewEntityType === type;
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    style={{
+                      padding: "4px 14px",
+                      fontSize: "0.85rem",
+                      background: active ? "#334155" : "#e2e8f0",
+                      color: active ? "#fff" : "#334155",
+                      border: "1px solid " + (active ? "#334155" : "#c8d0dc"),
+                      borderRadius: "4px",
+                      cursor: "pointer",
+                      fontWeight: active ? 600 : 400,
+                    }}
+                    onClick={() => { setReviewEntityType(type); setReviewIndex(0); }}
+                  >
+                    {labels[type]}
+                  </button>
+                );
+              })}
+              <div style={{ width: "1px", height: "20px", background: "#c8d0dc", margin: "0 4px", flexShrink: 0 }} />
+              {(() => {
+                const reviewList =
+                  reviewEntityType === "class" ? sortedClasses :
+                  reviewEntityType === "teacher" ? sortedTeachersByFirstName :
+                  displayRoomOptions;
+                const clamped = Math.max(0, Math.min(reviewIndex, reviewList.length - 1));
+                const entity = reviewList[clamped];
+                return (
+                  <>
+                    <button
+                      type="button"
+                      style={{ padding: "4px 12px", fontSize: "0.85rem", background: "#e2e8f0", color: "#334155", border: "1px solid #c8d0dc", borderRadius: "4px", cursor: "pointer" }}
+                      disabled={clamped === 0}
+                      onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
+                    >
+                      ← Forrige
+                    </button>
+                    <span style={{ fontWeight: 600, minWidth: "130px", textAlign: "center", color: "#1e293b", fontSize: "0.9rem", flexShrink: 0 }}>
+                      {entity ? entity.name : "—"} <span style={{ fontWeight: 400, color: "#64748b" }}>({clamped + 1}/{reviewList.length})</span>
+                    </span>
+                    <button
+                      type="button"
+                      style={{ padding: "4px 12px", fontSize: "0.85rem", background: "#e2e8f0", color: "#334155", border: "1px solid #c8d0dc", borderRadius: "4px", cursor: "pointer" }}
+                      disabled={clamped >= reviewList.length - 1}
+                      onClick={() => setReviewIndex((i) => Math.min(reviewList.length - 1, i + 1))}
+                    >
+                      Neste →
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
           {schedule.length === 0 ? (
             <p style={{ color: "#999" }}>Generer en timeplan for å redigere her.</p>
           ) : (
@@ -10911,7 +11200,7 @@ export default function Home() {
                 ))}
               </div>
               <div className="weekly-body">
-                <aside className="weekly-axis">
+                <aside className="weekly-axis" style={{ height: redigerTimelineZoom === 90 ? "1300px" : "650px" }}>
                   {timelineMarks.map((minutes, index) => {
                     const topPct = ((minutes - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
                     const isFirst = index === 0;
@@ -10929,120 +11218,269 @@ export default function Home() {
                   style={{ gridTemplateColumns: `repeat(${calendarDays.length}, minmax(140px, 1fr))` }}
                 >
                   {calendarDays.map((day) => {
-                    const hasFilter = selectedClassCompareIds.length > 0 || selectedTeacherCompareIds.length > 0 || selectedRoomCompareIds.length > 0;
-                    const dayItemsRaw = schedule
-                      .map((item, idx) => ({ item, idx }))
-                      .filter(({ item }) => {
-                        if (item.day !== day) return false;
-                        if (redigerWeekView !== "both" && item.week_type && item.week_type !== redigerWeekView) return false;
-                        if (!hasFilter) return true;
-                        const allTids = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
-                        const matchClass = selectedClassCompareIds.length === 0 || item.class_ids.some((id) => selectedClassCompareIds.includes(id));
-                        const matchTeacher = selectedTeacherCompareIds.length === 0 || allTids.some((id) => selectedTeacherCompareIds.includes(id));
-                        const matchRoom = selectedRoomCompareIds.length === 0 || (item.room_id != null && selectedRoomCompareIds.includes(item.room_id));
-                        if (selectedClassCompareIds.length > 0 && selectedTeacherCompareIds.length === 0 && selectedRoomCompareIds.length === 0) return matchClass;
-                        if (selectedTeacherCompareIds.length > 0 && selectedClassCompareIds.length === 0 && selectedRoomCompareIds.length === 0) return matchTeacher;
-                        if (selectedRoomCompareIds.length > 0 && selectedClassCompareIds.length === 0 && selectedTeacherCompareIds.length === 0) return matchRoom;
-                        return matchClass && matchTeacher && matchRoom;
-                      });
-                    type RedigerEntry = { item: ScheduledItem; idx: number; startMin: number; endMin: number; overlapCol: number; overlapCols: number };
-                    const entries: RedigerEntry[] = dayItemsRaw
-                      .map(({ item, idx }) => {
+                    const laneCount = compareEntities.length > 0 ? compareEntities.length : 1;
+                    type RedigerEntry = { item: ScheduledItem; idx: number; startMin: number; endMin: number; overlapCol: number; overlapCols: number; mergedIdx?: number; blockLabel?: string; laneIndex: number };
+                    // Build one entry per (schedule item × matching entity lane)
+                    const allEntries: RedigerEntry[] = [];
+                    for (let laneIdx = 0; laneIdx < laneCount; laneIdx++) {
+                      const ent = compareEntities[laneIdx];
+                      const laneItems = schedule
+                        .map((item, idx) => ({ item, idx }))
+                        .filter(({ item }) => {
+                          if (item.day !== day) return false;
+                          if (redigerWeekView !== "both" && item.week_type && item.week_type !== redigerWeekView) return false;
+                          if (!ent) return true; // no filter: single lane takes all
+                          const allTids = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
+                          if (ent.kind === "class") return item.class_ids.includes(ent.id.replace("class:", ""));
+                          if (ent.kind === "teacher") return allTids.includes(ent.id.replace("teacher:", ""));
+                          if (ent.kind === "room") return item.room_id === ent.id.replace("room:", "");
+                          return false;
+                        });
+                      for (const { item, idx } of laneItems) {
                         const ts = timeslotById[item.timeslot_id];
                         const s = toMinutes(item.start_time ?? ts?.start_time);
                         const en = toMinutes(item.end_time ?? ts?.end_time);
-                        return { item, idx, startMin: s, endMin: en, overlapCol: 0, overlapCols: 1 };
-                      })
-                      .filter((e) => e.startMin !== Number.MAX_SAFE_INTEGER && e.endMin > e.startMin);
-                    entries.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
-                    let rActive: Array<{ endMin: number; col: number }> = [];
-                    let rCluster: RedigerEntry[] = [];
-                    let rClusterMax = 1;
-                    const rCommit = () => { for (const e of rCluster) e.overlapCols = Math.max(1, rClusterMax); rCluster = []; rClusterMax = 1; };
-                    for (const e of entries) {
-                      rActive = rActive.filter((a) => a.endMin > e.startMin);
-                      if (rActive.length === 0 && rCluster.length > 0) rCommit();
-                      const used = new Set(rActive.map((a) => a.col));
-                      let col = 0;
-                      while (used.has(col)) col++;
-                      e.overlapCol = col;
-                      rActive.push({ endMin: e.endMin, col });
-                      rCluster.push(e);
-                      rClusterMax = Math.max(rClusterMax, rActive.length);
+                        if (s === Number.MAX_SAFE_INTEGER || en <= s) continue;
+                        allEntries.push({ item, idx, startMin: s, endMin: en, overlapCol: 0, overlapCols: 1, laneIndex: laneIdx });
+                      }
                     }
-                    if (rCluster.length > 0) rCommit();
+                    // A+B merge per lane: keyed by "laneIndex|subjectId|timeslotId|start|end"
+                    const _mergeKey = (e: RedigerEntry) => `${e.laneIndex}|${e.item.subject_id}|${e.item.timeslot_id}|${e.item.start_time ?? ""}|${e.item.end_time ?? ""}`;
+                    const _keyMap = new Map<string, RedigerEntry>();
+                    const _hiddenKey = (e: RedigerEntry) => `${e.laneIndex}|${e.idx}`;
+                    const _hiddenByMerge = new Set<string>();
+                    for (const e of allEntries) {
+                      if (e.item.week_type !== "A" && e.item.week_type !== "B") continue;
+                      const k = _mergeKey(e);
+                      const other = _keyMap.get(k);
+                      if (other && other.item.week_type !== e.item.week_type) {
+                        other.mergedIdx = e.idx;
+                        _hiddenByMerge.add(_hiddenKey(e));
+                      } else {
+                        _keyMap.set(k, e);
+                      }
+                    }
+                    // Block collapse per lane when only class filter is active
+                    const isClassOnlyFilter = selectedClassCompareIds.length > 0;
+                    if (isClassOnlyFilter) {
+                      const _blockSeen = new Set<string>();
+                      for (const e of allEntries) {
+                        if (_hiddenByMerge.has(_hiddenKey(e))) continue;
+                        const bi = subjectToBlockInfo.get(e.item.subject_id);
+                        if (!bi) continue;
+                        const weekKey = e.mergedIdx !== undefined ? "both" : (e.item.week_type ?? "both");
+                        const bk = `${e.laneIndex}|${bi.block_id}|${e.item.timeslot_id}|${e.item.start_time ?? ""}|${e.item.end_time ?? ""}|${weekKey}`;
+                        if (_blockSeen.has(bk)) {
+                          _hiddenByMerge.add(_hiddenKey(e));
+                        } else {
+                          _blockSeen.add(bk);
+                          e.blockLabel = bi.block_name || bi.block_id;
+                        }
+                      }
+                    }
+                    const visibleEntries = allEntries.filter((e) => !_hiddenByMerge.has(_hiddenKey(e)));
+                    // Compute overlap within each lane independently
+                    // A-week → left half of lane, B-week → right half, both → full lane
+                    const _weekSub = (e: RedigerEntry): "A" | "B" | "both" => {
+                      if (e.mergedIdx !== undefined || !e.item.week_type) return "both";
+                      if (e.item.week_type === "A") return "A";
+                      if (e.item.week_type === "B") return "B";
+                      return "both";
+                    };
+                    for (let laneIdx = 0; laneIdx < laneCount; laneIdx++) {
+                      const subEntries = visibleEntries.filter((e) => e.laneIndex === laneIdx);
+                      subEntries.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+                      let rActive: Array<{ endMin: number; col: number }> = [];
+                      let rCluster: RedigerEntry[] = [];
+                      let rClusterMax = 1;
+                      const rCommit = () => { for (const e of rCluster) e.overlapCols = Math.max(1, rClusterMax); rCluster = []; rClusterMax = 1; };
+                      for (const e of subEntries) {
+                        rActive = rActive.filter((a) => a.endMin > e.startMin);
+                        if (rActive.length === 0 && rCluster.length > 0) rCommit();
+                        const used = new Set(rActive.map((a) => a.col));
+                        let col = 0;
+                        while (used.has(col)) col++;
+                        e.overlapCol = col;
+                        rActive.push({ endMin: e.endMin, col });
+                        rCluster.push(e);
+                        rClusterMax = Math.max(rClusterMax, rActive.length);
+                      }
+                      if (rCluster.length > 0) rCommit();
+                    }
                     const isDropTarget = redigerDropTargetDay === day;
+                    const trackHeight = redigerTimelineZoom === 90 ? "1300px" : "650px";
                     return (
                       <div
                         key={day}
                         className="weekly-day-track"
-                        style={isDropTarget ? { outline: "2px dashed #2a9d8f", outlineOffset: "-2px" } : undefined}
+                        style={{ height: trackHeight, ...(isDropTarget ? { outline: "2px dashed #2a9d8f", outlineOffset: "-2px" } : {}) }}
                         onDragOver={(e) => { e.preventDefault(); setRedigerDropTargetDay(day); }}
                         onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setRedigerDropTargetDay(null); }}
                         onDrop={(e) => handleRedigerDrop(e, day)}
                       >
+                        {/* Lane dividers */}
+                        {laneCount > 1 && Array.from({ length: laneCount - 1 }, (_, i) => (
+                          <div key={`lane_div_${i}`} style={{ position: "absolute", top: 0, bottom: 0, left: `${((i + 1) / laneCount) * 100}%`, width: "1px", background: "#c8c8c4", zIndex: 2 }} />
+                        ))}
+                        {/* Lane entity labels at top */}
+                        {laneCount > 1 && compareEntities.map((ent, laneIdx) => (
+                          <div key={`lane_label_${laneIdx}`} style={{ position: "absolute", top: "2px", left: `calc(${(laneIdx / laneCount) * 100}% + 4px)`, width: `calc(${100 / laneCount}% - 8px)`, fontSize: "0.68rem", fontWeight: 700, color: ent.color, zIndex: 4, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
+                            {ent.label}
+                          </div>
+                        ))}
                         {timelineMarks.map((minutes) => {
                           const topPct = ((minutes - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
                           return <div key={`${day}_${minutes}`} className="weekly-line" style={{ top: `${topPct}%` }} />;
                         })}
-                        {entries.map((e) => {
+                        {visibleEntries.map((e) => {
                           const topPct = ((e.startMin - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
                           const heightPct = ((e.endMin - e.startMin) / TIMELINE_TOTAL_MINUTES) * 100;
-                          const overlapWidth = 100 / Math.max(1, e.overlapCols);
-                          const overlapLeft = e.overlapCol * overlapWidth;
+                          const laneWidth = 100 / laneCount;
+                          const laneLeft = e.laneIndex * laneWidth;
+                          const isMerged = e.mergedIdx !== undefined;
+                          const wkSub = _weekSub(e);
+                          const effectiveLaneWidth = e.overlapCols > 1 ? laneWidth : (wkSub === "both" ? laneWidth : laneWidth / 2);
+                          const effectiveLaneLeft = e.overlapCols > 1 ? laneLeft : laneLeft + (wkSub === "B" ? laneWidth / 2 : 0);
+                          const overlapWidth = effectiveLaneWidth / Math.max(1, e.overlapCols);
+                          const overlapLeft = effectiveLaneLeft + e.overlapCol * overlapWidth;
                           const isColliding = redigerCollidingIdxSet.has(e.idx);
-                          const weekLabel = e.item.week_type === "A" ? "A" : e.item.week_type === "B" ? "B" : "Begge";
+                          const weekLabel = isMerged ? "Begge" : e.item.week_type === "A" ? "A" : e.item.week_type === "B" ? "B" : "Begge";
                           const ts = timeslotById[e.item.timeslot_id];
                           const displayStart = e.item.start_time ?? ts?.start_time ?? "";
                           const displayEnd = e.item.end_time ?? ts?.end_time ?? "";
                           const classLabel = e.item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
                           const allTeacherIds = Array.from(new Set([...(e.item.teacher_id ? [e.item.teacher_id] : []), ...(e.item.teacher_ids ?? [])]));
                           const teacherLabel = allTeacherIds.map((id) => teacherNameById[id] ?? id).join(", ");
+                          const displayTitle = e.blockLabel ?? e.item.subject_name;
+                          // Card accent colour: use the entity for this specific lane
+                          const laneEntity = compareEntities[e.laneIndex];
+                          const accentColor = isColliding ? "#c53030" : (laneEntity?.color ?? "#355070");
+                          const bgColor = isColliding ? "#fde8e8" : laneEntity ? toOpaqueTint(laneEntity.color, 0.82) : "#e6ebf3";
+                          const leftBar = laneEntity ? `4px solid ${laneEntity.color}` : isColliding ? "4px solid #c53030" : "4px solid #355070";
+                          const textColor = isColliding ? "#7a1010" : laneEntity ? toDarkShade(laneEntity.color, 0.45) : "#1e2533";
+                          const subTextColor = isColliding ? "#a33030" : laneEntity ? toDarkShade(laneEntity.color, 0.3) : "#444b55";
+                          const stripeOverlay = (() => {
+                            if (wkSub === "both") return undefined;
+                            const rgb = toRgbTuple(bgColor) ?? [210, 210, 210];
+                            const f = 0.72;
+                            const [r, g, b] = rgb.map((c) => Math.round(c * f));
+                            const angle = wkSub === "A" ? "45deg" : "-45deg";
+                            return `repeating-linear-gradient(${angle}, rgba(${r},${g},${b},0.18) 0, rgba(${r},${g},${b},0.18) 2.5px, rgba(255,255,255,0) 2.5px, rgba(255,255,255,0) 14px)`;
+                          })();
                           return (
                             <article
-                              key={e.idx}
+                              key={`${e.laneIndex}_${e.idx}`}
                               className="weekly-event"
-                              draggable
-                              onDragStart={() => { redigerDragRef.current = { idx: e.idx }; }}
+                              draggable={!e.blockLabel}
+                              onDragStart={() => { if (e.blockLabel) return; redigerDragRef.current = { idx: e.idx, mergedIdx: e.mergedIdx }; }}
                               onDragEnd={() => { redigerDragRef.current = null; setRedigerDropTargetDay(null); }}
+                              onClick={(ev) => { ev.stopPropagation(); setSelectedRedigerIdx((prev) => prev === e.idx ? null : e.idx); }}
                               style={{
                                 top: `${topPct}%`,
                                 height: `${Math.max(heightPct, 4)}%`,
                                 left: `calc(${overlapLeft}% + 2px)`,
                                 width: `calc(${overlapWidth}% - 4px)`,
                                 right: "auto",
-                                borderColor: isColliding ? "#c53030" : "#355070",
-                                backgroundColor: isColliding ? "#fde8e8" : "#e6ebf3",
-                                cursor: "grab",
+                                border: selectedRedigerIdx === e.idx ? "2px solid #1a1a2e" : "1px solid",
+                                borderColor: selectedRedigerIdx === e.idx ? "#1a1a2e" : accentColor,
+                                borderLeft: selectedRedigerIdx === e.idx ? `4px solid #1a1a2e` : leftBar,
+                                backgroundColor: bgColor,
+                                backgroundImage: stripeOverlay,
+                                cursor: e.blockLabel ? "default" : "pointer",
+                                color: subTextColor,
+                                boxShadow: selectedRedigerIdx === e.idx ? "0 0 0 2px rgba(0,0,0,0.25)" : undefined,
                               }}
                             >
                               <div className="weekly-event-header-row">
-                                <strong>{e.item.subject_name}</strong>
+                                <strong style={{ color: textColor }}>
+                                  {isColliding && (
+                                    <span
+                                      title="Kollisjon – klikk for å filtrere"
+                                      style={{ marginRight: "3px", cursor: "pointer" }}
+                                      onClick={(ev) => {
+                                        ev.stopPropagation();
+                                        const myIdx = e.idx;
+                                        const cols = redigerCollisions.filter((c) => c.idxA === myIdx || c.idxB === myIdx);
+                                        const teacherIds = new Set<string>();
+                                        const classIds = new Set<string>();
+                                        const roomIds = new Set<string>();
+                                        for (const col of cols) {
+                                          const a = schedule[col.idxA];
+                                          const b = schedule[col.idxB];
+                                          if (col.type === "teacher") {
+                                            const allTA = Array.from(new Set([...(a.teacher_id ? [a.teacher_id] : []), ...(a.teacher_ids ?? [])]));
+                                            const allTB = Array.from(new Set([...(b.teacher_id ? [b.teacher_id] : []), ...(b.teacher_ids ?? [])]));
+                                            allTA.filter((id) => allTB.includes(id)).forEach((id) => teacherIds.add(id));
+                                          } else if (col.type === "class") {
+                                            a.class_ids.filter((id) => b.class_ids.includes(id)).forEach((id) => classIds.add(id));
+                                          } else if (col.type === "room") {
+                                            if (a.room_id) roomIds.add(a.room_id);
+                                          }
+                                        }
+                                        setSelectedTeacherCompareIds(Array.from(teacherIds));
+                                        setSelectedClassCompareIds(Array.from(classIds));
+                                        setSelectedRoomCompareIds(Array.from(roomIds));
+                                      }}
+                                    >⚠️</span>
+                                  )}
+                                  {displayTitle}
+                                </strong>
                                 <small>{displayStart}-{displayEnd}</small>
                               </div>
-                              {classLabel && <small>{classLabel}</small>}
-                              {teacherLabel && <small>{teacherLabel}</small>}
-                              <div style={{ marginTop: "2px" }}>
-                                <button
-                                  type="button"
-                                  onMouseDown={(ev) => ev.stopPropagation()}
-                                  onClick={(ev) => { ev.stopPropagation(); redigerToggleWeekType(e.idx); }}
-                                  style={{
-                                    fontSize: "0.72rem",
-                                    padding: "1px 5px",
-                                    background: e.item.week_type === "A" ? "#d4edda" : e.item.week_type === "B" ? "#d1e7fd" : "#f0f0f0",
-                                    border: "1px solid #aaa",
-                                    borderRadius: "3px",
-                                    cursor: "pointer",
-                                    lineHeight: 1.4,
-                                  }}
-                                >
-                                  Uke: {weekLabel}
-                                </button>
-                              </div>
+                              {!e.blockLabel && classLabel && <small>{classLabel}</small>}
+                              {!e.blockLabel && teacherLabel && <small>{teacherLabel}</small>}
+                              {e.item.room_id && !e.blockLabel && <small>{roomNameById[e.item.room_id] ?? e.item.room_id}</small>}
                             </article>
                           );
                         })}
+                        {/* Meeting cards for filtered teachers */}
+                        {selectedTeacherCompareIds.length > 0 && meetings
+                          .filter((mtg) => {
+                            const ts = timeslotById[mtg.timeslot_id];
+                            if (!ts || ts.day !== day) return false;
+                            return mtg.teacher_assignments.some((a) => selectedTeacherCompareIds.includes(a.teacher_id));
+                          })
+                          .map((mtg) => {
+                            const ts = timeslotById[mtg.timeslot_id];
+                            const s = toMinutes(ts?.start_time);
+                            const en = toMinutes(ts?.end_time);
+                            if (s === Number.MAX_SAFE_INTEGER || en <= s) return null;
+                            const topPct = ((s - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const heightPct = ((en - s) / TIMELINE_TOTAL_MINUTES) * 100;
+                            const matchingTeacherIds = mtg.teacher_assignments
+                              .filter((a) => selectedTeacherCompareIds.includes(a.teacher_id))
+                              .map((a) => a.teacher_id);
+                            // Place in the first matching lane, full lane width (no week split for meetings)
+                            const laneIdx = compareEntities.findIndex((ent) => ent.kind === "teacher" && matchingTeacherIds.includes(ent.id.replace("teacher:", "")));
+                            const li = laneIdx >= 0 ? laneIdx : 0;
+                            const lw = 100 / laneCount;
+                            const ll = li * lw;
+                            const teacherLabel = matchingTeacherIds.map((id) => teacherNameById[id] ?? id).join(", ");
+                            return (
+                              <article
+                                key={`mtg_${mtg.id}_${li}`}
+                                className="weekly-event meeting"
+                                style={{
+                                  top: `${topPct}%`,
+                                  height: `${Math.max(heightPct, 4)}%`,
+                                  left: `calc(${ll}% + 2px)`,
+                                  width: `calc(${lw}% - 4px)`,
+                                  right: "auto",
+                                  border: "1px solid #8d6a2e",
+                                  borderLeft: "4px solid #8d6a2e",
+                                  backgroundColor: "#efe7d9",
+                                  cursor: "default",
+                                  zIndex: 3,
+                                }}
+                              >
+                                <div className="weekly-event-header-row">
+                                  <strong style={{ color: "#5a3e10" }}>{mtg.name}</strong>
+                                  <small>{ts?.start_time}-{ts?.end_time}</small>
+                                </div>
+                                <small style={{ color: "#7a5520" }}>{teacherLabel}</small>
+                              </article>
+                            );
+                          })}
                       </div>
                     );
                   })}
@@ -11051,6 +11489,159 @@ export default function Home() {
             </div>
           )}
         </section>
+        {selectedRedigerIdx !== null && schedule[selectedRedigerIdx] && (() => {
+          const item = schedule[selectedRedigerIdx];
+          const idx = selectedRedigerIdx;
+          const ts = timeslotById[item.timeslot_id];
+          const wt = item.week_type;
+          const startStr = item.start_time ?? ts?.start_time ?? "";
+          const endStr = item.end_time ?? ts?.end_time ?? "";
+          const dur = toMinutes(endStr) - toMinutes(startStr);
+          const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
+          const allTids = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
+          const teacherLabel = allTids.map((id) => teacherNameById[id] ?? id).join(", ");
+          const isBlock = subjectToBlockInfo.has(item.subject_id);
+          // Canonical single teacher id for the dropdown (first teacher_id)
+          const primaryTeacherId = item.teacher_id ?? item.teacher_ids?.[0] ?? "";
+          // Rooms busy at the same slot (overlapping time, same day, compatible week)
+          const itemStart = toMinutes(startStr);
+          const itemEnd = toMinutes(endStr);
+          const busyRoomIds = new Set<string>(
+            schedule
+              .filter((s, i) => {
+                if (i === idx || !s.room_id) return false;
+                if (s.day !== item.day) return false;
+                // week compatibility: both "both", or one is unset, or they differ → count as busy only if same week or either is unset
+                if (s.week_type && item.week_type && s.week_type !== item.week_type) return false;
+                const sStart = toMinutes(s.start_time ?? timeslotById[s.timeslot_id]?.start_time ?? "");
+                const sEnd = toMinutes(s.end_time ?? timeslotById[s.timeslot_id]?.end_time ?? "");
+                return sStart < itemEnd && sEnd > itemStart;
+              })
+              .map((s) => s.room_id!)
+          );
+          const freeRooms = displayRoomOptions.filter((r) => !busyRoomIds.has(r.id));
+          const busyRooms = displayRoomOptions.filter((r) => busyRoomIds.has(r.id));
+          // Detect A+B merge: is there a counterpart with the opposite week_type?
+          const classSorted = [...item.class_ids].sort().join("|");
+          const partnerIdx = schedule.findIndex((s, i) =>
+            i !== idx &&
+            s.subject_id === item.subject_id &&
+            s.timeslot_id === item.timeslot_id &&
+            (s.start_time ?? "") === (item.start_time ?? "") &&
+            (s.end_time ?? "") === (item.end_time ?? "") &&
+            [...s.class_ids].sort().join("|") === classSorted &&
+            ((item.week_type === "A" && s.week_type === "B") || (item.week_type === "B" && s.week_type === "A"))
+          );
+          const isMerged = partnerIdx !== -1;
+          // effective week type for UI: treat merged pair as "both"
+          const effectiveWt: "A" | "B" | undefined = isMerged ? undefined : wt;
+          function applyTeacherToAllSessions(newTeacherId: string) {
+            redigerPushHistory();
+            const classKey = [...item.class_ids].sort().join("|");
+            setSchedule((prev) => prev.map((s) => {
+              if (s.subject_id !== item.subject_id) return s;
+              if ([...s.class_ids].sort().join("|") !== classKey) return s;
+              return { ...s, teacher_id: newTeacherId, teacher_ids: [newTeacherId] };
+            }));
+          }
+          return (
+            <section className="card" style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-start", padding: "12px 16px" }}>
+              <div style={{ flex: "1 1 200px" }}>
+                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: "2px" }}>{item.subject_name}</div>
+                <div style={{ fontSize: "0.82rem", color: "#555" }}>{classLabel} · {teacherLabel}</div>
+                <div style={{ fontSize: "0.82rem", color: "#555" }}>{item.day} {startStr}–{endStr} ({dur > 0 ? `${dur} min` : "?"}){item.room_id ? ` · ${roomNameById[item.room_id] ?? item.room_id}` : ""}</div>
+              </div>
+              {!isBlock && (
+                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                  <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Lærer:</div>
+                  <select
+                    value={primaryTeacherId}
+                    onChange={(ev) => applyTeacherToAllSessions(ev.target.value)}
+                    style={{ fontSize: "0.82rem", padding: "3px 6px", border: "1px solid #aaa", borderRadius: "4px", background: "#fff", color: "#1a1a2e", cursor: "pointer" }}
+                  >
+                    {primaryTeacherId === "" && <option value="">—</option>}
+                    {sortedTeachersByFirstName.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Rom:</div>
+                <select
+                  value={item.room_id ?? ""}
+                  onChange={(ev) => {
+                    redigerPushHistory();
+                    const updated = [...schedule];
+                    updated[idx] = { ...item, room_id: ev.target.value || undefined };
+                    setSchedule(updated);
+                  }}
+                  style={{ fontSize: "0.82rem", padding: "3px 6px", border: "1px solid #aaa", borderRadius: "4px", background: "#fff", color: "#1a1a2e", cursor: "pointer" }}
+                >
+                  <option value="">— Intet rom —</option>
+                  {freeRooms.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                  {busyRooms.length > 0 && (
+                    <optgroup label="Opptatt">
+                      {busyRooms.map((r) => (
+                        <option key={r.id} value={r.id} style={{ color: "#c53030" }}>{r.name} (opptatt)</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Uke:</div>
+                {([undefined, "A", "B"] as const).map((wk) => (
+                  <button
+                    key={wk ?? "begge"}
+                    type="button"
+                    onClick={() => {
+                      redigerPushHistory();
+                      if (isMerged) {
+                        // Currently showing both A+B — switching to a single week removes the partner
+                        if (wk === undefined) return; // already "both", nothing to do
+                        // Remove partner and set current item to the chosen week
+                        setSchedule((prev) => {
+                          const next = prev.filter((_, i) => i !== partnerIdx);
+                          const newIdx = partnerIdx < idx ? idx - 1 : idx;
+                          next[newIdx] = { ...next[newIdx], week_type: wk };
+                          return next;
+                        });
+                      } else {
+                        const updated = [...schedule];
+                        updated[idx] = { ...item, week_type: wk };
+                        setSchedule(updated);
+                      }
+                    }}
+                    style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #aaa", borderRadius: "4px", background: effectiveWt === wk ? "#3b5bdb" : "#f0f0f0", color: effectiveWt === wk ? "#fff" : "#1a1a2e", cursor: "pointer", fontWeight: effectiveWt === wk ? 700 : 400 }}
+                  >
+                    {wk ?? "Begge"}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Varighet:</div>
+                {[45, 90].map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => { redigerPushHistory(); const startMin = toMinutes(startStr); if (startMin === Number.MAX_SAFE_INTEGER) return; const newEnd = `${String(Math.floor((startMin + d) / 60)).padStart(2, "0")}:${String((startMin + d) % 60).padStart(2, "0")}`; const updated = [...schedule]; updated[idx] = { ...item, end_time: newEnd }; setSchedule(updated); }}
+                    style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #aaa", borderRadius: "4px", background: dur === d ? "#3b5bdb" : "#f0f0f0", color: dur === d ? "#fff" : "#1a1a2e", cursor: "pointer", fontWeight: dur === d ? 700 : 400 }}
+                  >
+                    {d} min
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <button type="button" onClick={() => { redigerDuplicate(idx); setSelectedRedigerIdx(null); }} style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #aaa", borderRadius: "4px", background: "#fff8e1", color: "#1a1a2e", cursor: "pointer" }}>Dupliser</button>
+                <button type="button" onClick={() => { redigerPushHistory(); setSchedule((prev) => prev.filter((_, i) => i !== idx)); setSelectedRedigerIdx(null); }} style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #e53e3e", borderRadius: "4px", background: "#fff5f5", color: "#c53030", cursor: "pointer" }}>Slett</button>
+                <button type="button" onClick={() => setSelectedRedigerIdx(null)} style={{ fontSize: "0.82rem", padding: "3px 10px", border: "1px solid #aaa", borderRadius: "4px", background: "#f0f0f0", color: "#1a1a2e", cursor: "pointer" }}>✕ Lukk</button>
+              </div>
+            </section>
+          );
+        })()}
         {redigerCollisions.length > 0 && (
           <section className="card">
             <details open>
@@ -11913,29 +12504,65 @@ export default function Home() {
         const sortedClasses = [...classes].sort((a, b) => a.name.localeCompare(b.name, "nb"));
         const sortedTeachers = [...teachers].sort((a, b) => a.name.localeCompare(b.name, "nb"));
 
-        function buildLines(): string[] {
+        function buildLines(filterKind: "all" | "class" | "block" | "teacher" | "room" = "all", filterId = ""): string[] {
+          const fk: string = filterKind;
           const lines: string[] = [];
+          const showClass = fk === "all" || fk === "class";
+          const showBlock = fk === "all" || fk === "block";
+          const showTeacher = fk === "all" || fk === "teacher";
+          const classesToShow = fk === "class" && filterId ? sortedClasses.filter(c => c.id === filterId) : sortedClasses;
+          const teachersToShow = fk === "teacher" && filterId ? sortedTeachers.filter(t => t.id === filterId) : sortedTeachers;
+          const blocksToShow = fk === "block" && filterId ? blocks.filter(b => b.id === filterId) : blocks;
+          // Pre-compute as plain booleans to avoid control-flow narrowing inside conditional blocks
+          const filterByTeacher = fk === "teacher" && !!filterId;
+          const filterByClass = fk === "class" && !!filterId;
 
-          lines.push("=== PER KLASSE ===");
-          lines.push("");
+          if (showClass) {
+            lines.push("=== PER KLASSE ===");
+            lines.push("");
 
-          for (const cls of sortedClasses) {
-            lines.push(`── ${cls.name} ──`);
+            for (const cls of classesToShow) {
+              if (filterByTeacher) {
+                const teaches = schedule.some(it =>
+                  it.class_ids.includes(cls.id) &&
+                  [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(filterId)
+                );
+                if (!teaches) continue;
+              }
+              lines.push(`── ${cls.name} ──`);
 
-            const classSubjects = subjects
-              .filter(s => s.class_ids.includes(cls.id) && !blockSubjectIds.has(s.id))
-              .sort((a, b) => a.name.localeCompare(b.name, "nb"));
+              const classSubjects = subjects
+                .filter(s => {
+                  if (!s.class_ids.includes(cls.id) || blockSubjectIds.has(s.id)) return false;
+                  if (filterByTeacher) {
+                    const tids = [...new Set([s.teacher_id, ...(s.teacher_ids || [])].filter(Boolean))];
+                    return tids.includes(filterId);
+                  }
+                  return true;
+                })
+                .sort((a, b) => a.name.localeCompare(b.name, "nb"));
 
-            for (const subj of classSubjects) {
-              const tNames = [...new Set([subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean).map(teacherName).join(", ");
-              const items = schedule.filter(it => it.subject_id === subj.id && it.class_ids.includes(cls.id));
-              const slots = items.length > 0 ? slotsStr(items) : "(ikke plassert)";
-              lines.push(`  ${subj.name}  [${tNames || "–"}]  ${slots}`);
+              if (classSubjects.length === 0) {
+                lines.push("  (ingen fellesfag)");
+              } else {
+                for (const subj of classSubjects) {
+                  const tNames = [...new Set([subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean).map(teacherName).join(", ");
+                  const items = schedule.filter(it => it.subject_id === subj.id && it.class_ids.includes(cls.id));
+                  const slots = items.length > 0 ? slotsStr(items) : "(ikke plassert)";
+                  lines.push(`  ${subj.name}  [${tNames || "–"}]  ${slots}`);
+                }
+              }
+              lines.push("");
             }
+          } // end showClass
 
-            const classBlocks = blocks.filter(b => b.class_ids.includes(cls.id));
-            for (const block of classBlocks) {
-              // Merge occurrences with same day+time that differ only in week_type
+          if (showBlock) {
+            lines.push("=== BLOKKER ===");
+            lines.push("");
+
+            for (const block of blocksToShow) {
+              const blockClassNames = block.class_ids.map(cid => classById[cid]?.name || cid).join(", ");
+              // Build occurrence label
               const occMap = new Map<string, { occ: typeof block.occurrences[0]; weeks: Set<string | null> }>();
               for (const occ of block.occurrences) {
                 const key = `${occ.day}|${occ.start_time}|${occ.end_time}`;
@@ -11948,7 +12575,7 @@ export default function Home() {
                 const weekSuffix = (hasA && hasB) ? " (begge uker)" : hasA ? " (A-uke)" : hasB ? " (B-uke)" : "";
                 return `${toNorwegianDay(occ.day)} ${occ.start_time}-${occ.end_time}${weekSuffix}`;
               }).join(", ");
-              lines.push(`  [Blokk: ${block.name}]  ${occLabels}`);
+              lines.push(`── ${block.name}  [${blockClassNames}]  ${occLabels} ──`);
 
               const allEntries = [...block.subject_entries];
               for (const sid of (block.subject_ids || [])) {
@@ -11960,42 +12587,56 @@ export default function Home() {
                 if (!subj) continue;
                 const tids = [...new Set([entry.teacher_id, ...(entry.teacher_ids || []), subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean);
                 const tNames = tids.map(teacherName).join(", ");
-                const items = schedule.filter(it => it.subject_id === entry.subject_id && it.class_ids.includes(cls.id));
+                const items = schedule.filter(it =>
+                  it.subject_id === entry.subject_id &&
+                  block.class_ids.some(cid => it.class_ids.includes(cid))
+                );
                 const slots = items.length > 0 ? slotsStr(items) : "(ikke plassert)";
-                lines.push(`    ${subj.name}  [${tNames || "–"}]  ${slots}`);
+                lines.push(`  ${subj.name}  [${tNames || "–"}]  ${slots}`);
               }
+              lines.push("");
             }
+          } // end showBlock
+
+          if (showTeacher) {
+            lines.push("=== PER LÆRER (alfabetisk) ===");
             lines.push("");
-          }
 
-          lines.push("=== PER LÆRER (alfabetisk) ===");
-          lines.push("");
-
-          for (const teacher of sortedTeachers) {
-            lines.push(`── ${teacher.name} ──`);
-            const teacherItems = schedule.filter(it =>
-              [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(teacher.id)
-            );
-            const bySubject = new Map<string, ScheduledItem[]>();
-            for (const it of teacherItems) {
-              const arr = bySubject.get(it.subject_id) || [];
-              arr.push(it);
-              bySubject.set(it.subject_id, arr);
-            }
-            const subjectEntries = [...bySubject.entries()].sort((a, b) =>
-              (subjectById[a[0]]?.name || a[0]).localeCompare(subjectById[b[0]]?.name || b[0], "nb")
-            );
-            if (subjectEntries.length === 0) {
-              lines.push("  (ingen plasserte fag)");
-            } else {
-              for (const [sid, items] of subjectEntries) {
-                const subj = subjectById[sid];
-                const classNames = [...new Set(items.flatMap(it => it.class_ids).map(cid => classById[cid]?.name || cid))].join(", ");
-                lines.push(`  ${subj?.name || sid}  [${classNames}]  ${slotsStr(items)}`);
+            for (const teacher of teachersToShow) {
+              if (filterByClass) {
+                const teaches = schedule.some(it =>
+                  it.class_ids.includes(filterId) &&
+                  [it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(teacher.id)
+                );
+                if (!teaches) continue;
               }
+              lines.push(`── ${teacher.name} ──`);
+              const teacherItems = schedule.filter(it => {
+                if (![it.teacher_id, ...(it.teacher_ids || [])].filter(Boolean).includes(teacher.id)) return false;
+                if (filterByClass) return it.class_ids.includes(filterId);
+                return true;
+              });
+              const bySubject = new Map<string, ScheduledItem[]>();
+              for (const it of teacherItems) {
+                const arr = bySubject.get(it.subject_id) || [];
+                arr.push(it);
+                bySubject.set(it.subject_id, arr);
+              }
+              const subjectEntries = [...bySubject.entries()].sort((a, b) =>
+                (subjectById[a[0]]?.name || a[0]).localeCompare(subjectById[b[0]]?.name || b[0], "nb")
+              );
+              if (subjectEntries.length === 0) {
+                lines.push("  (ingen plasserte fag)");
+              } else {
+                for (const [sid, items] of subjectEntries) {
+                  const subj = subjectById[sid];
+                  const classNames = [...new Set(items.flatMap(it => it.class_ids).map(cid => classById[cid]?.name || cid))].join(", ");
+                  lines.push(`  ${subj?.name || sid}  [${classNames}]  ${slotsStr(items)}`);
+                }
+              }
+              lines.push("");
             }
-            lines.push("");
-          }
+          } // end showTeacher
 
           return lines;
         }
@@ -12116,7 +12757,7 @@ export default function Home() {
           URL.revokeObjectURL(url);
         }
 
-        const lines = schedule.length > 0 ? buildLines() : null;
+        const lines = schedule.length > 0 ? buildLines(exportFilterKind, exportFilterId) : null;
 
         return (
           <section className="card">
@@ -12133,6 +12774,41 @@ export default function Home() {
                   <button type="button" className="secondary" onClick={handleDownloadTxt}>
                     Last ned som .txt
                   </button>
+                </div>
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "nowrap", marginBottom: "12px" }}>
+                  <span style={{ fontSize: "0.85rem", fontWeight: 600 }}>Filtrer forhåndsvisning:</span>
+                  {(["all", "class", "block", "teacher"] as const).map((kind) => {
+                    const labels: Record<string, string> = { all: "Alle", class: "Klasse", block: "Blokk", teacher: "Lærer" };
+                    return (
+                      <button key={kind} type="button"
+                        className={exportFilterKind === kind ? undefined : "secondary"}
+                        style={{ fontSize: "0.82rem", padding: "3px 6px", flexShrink: 0, width: "auto" }}
+                        onClick={() => { setExportFilterKind(kind); setExportFilterId(""); }}>
+                        {labels[kind]}
+                      </button>
+                    );
+                  })}
+                  {exportFilterKind === "class" && (
+                    <select value={exportFilterId} onChange={(e) => setExportFilterId(e.target.value)}
+                      style={{ fontSize: "0.82rem", padding: "3px 6px", flex: 1, minWidth: 0 }}>
+                      <option value="">— Alle klasser —</option>
+                      {sortedClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  )}
+                  {exportFilterKind === "block" && (
+                    <select value={exportFilterId} onChange={(e) => setExportFilterId(e.target.value)}
+                      style={{ fontSize: "0.82rem", padding: "3px 6px", flex: 1, minWidth: 0 }}>
+                      <option value="">— Alle blokker —</option>
+                      {blocks.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                    </select>
+                  )}
+                  {exportFilterKind === "teacher" && (
+                    <select value={exportFilterId} onChange={(e) => setExportFilterId(e.target.value)}
+                      style={{ fontSize: "0.82rem", padding: "3px 6px", flex: 1, minWidth: 0 }}>
+                      <option value="">— Alle lærere —</option>
+                      {sortedTeachers.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                    </select>
+                  )}
                 </div>
                 <pre style={{
                   background: "#f6f8fa",
