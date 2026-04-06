@@ -6197,13 +6197,43 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
     def _cautions_for(schedule: List[ScheduledItem]) -> List[str]:
         return _compute_teacher_overload_cautions(schedule, _gen_teachers_by_id)
 
+    def _cp_sat_has_shortfall(response: ScheduleResponse) -> bool:
+        """Return True if the CP-SAT schedule is missing any required units."""
+        _block_ids: Set[str] = set()
+        for _b in data.blocks:
+            for _e in _b.subject_entries:
+                _block_ids.add(_e.subject_id)
+            for _sid in _b.subject_ids:
+                _block_ids.add(_sid)
+        _tum = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
+        _placed: Dict[str, int] = defaultdict(int)
+        for _item in (response.schedule or []):
+            if _item.subject_id not in _block_ids:
+                _placed[_item.subject_id] += _tum.get(_item.timeslot_id, 1)
+        _week_factor = 2 if data.alternating_weeks_enabled else 1
+        for _s in data.subjects:
+            if _s.id in _block_ids:
+                continue
+            _required = max(0, int(_s.sessions_per_week or 0)) * _week_factor
+            if _placed.get(_s.id, 0) < _required:
+                return True
+        return False
+
     if solver_engine in ("cp_sat_experimental", "cp_sat_only"):
         _solver_log(f"[ENGINE] {solver_engine} requested; attempting CP-SAT engine.")
         cp_sat_response = _generate_schedule_cp_sat_experimental(
             data, solver_timeout_seconds,
             require_zero_shortfall=(solver_engine == "cp_sat_only"),
         )
-        if cp_sat_response.status == "success" or solver_engine == "cp_sat_only":
+        # Accept CP-SAT result only if it placed everything, or if cp_sat_only mode
+        # was requested (which already handles infeasibility explicitly).
+        # If cp_sat_experimental returned a partial solution, fall through to the
+        # staged solver which may find a complete placement.
+        cp_sat_complete = (
+            cp_sat_response.status == "success"
+            and not _cp_sat_has_shortfall(cp_sat_response)
+        )
+        if cp_sat_complete or solver_engine == "cp_sat_only":
             cp_sat_metadata = dict(cp_sat_response.metadata or {})
             cp_sat_metadata["solver_timeout_seconds"] = float(solver_timeout_seconds)
             cp_sat_metadata["solver_engine_cp_sat_requested"] = 1.0
@@ -6230,7 +6260,8 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                 cautions=_cautions_for(cp_sat_schedule),
             )
         _solver_log(
-            f"[ENGINE] cp_sat_experimental fallback to staged: {cp_sat_response.message}"
+            f"[ENGINE] cp_sat_experimental fallback to staged: partial solution "
+            f"(shortfall={_cp_sat_has_shortfall(cp_sat_response)}) or status={cp_sat_response.status}"
         )
 
     def _timed_out() -> bool:
