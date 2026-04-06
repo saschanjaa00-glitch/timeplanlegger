@@ -2,6 +2,7 @@
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as XLSX from "xlsx";
+import type { Row as ExcelRow } from "exceljs";
 import { supabase, type CloudSavefile } from "../lib/supabase";
 import type { User } from "@supabase/supabase-js";
 
@@ -12,6 +13,7 @@ type Subject = {
   teacher_ids: string[];
   class_ids: string[];
   subject_type: "fellesfag" | "programfag";
+  avdeling?: string;
   sessions_per_week: number;
   link_group_id?: string;
   // alternating_week_split is DISABLED - auto-balancing is used instead
@@ -828,6 +830,7 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
     teacher_ids: teacherIds,
     class_ids: Array.isArray(subject.class_ids) ? subject.class_ids : [],
     subject_type: subject.subject_type === "programfag" ? "programfag" : "fellesfag",
+    avdeling: typeof subject.avdeling === "string" && subject.avdeling.trim() ? subject.avdeling.trim() : undefined,
     sessions_per_week:
       typeof subject.sessions_per_week === "number" && subject.sessions_per_week > 0
         ? Math.floor(subject.sessions_per_week)
@@ -1356,12 +1359,13 @@ export default function Home() {
   const enableAlternatingWeeks = true;
   const [weekView, setWeekView] = useState<WeekView>("both");
   const alternateNonBlockSubjects = true;
-  const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(90);
+  const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(120);
   const [solverTimeoutDraft, setSolverTimeoutDraft] = useState("");
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
     subject_type: "fellesfag" as "fellesfag" | "programfag",
+    avdeling: "",
     block_id: "",
     class_ids: [] as string[],
   });
@@ -1418,6 +1422,9 @@ export default function Home() {
   const [cloudEmail, setCloudEmail] = useState("");
   const [cloudAuthStatus, setCloudAuthStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [cloudAuthError, setCloudAuthError] = useState("");
+  const [cloudLoginMode, setCloudLoginMode] = useState<"magic" | "password">("password");
+  const [cloudPassword, setCloudPassword] = useState("");
+  const [cloudPasswordMode, setCloudPasswordMode] = useState<"signin" | "signup">("signin");
   const [cloudSavefiles, setCloudSavefiles] = useState<CloudSavefile[]>([]);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudSaveStatus, setCloudSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -1431,6 +1438,7 @@ export default function Home() {
   const [redigerWeekView, setRedigerWeekView] = useState<WeekView>("both");
   const [redigerTimelineZoom, setRedigerTimelineZoom] = useState<45 | 90>(45);
   const [selectedRedigerIdx, setSelectedRedigerIdx] = useState<number | null>(null);
+  const [redigerFeilFilter, setRedigerFeilFilter] = useState<Set<string>>(new Set(["unassigned", "overloaded", "teacher", "class", "room"]));
   const redigerHistoryRef = useRef<ScheduledItem[][]>([]);
   const redigerRedoRef = useRef<ScheduledItem[][]>([]);
   const [redigerUndoCount, setRedigerUndoCount] = useState(0);
@@ -1510,6 +1518,8 @@ export default function Home() {
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [blockInlineSubjNames, setBlockInlineSubjNames] = useState<Record<string, string>>({});
   const excelFileRef = useRef<HTMLInputElement>(null);
+  const stillingsplanImportRef = useRef<HTMLInputElement>(null);
+  const [pendingAvdelingTeachers, setPendingAvdelingTeachers] = useState<{ id: string; name: string; avdeling: string }[]>([]);
   const jsonFileRef = useRef<HTMLInputElement>(null);
   const generationRunRef = useRef(0);
   const generationPopupAutoHideRef = useRef<number | null>(null);
@@ -1780,6 +1790,30 @@ export default function Home() {
     setCloudAuthStatus("sending");
     setCloudAuthError("");
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    if (error) {
+      setCloudAuthStatus("error");
+      setCloudAuthError(error.message);
+    } else {
+      setCloudAuthStatus("sent");
+    }
+  }
+
+  async function signInWithPassword(email: string, password: string) {
+    setCloudAuthStatus("sending");
+    setCloudAuthError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      setCloudAuthStatus("error");
+      setCloudAuthError(error.message);
+    } else {
+      setCloudAuthStatus("idle");
+    }
+  }
+
+  async function signUpWithPassword(email: string, password: string) {
+    setCloudAuthStatus("sending");
+    setCloudAuthError("");
+    const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
       setCloudAuthStatus("error");
       setCloudAuthError(error.message);
@@ -3254,9 +3288,63 @@ export default function Home() {
       for (const sid of block.subject_ids ?? []) subjectBlockId.set(sid, block.id);
     }
 
-    type RedigerCol = { type: "teacher" | "class" | "room"; label: string; idxA: number; idxB: number };
+    type RedigerCol = { type: "teacher" | "class" | "room" | "unassigned" | "overloaded"; label: string; idxA: number; idxB: number; extraIndices?: number[] };
     const cols: RedigerCol[] = [];
     const seenKeys = new Set<string>();
+
+    // === Ubemannede enheter (unassigned units) ===
+    for (let i = 0; i < schedule.length; i++) {
+      const item = schedule[i];
+      const allTeachers = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
+      if (allTeachers.length === 0) {
+        const classLabel = item.class_ids.map((id) => classNameById[id] ?? id).join(", ");
+        cols.push({ type: "unassigned", label: `${item.subject_name}${classLabel ? ` (${classLabel})` : ""} – ${toNorwegianDay(item.day)}`, idxA: i, idxB: -1 });
+      }
+    }
+
+    // === Mer enn 3 timer per dag (overloaded teachers) ===
+    // Evaluate Uke A and Uke B separately.
+    // A "both" session appears in both weeks; "A"/"B" sessions only in their own week.
+    const overloadMinutes = new Map<string, number>(); // key: tid|day|week (A or B)
+    const overloadIndices = new Map<string, number[]>();
+    for (let i = 0; i < schedule.length; i++) {
+      const item = schedule[i];
+      const ts = timeslotById[item.timeslot_id];
+      const startMin = toMinutes(item.start_time ?? ts?.start_time ?? "");
+      const endMin = toMinutes(item.end_time ?? ts?.end_time ?? "");
+      const durMin = (startMin !== Number.MAX_SAFE_INTEGER && endMin !== Number.MAX_SAFE_INTEGER) ? Math.max(0, endMin - startMin) : 90;
+      const allTeachers = Array.from(new Set([...(item.teacher_id ? [item.teacher_id] : []), ...(item.teacher_ids ?? [])]));
+      const wt = item.week_type;
+      const weekBuckets: string[] = wt === "A" ? ["A"] : wt === "B" ? ["B"] : ["A", "B"];
+      for (const tid of allTeachers) {
+        for (const wk of weekBuckets) {
+          const key = `${tid}|${item.day}|${wk}`;
+          overloadMinutes.set(key, (overloadMinutes.get(key) ?? 0) + durMin);
+          if (!overloadIndices.has(key)) overloadIndices.set(key, []);
+          if (!overloadIndices.get(key)!.includes(i)) overloadIndices.get(key)!.push(i);
+        }
+      }
+    }
+    const seenOverloadKeys = new Set<string>();
+    for (const [key, totalMin] of overloadMinutes.entries()) {
+      if (totalMin > 3 * 90) {
+        const parts = key.split("|");
+        const [tid, day, wk] = parts;
+        const dedupKey = `${tid}|${day}`;
+        if (seenOverloadKeys.has(dedupKey)) continue;
+        // Check if both weeks are overloaded — if so, report once without week label
+        const otherWk = wk === "A" ? "B" : "A";
+        const otherMin = overloadMinutes.get(`${tid}|${day}|${otherWk}`) ?? 0;
+        const bothOverloaded = otherMin > 3 * 90;
+        if (bothOverloaded) seenOverloadKeys.add(dedupKey);
+        const indices = overloadIndices.get(key) ?? [];
+        const sessions = Math.round(totalMin / 90 * 10) / 10;
+        const tName = teacherNameById[tid] ?? tid;
+        const weekLabel = bothOverloaded ? "" : ` (Uke ${wk})`;
+        cols.push({ type: "overloaded", label: `${tName} – ${toNorwegianDay(day)}${weekLabel} (${sessions} × 90 min)`, idxA: indices[0], idxB: -1, extraIndices: indices });
+      }
+    }
+
     for (let i = 0; i < schedule.length; i++) {
       for (let j = i + 1; j < schedule.length; j++) {
         const a = schedule[i];
@@ -3300,8 +3388,9 @@ export default function Home() {
   const redigerCollidingIdxSet = useMemo(() => {
     const set = new Set<number>();
     for (const col of redigerCollisions) {
-      set.add(col.idxA);
-      set.add(col.idxB);
+      if (col.idxA >= 0) set.add(col.idxA);
+      if (col.idxB >= 0) set.add(col.idxB);
+      for (const idx of col.extraIndices ?? []) set.add(idx);
     }
     return set;
   }, [redigerCollisions]);
@@ -4630,6 +4719,291 @@ export default function Home() {
     reader.readAsArrayBuffer(file);
   }
 
+  async function handleExportStillingsplan() {
+    const { Workbook } = await import("exceljs");
+    const AVDELING_OPTIONS = ["Idrett", "Idrettsfag", "Norsk", "Realfag", "Samfunnsfag", "Språk"];
+    const AVDELING_FORMULA = `"${AVDELING_OPTIONS.join(",")}"`;
+
+    const HEADER_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FF4472C4" } };
+    const HEADER_FONT = { bold: true, color: { argb: "FFFFFFFF" }, size: 11, name: "Calibri" };
+    const THIN_BORDER = {
+      top:    { style: "thin" as const, color: { argb: "FFD0D0D0" } },
+      left:   { style: "thin" as const, color: { argb: "FFD0D0D0" } },
+      bottom: { style: "thin" as const, color: { argb: "FFD0D0D0" } },
+      right:  { style: "thin" as const, color: { argb: "FFD0D0D0" } },
+    };
+    const ALT_ROW_FILL = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFDCE6F1" } };
+
+    function styleHeader(row: ExcelRow) {
+      row.height = 22;
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        cell.fill = HEADER_FILL;
+        cell.font = HEADER_FONT;
+        cell.border = THIN_BORDER;
+        cell.alignment = { vertical: "middle", horizontal: "left", wrapText: false };
+      });
+    }
+
+    function styleData(row: ExcelRow, alt = false) {
+      row.height = 18;
+      row.eachCell({ includeEmpty: true }, (cell) => {
+        if (alt) cell.fill = ALT_ROW_FILL;
+        cell.border = THIN_BORDER;
+        cell.alignment = { vertical: "middle", horizontal: "left" };
+        cell.font = { name: "Calibri", size: 11 };
+      });
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    function addDropdown(ws: any, col: string, fromRow: number, toRow: number, formulae: string[]) {
+      for (let r = fromRow; r <= toRow; r++) {
+        ws.getCell(`${col}${r}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae,
+          showErrorMessage: false,
+          showInputMessage: false,
+        };
+      }
+    }
+
+    const wb = new Workbook();
+    wb.creator = "Timeplanlegger";
+    wb.created = new Date();
+    wb.modified = new Date();
+
+    // Pre-compute teacher list so formula references can be built before creating sheets
+    const sortedTeachers = [...teachers].sort((a, b) => a.name.localeCompare(b.name, "nb"));
+    const teacherDataRows = sortedTeachers.length;
+    const teacherFormula = `'Lærere'!$A$2:$A$${teacherDataRows + 1}`;
+
+    // Build a map: subject name (lowercased) → avdeling, from any family member that has it set
+    const fellesfagAvdelingByName = new Map<string, string>();
+    for (const s of subjects) {
+      if (s.subject_type === "fellesfag" && s.avdeling) {
+        fellesfagAvdelingByName.set(s.name.toLowerCase(), s.avdeling);
+      }
+    }
+
+    // ── Sheet 1: Stillingsplan ──────────────────────────────────────────
+    const ws1 = wb.addWorksheet("Stillingsplan");
+    ws1.columns = [
+      { key: "fag",     width: 30 },
+      { key: "gruppe",  width: 18 },
+      { key: "fagId",   width: 24, hidden: true },
+      { key: "avd",     width: 16 },
+      { key: "hoved",   width: 24 },
+      { key: "sam",     width: 24 },
+      { key: "dato",    width: 14 },
+      { key: "locked",  width: 30 },
+    ];
+    const ws1Header = ws1.addRow(["Fag", "Elevgruppe", "Fag-ID", "Avdeling", "Karakteransvarlig", "Samarbeid med", "Endringsdato", "Endres kun av timeplanlegger"]);
+    styleHeader(ws1Header);
+    ws1.views = [{ state: "frozen", ySplit: 1 }];
+
+    const sortedSubjects = [...subjects].sort((a, b) => a.name.localeCompare(b.name, "nb"));
+    let sp1DataIdx = 0;
+    for (const subj of sortedSubjects) {
+      const tids = subj.subject_type === "fellesfag"
+        ? getSubjectTeacherIds(subj)
+        : getProgramfagTeacherIdsFromBlocks(subj.id);
+      const tNames = tids.map((id) => teacherNameById[id] ?? id);
+      const hoved = tNames[0] ?? "";
+      const sam = tNames.slice(1).join(", ");
+      if (subj.subject_type === "fellesfag") {
+        if (subj.class_ids.length === 0) continue;
+        const avdeling = subj.avdeling ?? fellesfagAvdelingByName.get(subj.name.toLowerCase()) ?? "";
+        for (const cid of subj.class_ids) {
+          const row = ws1.addRow([subj.name, classNameById[cid] ?? cid, subj.id, avdeling, hoved, sam, "", ""]);
+          styleData(row, sp1DataIdx % 2 === 1);
+          sp1DataIdx++;
+        }
+      } else {
+        const blockId = getProgramfagBlockId(subj.id);
+        const blockName = blocks.find((b) => b.id === blockId)?.name ?? "";
+        const row = ws1.addRow([subj.name, blockName, subj.id, subj.avdeling ?? "", hoved, sam, "", ""]);
+        styleData(row, sp1DataIdx % 2 === 1);
+        sp1DataIdx++;
+      }
+    }
+    const sp1Last = ws1.rowCount + 20;
+    addDropdown(ws1, "D", 2, sp1Last, [AVDELING_FORMULA]);
+    addDropdown(ws1, "E", 2, sp1Last, [teacherFormula]);
+    addDropdown(ws1, "F", 2, sp1Last, [teacherFormula]);
+
+    // ── Sheet 2: Spesielle ønsker ──────────────────────────────────────
+    const ws2 = wb.addWorksheet("Spesielle ønsker");
+    ws2.columns = [
+      { key: "ok",          width: 6 },
+      { key: "laerer",      width: 24 },
+      { key: "avdeling",    width: 16 },
+      { key: "onske",       width: 30 },
+      { key: "begrunnelse", width: 30 },
+      { key: "pct",         width: 10 },
+      { key: "dato",        width: 14 },
+      { key: "ansvarlig",   width: 18 },
+      { key: "kommentar",   width: 30 },
+    ];
+    // Row 1: merged title banner
+    const titleRow = ws2.addRow(["Prioriteringer: Små barn, Helse, redusert stilling (60% garantert 1 fridag)", "", "", "", "", "", "", "", ""]);
+    ws2.mergeCells("A1:I1");
+    const titleCell = ws2.getCell("A1");
+    titleCell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFFFF0CC" } };
+    titleCell.font = { bold: true, size: 11, name: "Calibri", color: { argb: "FF7F6000" } };
+    titleCell.border = THIN_BORDER;
+    titleCell.alignment = { vertical: "middle", horizontal: "left" };
+    titleRow.height = 22;
+    // Row 2: empty spacer
+    ws2.addRow([]);
+    // Row 3: headers
+    const ws2Header = ws2.addRow(["OK", "Lærer", "Avdeling", "Ønske", "Begrunnelse", "Stillings%", "Endringsdato", "Ansvarlig", "Kommentar"]);
+    styleHeader(ws2Header);
+    ws2.views = [{ state: "frozen", ySplit: 3 }];
+    for (let i = 0; i < 40; i++) {
+      const row = ws2.addRow(["", "", "", "", "", "", "", "", ""]);
+      styleData(row, i % 2 === 1);
+    }
+    addDropdown(ws2, "B", 4, 43, [teacherFormula]);
+    addDropdown(ws2, "C", 4, 43, [AVDELING_FORMULA]);
+
+    // ── Sheet 3: Lærere ────────────────────────────────────────────────
+    const ws3 = wb.addWorksheet("Lærere");
+    ws3.columns = [
+      { key: "navn",     width: 26 },
+      { key: "avdeling", width: 18 },
+    ];
+    const ws3Header = ws3.addRow(["Navn", "Avdeling"]);
+    styleHeader(ws3Header);
+    ws3.views = [{ state: "frozen", ySplit: 1 }];
+    for (let i = 0; i < sortedTeachers.length; i++) {
+      const t = sortedTeachers[i];
+      const row = ws3.addRow([t.name, t.avdeling ?? ""]);
+      styleData(row, i % 2 === 1);
+    }
+    addDropdown(ws3, "B", 2, teacherDataRows + 30, [AVDELING_FORMULA]);
+
+    // ── Download ────────────────────────────────────────────────────────
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "stillingsplan.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportStillingsplan(file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+
+        const spSheet = wb.Sheets["Stillingsplan"];
+        if (!spSheet) { setStatusText("Fant ikke arket 'Stillingsplan' i filen."); return; }
+        const spRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(spSheet);
+
+        const laerereSheet = wb.Sheets["Lærere"];
+        const laerereRows = laerereSheet ? XLSX.utils.sheet_to_json<Record<string, unknown>>(laerereSheet) : [];
+
+        // Build name→teacher lookup (lowercased)
+        const byName = new Map<string, Teacher>();
+        for (const t of teachers) byName.set(t.name.toLowerCase().trim(), t);
+
+        // Process Lærere sheet: new teachers + avdeling updates
+        const addedTeachers: Teacher[] = [];
+        const avdelingUpdates = new Map<string, string>(); // existing teacher id → avdeling
+        for (const row of laerereRows) {
+          const name = String(row["Navn"] ?? "").trim();
+          const avd = String(row["Avdeling"] ?? "").trim();
+          if (!name) continue;
+          if (avd) avdelingUpdates.set(name.toLowerCase(), avd);
+          if (!byName.has(name.toLowerCase())) {
+            const id = makeUniqueId(`teacher_${toSlug(name) || "item"}`, [
+              ...teachers.map((t) => t.id),
+              ...addedTeachers.map((t) => t.id),
+            ]);
+            const nt: Teacher = {
+              id, name, avdeling: avd || undefined,
+              preferred_avoid_timeslots: [], unavailable_timeslots: [],
+              workload_percent: 100, preferred_room_ids: [], room_requirement_mode: "always",
+            };
+            addedTeachers.push(nt);
+            byName.set(name.toLowerCase(), nt);
+          }
+        }
+
+        // Apply avdeling updates to existing teachers
+        const allTeachers: Teacher[] = [...teachers.map((t) => {
+          const upd = avdelingUpdates.get(t.name.toLowerCase().trim());
+          return upd ? { ...t, avdeling: upd } : t;
+        }), ...addedTeachers];
+
+        // Helper: resolve teacher by name from combined list
+        const resolveTeacher = (name: string): Teacher | undefined => byName.get(name.toLowerCase().trim());
+
+        // Group Stillingsplan rows by Fag-ID: collect all teacher names + avdeling per subject
+        const teacherNamesById = new Map<string, { hoved: string[]; sam: string[]; avdeling: string }>();
+        for (const row of spRows) {
+          const fagId = String(row["Fag-ID"] ?? "").trim();
+          if (!fagId) continue;
+          if (!teacherNamesById.has(fagId)) teacherNamesById.set(fagId, { hoved: [], sam: [], avdeling: "" });
+          const entry = teacherNamesById.get(fagId)!;
+          const h = String(row["Karakteransvarlig"] ?? "").trim();
+          const s = String(row["Samarbeid med"] ?? "").trim();
+          const avd = String(row["Avdeling"] ?? "").trim();
+          if (h) entry.hoved.push(h);
+          if (s) s.split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => entry.sam.push(n));
+          if (avd && !entry.avdeling) entry.avdeling = avd;
+        }
+
+        // Build map: subject name (lowercased) → avdeling from any row in the sheet
+        const avdelingBySubjectName = new Map<string, string>();
+        for (const row of spRows) {
+          const fagName = String(row["Fag"] ?? "").trim();
+          const avd = String(row["Avdeling"] ?? "").trim();
+          if (fagName && avd) avdelingBySubjectName.set(fagName.toLowerCase(), avd);
+        }
+
+        let updatedCount = 0;
+        const updatedSubjects = subjects.map((subj) => {
+          const entry = teacherNamesById.get(subj.id);
+          // Resolve avdeling: from this subject's entry, or from the family name map
+          const newAvdeling = entry?.avdeling
+            || avdelingBySubjectName.get(subj.name.toLowerCase())
+            || subj.avdeling;
+          if (!entry) return newAvdeling !== subj.avdeling ? { ...subj, avdeling: newAvdeling } : subj;
+          const [firstHoved, ...restHoved] = entry.hoved;
+          const otherNames = [...new Set([...restHoved, ...entry.sam])].filter((n) => n !== firstHoved);
+          const hoofdObj = firstHoved ? resolveTeacher(firstHoved) : undefined;
+          const otherObjs = otherNames.map((n) => resolveTeacher(n)).filter(Boolean) as Teacher[];
+          const newTid = hoofdObj?.id ?? "";
+          const newTids = [...(hoofdObj ? [hoofdObj.id] : []), ...otherObjs.map((t) => t.id)];
+          updatedCount++;
+          return { ...subj, teacher_id: newTid, teacher_ids: newTids, avdeling: newAvdeling || undefined };
+        });
+
+        setTeachers(allTeachers);
+        setSubjects(updatedSubjects);
+
+        // Prompt for avdeling if new teachers have none
+        const needsAvd = addedTeachers.filter((t) => !t.avdeling);
+        if (needsAvd.length > 0) {
+          setPendingAvdelingTeachers(needsAvd.map((t) => ({ id: t.id, name: t.name, avdeling: "" })));
+        }
+
+        setStatusText(
+          `Oppdaterte ${updatedCount} fag${addedTeachers.length > 0 ? `, la til ${addedTeachers.length} ny(e) lærere` : ""}.`
+        );
+      } catch (err) {
+        console.error(err);
+        setStatusText("Feil ved lesing av stillingsplan-fil.");
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
   function handleDragOver(e: React.DragEvent<HTMLDivElement>) {
     e.preventDefault();
     e.stopPropagation();
@@ -5732,6 +6106,7 @@ export default function Home() {
         teacher_ids: [],
         class_ids: [],
         subject_type: subjectForm.subject_type,
+        avdeling: subjectForm.avdeling || undefined,
         sessions_per_week: 1,
         force_place: false,
         allowed_block_ids: isBlokkfag && selectedBlockId ? [selectedBlockId] : undefined,
@@ -5801,6 +6176,7 @@ export default function Home() {
     setSubjectForm((prev) => ({
       ...prev,
       name: "",
+      avdeling: "",
       class_ids: [],
     }));
 
@@ -5839,8 +6215,11 @@ export default function Home() {
         nextName !== oldName;
       const hasRoomModePatch = Object.prototype.hasOwnProperty.call(patch, "room_requirement_mode");
       const hasPreferredRoomsPatch = Object.prototype.hasOwnProperty.call(patch, "preferred_room_ids");
+      const hasAvdelingPatch = Object.prototype.hasOwnProperty.call(patch, "avdeling");
       const shouldPropagateRoomSettings =
         target.subject_type === "fellesfag" && (hasRoomModePatch || hasPreferredRoomsPatch);
+      const shouldPropagateAvdeling =
+        target.subject_type === "fellesfag" && hasAvdelingPatch;
 
       return prev.map((subject) => {
         const isTarget = subject.id === subjectId;
@@ -5855,8 +6234,13 @@ export default function Home() {
           subject.id !== subjectId &&
           subject.subject_type === "fellesfag" &&
           subject.name === oldName;
+        const isFellesfagFamilyForAvdeling =
+          shouldPropagateAvdeling &&
+          subject.id !== subjectId &&
+          subject.subject_type === "fellesfag" &&
+          subject.name === oldName;
 
-        if (!isTarget && !isPerClassCopyOfTarget && !isFellesfagFamilyForRoomSettings) {
+        if (!isTarget && !isPerClassCopyOfTarget && !isFellesfagFamilyForRoomSettings && !isFellesfagFamilyForAvdeling) {
           return subject;
         }
 
@@ -5865,6 +6249,7 @@ export default function Home() {
           : isFellesfagFamilyForRoomSettings
             ? {
                 ...subject,
+                avdeling: isFellesfagFamilyForAvdeling ? patch.avdeling : subject.avdeling,
                 room_requirement_mode: hasRoomModePatch
                   ? (patch.room_requirement_mode === "once_per_week" ? "once_per_week" : "always")
                   : subject.room_requirement_mode,
@@ -5872,6 +6257,8 @@ export default function Home() {
                   ? (Array.isArray(patch.preferred_room_ids) ? patch.preferred_room_ids.filter(Boolean) : [])
                   : subject.preferred_room_ids,
               }
+          : isFellesfagFamilyForAvdeling
+            ? { ...subject, avdeling: patch.avdeling }
           : { ...subject, name: nextName };
         const cleanedClassIds = merged.class_ids.filter((id) => classes.some((c) => c.id === id));
         const mergedTeacherIds = Array.from(new Set([
@@ -6323,6 +6710,11 @@ export default function Home() {
       return (
       <article
         key={subject.id}
+        ref={(el) => {
+          if (el && expandedSubjectId === subject.id) {
+            requestAnimationFrame(() => el.scrollIntoView({ block: "nearest", behavior: "smooth" }));
+          }
+        }}
         className={`item subject-card-item${expandedSubjectId === subject.id ? " expanded" : ""}`}
         data-subject-card-root={subject.id}
       >
@@ -6411,6 +6803,21 @@ export default function Home() {
                   >
                     <option value="fellesfag">Fellesfag</option>
                     <option value="programfag">Blokkfag</option>
+                  </select>
+                </div>
+                <div className="calendar-field">
+                  <label>Avdeling</label>
+                  <select
+                    value={subject.avdeling ?? ""}
+                    onChange={(e) => updateSubjectCard(subject.id, { avdeling: e.target.value || undefined })}
+                  >
+                    <option value="">— Ingen —</option>
+                    <option value="Idrett">Idrett</option>
+                    <option value="Idrettsfag">Idrettsfag</option>
+                    <option value="Norsk">Norsk</option>
+                    <option value="Realfag">Realfag</option>
+                    <option value="Samfunnsfag">Samfunnsfag</option>
+                    <option value="Språk">Språk</option>
                   </select>
                 </div>
               </div>
@@ -6955,13 +7362,34 @@ export default function Home() {
       <section className="hero">
         <div className="hero-title-row">
           <h1>Timeplanlegger - St. Svithun vgs</h1>
-          <button
-            type="button"
-            className="secondary hero-ultrawide-toggle"
-            onClick={() => setShowUltrawideTimeline((prev) => !prev)}
-          >
-            {showUltrawideTimeline ? "Avslutt Ultrawide" : "Vis Ultrawide"}
-          </button>
+          <div style={{ display: "flex", gap: "6px", alignItems: "center", flexWrap: "nowrap", flexShrink: 0 }}>
+            {cloudUser && (
+              <button
+                type="button"
+                className="secondary"
+                style={{ fontSize: "0.82rem", whiteSpace: "nowrap" }}
+                onClick={() => { setSaveNameInput(`Lagret ${new Date().toLocaleString("nb-NO")}`); setSaveNameModalOpen(true); }}
+              >
+                Lagre ny fil
+              </button>
+            )}
+            <button
+              type="button"
+              className="secondary"
+              style={{ fontSize: "0.82rem", whiteSpace: "nowrap" }}
+              onClick={() => exportCurrentState()}
+            >
+              Eksporter JSON
+            </button>
+            <button
+              type="button"
+              className="secondary hero-ultrawide-toggle"
+              style={{ whiteSpace: "nowrap" }}
+              onClick={() => setShowUltrawideTimeline((prev) => !prev)}
+            >
+              {showUltrawideTimeline ? "Avslutt Ultrawide" : "Vis Ultrawide"}
+            </button>
+          </div>
         </div>
       </section>
 
@@ -6992,31 +7420,109 @@ export default function Home() {
           {!cloudUser ? (
             /* Login form */
             <div>
-              <p>Logg inn med e-post for å lagre og synkronisere skoleplanen din i skyen (ingen passord nødvendig — du mottar en innloggingslenke).</p>
-              <form
-                onSubmit={(e) => { e.preventDefault(); sendMagicLink(cloudEmail); }}
-                style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center", marginTop: "10px" }}
-              >
-                <input
-                  type="email"
-                  placeholder="din@epost.no"
-                  value={cloudEmail}
-                  onChange={(e) => setCloudEmail(e.target.value)}
-                  required
-                  style={{ flex: "1 1 200px" }}
-                  disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}
-                />
-                <button type="submit" disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}>
-                  {cloudAuthStatus === "sending" ? "Sender…" : "Send innloggingslenke"}
+              {/* Mode tabs */}
+              <div style={{ display: "flex", gap: "6px", marginBottom: "14px" }}>
+                <button
+                  type="button"
+                  className={cloudLoginMode === "password" ? "" : "secondary"}
+                  style={{ fontSize: "0.85rem" }}
+                  onClick={() => { setCloudLoginMode("password"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                >
+                  Brukernavn/passord
                 </button>
-              </form>
-              {cloudAuthStatus === "sent" && (
-                <p style={{ color: "green", marginTop: "8px" }}>
-                  Sjekk e-posten din for en innloggingslenke. Klikk på lenken for å logge inn.
-                </p>
-              )}
-              {cloudAuthStatus === "error" && (
-                <p style={{ color: "red", marginTop: "8px" }}>{cloudAuthError}</p>
+                <button
+                  type="button"
+                  className={cloudLoginMode === "magic" ? "" : "secondary"}
+                  style={{ fontSize: "0.85rem" }}
+                  onClick={() => { setCloudLoginMode("magic"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                >
+                  Magisk lenke (e-post)
+                </button>
+              </div>
+
+              {cloudLoginMode === "password" ? (
+                /* Password login */
+                <div>
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (cloudPasswordMode === "signin") {
+                        signInWithPassword(cloudEmail, cloudPassword);
+                      } else {
+                        signUpWithPassword(cloudEmail, cloudPassword);
+                      }
+                    }}
+                    style={{ display: "flex", flexDirection: "column", gap: "8px", maxWidth: "360px" }}
+                  >
+                    <input
+                      type="email"
+                      placeholder="din@epost.no"
+                      value={cloudEmail}
+                      onChange={(e) => setCloudEmail(e.target.value)}
+                      required
+                      disabled={cloudAuthStatus === "sending"}
+                    />
+                    <input
+                      type="password"
+                      placeholder="Passord"
+                      value={cloudPassword}
+                      onChange={(e) => setCloudPassword(e.target.value)}
+                      required
+                      disabled={cloudAuthStatus === "sending"}
+                    />
+                    <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                      <button type="submit" disabled={cloudAuthStatus === "sending"}>
+                        {cloudAuthStatus === "sending" ? "Venter…" : cloudPasswordMode === "signin" ? "Logg inn" : "Opprett konto"}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        style={{ fontSize: "0.8rem" }}
+                        onClick={() => { setCloudPasswordMode(cloudPasswordMode === "signin" ? "signup" : "signin"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                      >
+                        {cloudPasswordMode === "signin" ? "Ny bruker? Opprett konto" : "Har konto? Logg inn"}
+                      </button>
+                    </div>
+                  </form>
+                  {cloudAuthStatus === "sent" && cloudPasswordMode === "signup" && (
+                    <p style={{ color: "green", marginTop: "8px" }}>
+                      Konto opprettet! Sjekk e-posten din for bekreftelseslenke, deretter logg inn.
+                    </p>
+                  )}
+                  {cloudAuthStatus === "error" && (
+                    <p style={{ color: "red", marginTop: "8px" }}>{cloudAuthError}</p>
+                  )}
+                </div>
+              ) : (
+                /* Magic link */
+                <div>
+                  <p style={{ marginTop: 0 }}>Ingen passord nødvendig — du mottar en innloggingslenke på e-post.</p>
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); sendMagicLink(cloudEmail); }}
+                    style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}
+                  >
+                    <input
+                      type="email"
+                      placeholder="din@epost.no"
+                      value={cloudEmail}
+                      onChange={(e) => setCloudEmail(e.target.value)}
+                      required
+                      style={{ flex: "1 1 200px" }}
+                      disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}
+                    />
+                    <button type="submit" disabled={cloudAuthStatus === "sending" || cloudAuthStatus === "sent"}>
+                      {cloudAuthStatus === "sending" ? "Sender…" : "Send innloggingslenke"}
+                    </button>
+                  </form>
+                  {cloudAuthStatus === "sent" && (
+                    <p style={{ color: "green", marginTop: "8px" }}>
+                      Sjekk e-posten din for en innloggingslenke. Klikk på lenken for å logge inn.
+                    </p>
+                  )}
+                  {cloudAuthStatus === "error" && (
+                    <p style={{ color: "red", marginTop: "8px" }}>{cloudAuthError}</p>
+                  )}
+                </div>
               )}
             </div>
           ) : (
@@ -7848,7 +8354,36 @@ export default function Home() {
       {activeTab === "subjects" && (
       <section className="grid">
         <article className="card" style={{ gridColumn: "1 / -1" }}>
-          <h2>Fag</h2>
+          <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "8px" }}>
+            <h2 style={{ margin: 0 }}>Fag</h2>
+            <button
+              type="button"
+              className="secondary"
+              style={{ marginLeft: "auto", fontSize: "0.82rem", padding: "4px 10px", width: "auto" }}
+              onClick={handleExportStillingsplan}
+            >
+              Eksporter stillingsplan
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              style={{ fontSize: "0.82rem", padding: "4px 10px", width: "auto" }}
+              onClick={() => stillingsplanImportRef.current?.click()}
+            >
+              Importer stillingsplan
+            </button>
+            <input
+              ref={stillingsplanImportRef}
+              type="file"
+              accept=".xlsx,.xls"
+              style={{ display: "none" }}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handleImportStillingsplan(f);
+                e.target.value = "";
+              }}
+            />
+          </div>
           <section className="subject-add-panel">
             <h3 className="subject-add-panel-title">Legg til fagkort</h3>
             <form onSubmit={(e) => { e.preventDefault(); addSubjectCard(); }}>
@@ -7878,6 +8413,22 @@ export default function Home() {
                   >
                     <option value="fellesfag">Fellesfag</option>
                     <option value="programfag">Blokkfag</option>
+                  </select>
+                </div>
+
+                <div className="calendar-field">
+                  <label>Avdeling</label>
+                  <select
+                    value={subjectForm.avdeling}
+                    onChange={(e) => setSubjectForm((s) => ({ ...s, avdeling: e.target.value }))}
+                  >
+                    <option value="">— Ingen —</option>
+                    <option value="Idrett">Idrett</option>
+                    <option value="Idrettsfag">Idrettsfag</option>
+                    <option value="Norsk">Norsk</option>
+                    <option value="Realfag">Realfag</option>
+                    <option value="Samfunnsfag">Samfunnsfag</option>
+                    <option value="Språk">Språk</option>
                   </select>
                 </div>
               </div>
@@ -9615,7 +10166,7 @@ export default function Home() {
                     >
                       <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
                       <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
-                        <span style={{ fontSize: "0.85em", color: "#666" }}>
+                        <span style={{ fontSize: "0.85em", color: "#666", whiteSpace: "nowrap" }}>
                           {t.workload_percent}% arbeidsbelastning, {t.preferred_room_ids.length} rompreferanse, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blokkert
                         </span>
                         <button
@@ -9909,9 +10460,17 @@ export default function Home() {
 
 
         <section className="toolbar">
-          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <button type="button" onClick={generateSchedule} disabled={loading}>
+          <div style={{ display: "flex", alignItems: "center", gap: "8px", flexWrap: "nowrap" }}>
+            <button type="button" onClick={generateSchedule} disabled={loading} style={{ width: "auto" }}>
               {loading ? "Genererer..." : "Generer timeplan"}
+            </button>
+            <button
+              type="button"
+              onClick={clearGeneratedSchedule}
+              disabled={loading || schedule.length === 0}
+              style={{ width: "auto" }}
+            >
+              Slett generert timeplan
             </button>
             <label style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}>
               Tidsgrense:
@@ -9932,14 +10491,8 @@ export default function Home() {
               />
               s
             </label>
+            <div className="status" style={{ marginBottom: 0 }}>{statusText}</div>
           </div>
-          <button
-            type="button"
-            onClick={clearGeneratedSchedule}
-            disabled={loading || schedule.length === 0}
-          >
-            Slett generert timeplan
-          </button>
           {/* ── Schedule snapshot save/restore ── */}
           <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%" }}>
             {savedScheduleSnapshots.length > 0 && (
@@ -10007,7 +10560,6 @@ export default function Home() {
               </button>
             </div>
           </div>
-          <div className="status">{statusText}</div>
           {lastRunMetadata && (
             <details className="status-warning-panel">
               <summary>
@@ -11463,6 +12015,7 @@ export default function Home() {
                                 </strong>
                                 <small>{displayStart}-{displayEnd}</small>
                               </div>
+                              {wkSub !== "both" && <small style={{ fontWeight: 700, color: wkSub === "A" ? "#1e40af" : "#9d174d" }}>Uke {wkSub}</small>}
                               {!e.blockLabel && classLabel && <small>{classLabel}</small>}
                               {!e.blockLabel && teacherLabel && <small>{teacherLabel}</small>}
                               {e.item.room_id && !e.blockLabel && <small>{roomNameById[e.item.room_id] ?? e.item.room_id}</small>}
@@ -11579,29 +12132,42 @@ export default function Home() {
               if ([...s.class_ids].sort().join("|") !== classKey) return s;
               return { ...s, teacher_id: newTeacherId, teacher_ids: [newTeacherId] };
             }));
+            // Sync teacher back to the subject/block data
+            if (isBlock) {
+              const blockInfo = subjectToBlockInfo.get(item.subject_id);
+              if (blockInfo) {
+                updateBlockSubjectEntry(blockInfo.block_id, item.subject_id, {
+                  teacher_id: newTeacherId,
+                  teacher_ids: [newTeacherId],
+                });
+              }
+            } else {
+              updateSubjectCard(item.subject_id, {
+                teacher_id: newTeacherId,
+                teacher_ids: [newTeacherId],
+              });
+            }
           }
           return (
             <section className="card" style={{ display: "flex", flexWrap: "wrap", gap: "16px", alignItems: "flex-start", padding: "12px 16px" }}>
               <div style={{ flex: "1 1 200px" }}>
-                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: "2px" }}>{item.subject_name}</div>
+                <div style={{ fontWeight: 700, fontSize: "1rem", marginBottom: "2px" }}>{item.subject_name}{wt === "A" || wt === "B" ? <span style={{ marginLeft: "8px", fontSize: "0.75rem", fontWeight: 600, padding: "1px 6px", borderRadius: "4px", background: wt === "A" ? "#dbeafe" : "#fce7f3", color: wt === "A" ? "#1e40af" : "#9d174d" }}>Uke {wt}</span> : null}</div>
                 <div style={{ fontSize: "0.82rem", color: "#555" }}>{classLabel} · {teacherLabel}</div>
                 <div style={{ fontSize: "0.82rem", color: "#555" }}>{item.day} {startStr}–{endStr} ({dur > 0 ? `${dur} min` : "?"}){item.room_id ? ` · ${roomNameById[item.room_id] ?? item.room_id}` : ""}</div>
               </div>
-              {!isBlock && (
-                <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
-                  <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Lærer:</div>
-                  <select
-                    value={primaryTeacherId}
-                    onChange={(ev) => applyTeacherToAllSessions(ev.target.value)}
-                    style={{ fontSize: "0.82rem", padding: "3px 6px", border: "1px solid #aaa", borderRadius: "4px", background: "#fff", color: "#1a1a2e", cursor: "pointer" }}
-                  >
-                    {primaryTeacherId === "" && <option value="">—</option>}
-                    {sortedTeachersByFirstName.map((t) => (
-                      <option key={t.id} value={t.id}>{t.name}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
+              <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
+                <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Lærer:</div>
+                <select
+                  value={primaryTeacherId}
+                  onChange={(ev) => applyTeacherToAllSessions(ev.target.value)}
+                  style={{ fontSize: "0.82rem", padding: "3px 6px", border: "1px solid #aaa", borderRadius: "4px", background: "#fff", color: "#1a1a2e", cursor: "pointer" }}
+                >
+                  {primaryTeacherId === "" && <option value="">—</option>}
+                  {sortedTeachersByFirstName.map((t) => (
+                    <option key={t.id} value={t.id}>{t.name}</option>
+                  ))}
+                </select>
+              </div>
               <div style={{ display: "flex", gap: "8px", flexWrap: "wrap", alignItems: "center" }}>
                 <div style={{ fontSize: "0.8rem", fontWeight: 600, color: "#333" }}>Rom:</div>
                 <select
@@ -11678,37 +12244,86 @@ export default function Home() {
             </section>
           );
         })()}
-        {redigerCollisions.length > 0 && (
-          <section className="card">
-            <details open>
-              <summary style={{ cursor: "pointer", fontWeight: 600, color: "#c53030" }}>
-                {redigerCollisions.length} kollisjon{redigerCollisions.length === 1 ? "" : "er"} – klikk for å skjule
-              </summary>
-              <ul style={{ marginTop: "8px", paddingLeft: "20px" }}>
-                {redigerCollisions.map((col, i) => (
-                  <li key={i} style={{ marginBottom: "4px" }}>
-                    <span
-                      style={{
-                        display: "inline-block",
-                        padding: "1px 6px",
-                        marginRight: "6px",
-                        fontSize: "0.75rem",
-                        borderRadius: "3px",
-                        background: col.type === "teacher" ? "#fde8e8" : col.type === "class" ? "#fff3cd" : "#d1e7fd",
-                        border: `1px solid ${col.type === "teacher" ? "#c53030" : col.type === "class" ? "#b87333" : "#2a6bb5"}`,
-                        color: col.type === "teacher" ? "#c53030" : col.type === "class" ? "#7a4f00" : "#1a4a80",
-                        fontWeight: 600,
-                      }}
-                    >
-                      {col.type === "teacher" ? "Lærer" : col.type === "class" ? "Klasse" : "Rom"}
-                    </span>
-                    {col.label}
-                  </li>
-                ))}
-              </ul>
-            </details>
-          </section>
-        )}
+        {redigerCollisions.length > 0 && (() => {
+          const typeMeta: Record<string, { label: string; bg: string; border: string; color: string; heading: string }> = {
+            unassigned: { label: "Ubemannet", heading: "Ubemannede enheter", bg: "#fdf0ff", border: "#9c27b0", color: "#6a0080" },
+            overloaded: { label: ">3 timer/dag", heading: "Mer enn 3 timer på én dag", bg: "#fff3e0", border: "#e65100", color: "#7a3200" },
+            teacher: { label: "Lærerkollisjon", heading: "Lærerkollisjon", bg: "#fde8e8", border: "#c53030", color: "#c53030" },
+            class: { label: "Klassekollisjon", heading: "Klassekollisjon", bg: "#fff3cd", border: "#b87333", color: "#7a4f00" },
+            room: { label: "Romkollisjon", heading: "Romkollisjon", bg: "#d1e7fd", border: "#2a6bb5", color: "#1a4a80" },
+          };
+          const typeOrder = ["unassigned", "overloaded", "teacher", "class", "room"] as const;
+          const counts = Object.fromEntries(typeOrder.map((t) => [t, redigerCollisions.filter((c) => c.type === t).length]));
+          const activeTypes = typeOrder.filter((t) => counts[t] > 0);
+          const filtered = redigerCollisions.filter((c) => redigerFeilFilter.has(c.type));
+          return (
+            <section className="card">
+              <details open>
+                <summary style={{ cursor: "pointer", fontWeight: 600, color: "#c53030" }}>
+                  {redigerCollisions.length} feil – klikk for å skjule
+                </summary>
+                <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px", marginBottom: "6px", alignItems: "center" }}>
+                  <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#555" }}>Filtrer:</span>
+                  {activeTypes.map((t) => {
+                    const m = typeMeta[t];
+                    const active = redigerFeilFilter.has(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => setRedigerFeilFilter((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(t)) next.delete(t); else next.add(t);
+                          return next;
+                        })}
+                        style={{
+                          width: "auto",
+                          fontSize: "0.72rem",
+                          padding: "2px 8px",
+                          borderRadius: "3px",
+                          border: `1px solid ${m.border}`,
+                          background: active ? m.bg : "#f5f5f5",
+                          color: active ? m.color : "#888",
+                          fontWeight: active ? 700 : 400,
+                          cursor: "pointer",
+                          textTransform: "none",
+                          letterSpacing: 0,
+                        }}
+                      >
+                        {m.label} ({counts[t]})
+                      </button>
+                    );
+                  })}
+                </div>
+                <ul style={{ marginTop: "4px", paddingLeft: "20px" }}>
+                  {filtered.map((col, i) => {
+                    const m = typeMeta[col.type];
+                    return (
+                      <li key={i} style={{ marginBottom: "4px" }}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "1px 6px",
+                            marginRight: "6px",
+                            fontSize: "0.75rem",
+                            borderRadius: "3px",
+                            background: m.bg,
+                            border: `1px solid ${m.border}`,
+                            color: m.color,
+                            fontWeight: 600,
+                          }}
+                        >
+                          {m.heading}
+                        </span>
+                        {col.label}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </details>
+            </section>
+          );
+        })()}
       </>
       )}
 
@@ -12865,6 +13480,52 @@ export default function Home() {
           </section>
         );
       })()}
+      {pendingAvdelingTeachers.length > 0 && (
+        <div style={{
+          position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1001,
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>
+          <div style={{
+            background: "#fff", borderRadius: "10px", padding: "28px 32px", minWidth: "360px", maxWidth: "480px",
+            boxShadow: "0 8px 32px rgba(0,0,0,0.18)", display: "flex", flexDirection: "column", gap: "16px",
+          }}>
+            <h3 style={{ margin: 0, fontSize: "1.05rem" }}>Avdeling er ikke satt for nye lærere</h3>
+            <p style={{ margin: 0, fontSize: "0.88rem", color: "#555" }}>Velg avdeling for hver ny lærer som ble importert:</p>
+            {pendingAvdelingTeachers.map((pt, i) => (
+              <div key={pt.id} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span style={{ flex: 1, fontSize: "0.9rem" }}>{pt.name}</span>
+                <select
+                  value={pt.avdeling}
+                  onChange={(e) => setPendingAvdelingTeachers((prev) =>
+                    prev.map((x, j) => j === i ? { ...x, avdeling: e.target.value } : x)
+                  )}
+                  style={{ fontSize: "0.88rem", padding: "3px 6px" }}
+                >
+                  <option value="">— Velg —</option>
+                  {["Idrett", "Idrettsfag", "Norsk", "Realfag", "Samfunnsfag", "Språk"].map((a) => (
+                    <option key={a} value={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button type="button" className="secondary" onClick={() => setPendingAvdelingTeachers([])}>Hopp over</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTeachers((prev) => prev.map((t) => {
+                    const pt = pendingAvdelingTeachers.find((x) => x.id === t.id);
+                    return pt && pt.avdeling ? { ...t, avdeling: pt.avdeling } : t;
+                  }));
+                  setPendingAvdelingTeachers([]);
+                }}
+              >
+                Lagre
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {saveNameModalOpen && (
         <div style={{
           position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 1000,
