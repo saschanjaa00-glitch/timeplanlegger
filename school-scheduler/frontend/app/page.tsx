@@ -1748,6 +1748,7 @@ export default function Home() {
     }
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function restoreSavedExport(item: SavedJsonExport) {
     const proceed = window.confirm(`Load ${item.name}? This will replace current in-app data.`);
     if (!proceed) {
@@ -6801,6 +6802,7 @@ export default function Home() {
     setSchedule(next);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function redigerToggleWeekType(idx: number) {
     redigerPushHistory();
     const item = schedule[idx];
@@ -6815,6 +6817,7 @@ export default function Home() {
     setSchedule((prev) => [...prev, { ...prev[idx] }]);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   function redigerToggleDuration(idx: number) {
     redigerPushHistory();
     const item = schedule[idx];
@@ -11344,7 +11347,7 @@ export default function Home() {
                           const overlapWidth = effectiveLaneWidth / Math.max(1, e.overlapCols);
                           const overlapLeft = effectiveLaneLeft + e.overlapCol * overlapWidth;
                           const isColliding = redigerCollidingIdxSet.has(e.idx);
-                          const weekLabel = isMerged ? "Begge" : e.item.week_type === "A" ? "A" : e.item.week_type === "B" ? "B" : "Begge";
+
                           const ts = timeslotById[e.item.timeslot_id];
                           const displayStart = e.item.start_time ?? ts?.start_time ?? "";
                           const displayEnd = e.item.end_time ?? ts?.end_time ?? "";
