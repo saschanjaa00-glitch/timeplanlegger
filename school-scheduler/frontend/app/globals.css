@@ -2460,6 +2460,7 @@ button.secondary {
 }
 
 .warning-filter-link {
+  display: inline;
   background: none;
   border: none;
   padding: 0;
