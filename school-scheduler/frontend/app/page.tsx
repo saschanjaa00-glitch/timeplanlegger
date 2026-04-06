@@ -1350,10 +1350,10 @@ export default function Home() {
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
   const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [confirmDialog, setConfirmDialog] = useState<{ visible: boolean; message: string; onConfirm: () => void } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void | Promise<void> } | null>(null);
 
-  function openConfirm(message: string, onConfirm: () => void) {
-    setConfirmDialog({ visible: true, message, onConfirm });
+  function openConfirm(message: string, onConfirm: () => void | Promise<void>) {
+    setConfirmDialog({ message, onConfirm });
   }
   function closeConfirm() {
     setConfirmDialog(null);
@@ -1872,11 +1872,18 @@ export default function Home() {
     if (!error && data) setCloudSnapshots(data as CloudSavefile[]);
   }, []);
 
+  function buildCloudPayload(): string {
+    const state = buildPersistedState();
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { savedJsonExports: _stripped, ...cloudState } = state;
+    return JSON.stringify(cloudState);
+  }
+
   async function saveToCloud(name?: string) {
     if (!cloudUser) return;
     setCloudSaveStatus("saving");
     const saveName = (name && name.trim()) ? name.trim() : `Lagret ${new Date().toLocaleString("nb-NO")}`;
-    const payload = JSON.stringify(buildPersistedState());
+    const payload = buildCloudPayload();
     const { error } = await supabase.from("savefiles").insert({
       user_id: cloudUser.id,
       name: saveName,
@@ -1893,7 +1900,7 @@ export default function Home() {
 
   async function upsertAutosave() {
     if (!cloudUser) return;
-    const payload = JSON.stringify(buildPersistedState());
+    const payload = buildCloudPayload();
     // Try to update existing _autosave row first
     const { data: existing } = await supabase
       .from("savefiles")
@@ -1912,22 +1919,22 @@ export default function Home() {
     // Fetch data field separately
     const { data, error } = await supabase.from("savefiles").select("data").eq("id", save.id).single();
     if (error || !data) { setStatusText("Kunne ikke laste ned skyfil."); return; }
-    const proceed = window.confirm(`Last inn «${save.name}»? Dette erstatter gjeldende data.`);
-    if (!proceed) return;
-    try {
-      const parsed = JSON.parse((data as { data: string }).data) as Partial<PersistedState>;
-      applyPersistedState(parsed);
-      setStatusText(`Lastet inn «${save.name}» fra skyen.`);
-    } catch {
-      setStatusText("Kunne ikke tolke skyfil.");
-    }
+    openConfirm(`Last inn «${save.name}»? Dette erstatter gjeldende data.`, () => {
+      try {
+        const parsed = JSON.parse((data as { data: string }).data) as Partial<PersistedState>;
+        applyPersistedState(parsed);
+        setStatusText(`Lastet inn «${save.name}» fra skyen.`);
+      } catch {
+        setStatusText("Kunne ikke tolke skyfil.");
+      }
+    });
   }
 
   async function deleteCloudSavefile(id: string) {
-    const proceed = window.confirm("Slett denne lagrede filen fra skyen?");
-    if (!proceed) return;
-    await supabase.from("savefiles").delete().eq("id", id);
-    setCloudSavefiles((prev) => prev.filter((s) => s.id !== id));
+    openConfirm("Slett denne lagrede filen fra skyen?", async () => {
+      await supabase.from("savefiles").delete().eq("id", id);
+      setCloudSavefiles((prev) => prev.filter((s) => s.id !== id));
+    });
   }
 
   async function renameCloudSavefile(id: string, newName: string) {
@@ -2094,7 +2101,7 @@ export default function Home() {
       if (!cloudUser) return;
       const now = new Date();
       const snapName = `_snapshot_${now.toISOString()}`;
-      const payload = JSON.stringify(buildPersistedState());
+      const payload = buildCloudPayload();
       await supabase.from("savefiles").insert({ user_id: cloudUser.id, name: snapName, data: payload });
       // Load updated list and trim to 20 oldest
       const { data } = await supabase
@@ -7365,19 +7372,27 @@ export default function Home() {
 
   return (
     <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
-      {confirmDialog?.visible && (
+      {confirmDialog && (
         <div
-          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          style={{ position: "fixed", inset: 0, background: "rgba(11,15,22,0.45)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}
           onClick={closeConfirm}
         >
           <div
-            style={{ background: "#fffdfa", border: "1px solid #c9c9c4", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", padding: "28px 32px", maxWidth: "380px", width: "calc(100vw - 48px)", borderRadius: "2px" }}
+            style={{
+              background: "linear-gradient(180deg, #fbfbf9, #f7f7f5)",
+              border: "1px solid #d6d5d1",
+              boxShadow: "0 10px 40px rgba(11,15,22,0.18)",
+              padding: "28px 28px 22px",
+              maxWidth: "400px",
+              width: "calc(100vw - 48px)",
+              borderRadius: "8px",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <p style={{ margin: "0 0 20px", fontSize: "0.95rem", lineHeight: 1.5, color: "#1a1a18" }}>{confirmDialog.message}</p>
-            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+            <p style={{ margin: "0 0 22px", fontSize: "0.95rem", lineHeight: 1.55, color: "#1a1a18" }}>{confirmDialog.message}</p>
+            <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
               <button type="button" className="secondary" style={{ width: "auto" }} onClick={closeConfirm}>Avbryt</button>
-              <button type="button" style={{ width: "auto", background: "#c53030", borderColor: "#a02020" }} onClick={() => { confirmDialog.onConfirm(); closeConfirm(); }}>Bekreft</button>
+              <button type="button" style={{ width: "auto", background: "#b91c1c", borderColor: "#991b1b" }} onClick={() => { closeConfirm(); confirmDialog.onConfirm(); }}>Bekreft</button>
             </div>
           </div>
         </div>
@@ -7605,58 +7620,61 @@ export default function Home() {
               ) : (
                 <div className="list">
                   {cloudSavefiles.map((save) => (
-                    <div key={save.id} className="item" style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
-                      <div style={{ flex: "1 1 180px", minWidth: 0 }}>
+                    <div key={save.id} className="item" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <div style={{ flex: "1 1 180px", minWidth: 0, display: "flex", alignItems: "baseline", gap: "6px", flexWrap: "wrap" }}>
                         {renamingCloudId === save.id ? (
                           <form
                             onSubmit={(e) => { e.preventDefault(); renameCloudSavefile(save.id, renameValue); }}
-                            style={{ display: "flex", gap: "6px" }}
+                            style={{ display: "flex", gap: "5px", alignItems: "center", flex: 1, minWidth: 0 }}
                           >
                             <input
                               autoFocus
                               value={renameValue}
                               onChange={(e) => setRenameValue(e.target.value)}
-                              style={{ flex: 1 }}
+                              onKeyDown={(e) => { if (e.key === "Escape") setRenamingCloudId(null); }}
+                              style={{ flex: 1, minWidth: 0, fontSize: "0.82rem", padding: "2px 6px", marginBottom: 0 }}
                             />
-                            <button type="submit">OK</button>
-                            <button type="button" className="secondary" onClick={() => setRenamingCloudId(null)}>Avbryt</button>
+                            <button type="submit" style={{ width: "36px", flexShrink: 0, fontSize: "0.75rem", padding: "2px 0" }}>OK</button>
+                            <button type="button" className="secondary" style={{ width: "24px", flexShrink: 0, fontSize: "0.8rem", padding: "2px 0", lineHeight: 1 }} onClick={() => setRenamingCloudId(null)}>✕</button>
                           </form>
                         ) : (
-                          <div style={{ display: "flex", alignItems: "baseline", gap: "8px", flexWrap: "wrap" }}>
+                          <>
                             <strong style={{ whiteSpace: "nowrap" }}>{save.name === "_autosave" ? "⏱ Autosave" : save.name}</strong>
+                            {save.name !== "_autosave" && (
+                              <button
+                                type="button"
+                                title="Gi nytt navn"
+                                onClick={() => { setRenamingCloudId(save.id); setRenameValue(save.name); }}
+                                style={{ background: "none", border: "none", padding: "0 2px", cursor: "pointer", fontSize: "0.78rem", color: "#999", lineHeight: 1, width: "auto", minWidth: 0, textTransform: "none", letterSpacing: 0 }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#444"; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.color = "#999"; }}
+                              >
+                                ✎
+                              </button>
+                            )}
                             <span style={{ fontSize: "0.78rem", color: "#5a5a5a", whiteSpace: "nowrap" }}>
                               {new Date(save.updated_at).toLocaleString("nb-NO")}
                             </span>
-                          </div>
+                          </>
                         )}
                       </div>
-                      {renamingCloudId !== save.id && (
-                        <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
-                          <button type="button" className="secondary" style={{ fontSize: "0.82rem", padding: "3px 8px" }} onClick={() => loadCloudSavefile(save)}>Last inn</button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            style={{ fontSize: "0.82rem", padding: "3px 8px" }}
-                            onClick={async () => {
-                              const { data, error } = await supabase.from("savefiles").select("data").eq("id", save.id).single();
-                              if (error || !data) { setStatusText("Nedlasting feilet."); return; }
-                              const displayName = save.name === "_autosave" ? "autosave" : save.name;
-                              downloadJsonFile(`${displayName}.json`, (data as { data: string }).data);
-                            }}
-                          >
-                            Eksporter
-                          </button>
-                          <button
-                            type="button"
-                            className="secondary"
-                            style={{ fontSize: "0.82rem", padding: "3px 8px" }}
-                            onClick={() => { setRenamingCloudId(save.id); setRenameValue(save.name); }}
-                          >
-                            Gi nytt navn
-                          </button>
-                          <button type="button" className="secondary" style={{ fontSize: "0.82rem", padding: "3px 8px", color: "#c53030" }} onClick={() => deleteCloudSavefile(save.id)}>Slett</button>
-                        </div>
-                      )}
+                      <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
+                        <button type="button" className="secondary" style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap" }} onClick={() => loadCloudSavefile(save)}>Last inn</button>
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap" }}
+                          onClick={async () => {
+                            const { data, error } = await supabase.from("savefiles").select("data").eq("id", save.id).single();
+                            if (error || !data) { setStatusText("Nedlasting feilet."); return; }
+                            const displayName = save.name === "_autosave" ? "autosave" : save.name;
+                            downloadJsonFile(`${displayName}.json`, (data as { data: string }).data);
+                          }}
+                        >
+                          Eksporter
+                        </button>
+                        <button type="button" className="secondary" style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap", color: "#c53030" }} onClick={() => deleteCloudSavefile(save.id)}>Slett</button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -7710,25 +7728,26 @@ export default function Home() {
                 ) : (
                   <div className="list">
                     {cloudSnapshots.map((snap) => (
-                      <div key={snap.id} className="item" style={{ display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" }}>
-                        <div style={{ fontSize: "0.85rem" }}>
-                          <strong>⏱ {new Date(snap.created_at).toLocaleString("nb-NO")}</strong>
+                      <div key={snap.id} className="item" style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                        <div style={{ flex: "1 1 180px", minWidth: 0, display: "flex", alignItems: "baseline", gap: "6px" }}>
+                          <strong style={{ whiteSpace: "nowrap", fontSize: "0.88rem" }}>⏱ {new Date(snap.created_at).toLocaleString("nb-NO")}</strong>
                         </div>
-                        <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                        <div style={{ display: "flex", gap: "5px", flexShrink: 0 }}>
                           <button
                             type="button"
                             className="secondary"
-                            style={{ fontSize: "0.82rem" }}
-                            onClick={async () => {
-                              if (!window.confirm("Last inn dette øyeblikksbildet? Gjeldende data erstattes.")) return;
-                              const { data, error } = await supabase.from("savefiles").select("data").eq("id", snap.id).single();
-                              if (error || !data) { setStatusText("Kunne ikke laste øyeblikksbildet."); return; }
-                              try {
-                                applyPersistedState(JSON.parse((data as { data: string }).data) as Partial<PersistedState>);
-                                setStatusText(`Gjenopprettet øyeblikksbilde fra ${new Date(snap.created_at).toLocaleString("nb-NO")}`);
-                              } catch {
-                                setStatusText("Kunne ikke tolke øyeblikksbildet.");
-                              }
+                            style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap" }}
+                            onClick={() => {
+                              openConfirm("Last inn dette øyeblikksbildet? Gjeldende data erstattes.", async () => {
+                                const { data, error } = await supabase.from("savefiles").select("data").eq("id", snap.id).single();
+                                if (error || !data) { setStatusText("Kunne ikke laste øyeblikksbildet."); return; }
+                                try {
+                                  applyPersistedState(JSON.parse((data as { data: string }).data) as Partial<PersistedState>);
+                                  setStatusText(`Gjenopprettet øyeblikksbilde fra ${new Date(snap.created_at).toLocaleString("nb-NO")}`);
+                                } catch {
+                                  setStatusText("Kunne ikke tolke øyeblikksbildet.");
+                                }
+                              });
                             }}
                           >
                             Last inn
@@ -7736,19 +7755,19 @@ export default function Home() {
                           <button
                             type="button"
                             className="secondary"
-                            style={{ fontSize: "0.82rem" }}
+                            style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap" }}
                             onClick={async () => {
                               const { data, error } = await supabase.from("savefiles").select("data").eq("id", snap.id).single();
                               if (error || !data) { setStatusText("Nedlasting feilet."); return; }
                               downloadJsonFile(`snapshot-${snap.created_at}.json`, (data as { data: string }).data);
                             }}
                           >
-                            Last ned
+                            Eksporter
                           </button>
                           <button
                             type="button"
                             className="secondary"
-                            style={{ fontSize: "0.82rem", color: "#c53030" }}
+                            style={{ fontSize: "0.78rem", padding: "3px 7px", whiteSpace: "nowrap", color: "#c53030" }}
                             onClick={async () => {
                               await supabase.from("savefiles").delete().eq("id", snap.id);
                               setCloudSnapshots((prev) => prev.filter((s) => s.id !== snap.id));
@@ -8791,7 +8810,7 @@ export default function Home() {
             <h2 style={{ margin: 0 }}>Fellesfag</h2>
             <button
               type="button"
-              onClick={() => { if (window.confirm("Fjerne alle lærerilordninger fra fellesfag?")) clearAllFellesfagTeachers(); }}
+              onClick={() => { openConfirm("Fjerne alle lærerilordninger fra fellesfag?", clearAllFellesfagTeachers); }}
               style={{ marginLeft: "auto", width: "auto", minWidth: 0, padding: "3px 8px", fontSize: "0.74rem", lineHeight: 1, whiteSpace: "nowrap" }}
               disabled={
                 !subjects.some((subject) => subject.subject_type === "fellesfag" && (Boolean(subject.teacher_id) || (subject.teacher_ids?.length ?? 0) > 0)) &&
@@ -9341,7 +9360,7 @@ export default function Home() {
             <h2 style={{ margin: 0 }}>Blokkliste</h2>
             <button
               type="button"
-              onClick={() => { if (window.confirm("Fjerne alle lærerilordninger fra blokker?")) clearAllBlockTeachers(); }}
+              onClick={() => { openConfirm("Fjerne alle lærerilordninger fra blokker?", clearAllBlockTeachers); }}
               style={{ marginLeft: "auto", width: "auto", minWidth: 0, padding: "3px 8px", fontSize: "0.74rem", lineHeight: 1, whiteSpace: "nowrap" }}
               disabled={!blocks.some(b => b.subject_entries.some(e => e.teacher_id || (e.teacher_ids?.length ?? 0) > 0))}
             >
@@ -10654,10 +10673,10 @@ export default function Home() {
                 onChange={(e) => {
                   const snap = savedScheduleSnapshots.find((s) => s.id === e.target.value);
                   if (!snap) return;
-                  const proceed = window.confirm(`Last inn «${snap.name}»? Dette erstatter gjeldende timeplan.`);
-                  if (!proceed) return;
-                  setSchedule(snap.schedule);
-                  setStatusText(`Lastet inn «${snap.name}»`);
+                  openConfirm(`Last inn «${snap.name}»? Dette erstatter gjeldende timeplan.`, () => {
+                    setSchedule(snap.schedule);
+                    setStatusText(`Lastet inn «${snap.name}»`);
+                  });
                 }}
               >
                 <option value="">Gjenopprett lagret...</option>
@@ -10673,9 +10692,7 @@ export default function Home() {
                 type="button"
                 className="secondary"
                 style={{ fontSize: "0.78rem", color: "#c53" }}
-                onClick={() => {
-                  if (window.confirm("Slett alle lagrede timeplaner?")) setSavedScheduleSnapshots([]);
-                }}
+                onClick={() => { openConfirm("Slett alle lagrede timeplaner?", () => setSavedScheduleSnapshots([])); }}
               >
                 Slett alle lagringer
               </button>
