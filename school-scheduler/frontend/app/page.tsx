@@ -9528,25 +9528,6 @@ export default function Home() {
           >
             Slett generert timeplan
           </button>
-          <button
-            type="button"
-            className="secondary"
-            disabled={schedule.length === 0}
-            onClick={() => {
-              if (reviewMode) {
-                setReviewMode(false);
-                setSelectedClassCompareIds([]);
-                setSelectedTeacherCompareIds([]);
-                setSelectedRoomCompareIds([]);
-              } else {
-                setReviewMode(true);
-                setReviewIndex(0);
-                setReviewEntityType("class");
-              }
-            }}
-          >
-            {reviewMode ? "Avslutt gjennomgang" : "Se gjennom"}
-          </button>
           {/* ── Schedule snapshot save/restore ── */}
           <div style={{ display: "flex", gap: "6px", alignItems: "center", width: "100%" }}>
             {savedScheduleSnapshots.length > 0 && (
@@ -9702,57 +9683,7 @@ export default function Home() {
 
         <section className="card">
           <h2>Timetabell</h2>
-          {reviewMode && (
-            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", marginBottom: "12px", padding: "10px 12px", background: "#1a1a2e", borderRadius: "6px" }}>
-              {(["class", "teacher", "room"] as const).map((type) => {
-                const labels = { class: "Klasser", teacher: "Lærere", room: "Rom" };
-                return (
-                  <button
-                    key={type}
-                    type="button"
-                    className={reviewEntityType === type ? "" : "secondary"}
-                    style={{ minWidth: "80px" }}
-                    onClick={() => { setReviewEntityType(type); setReviewIndex(0); }}
-                  >
-                    {labels[type]}
-                  </button>
-                );
-              })}
-              <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 4px" }} />
-              {(() => {
-                const reviewList =
-                  reviewEntityType === "class" ? sortedClasses :
-                  reviewEntityType === "teacher" ? sortedTeachersByFirstName :
-                  displayRoomOptions;
-                const clamped = Math.max(0, Math.min(reviewIndex, reviewList.length - 1));
-                const entity = reviewList[clamped];
-                return (
-                  <>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={clamped === 0}
-                      onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
-                    >
-                      ← Forrige
-                    </button>
-                    <span style={{ fontWeight: 600, minWidth: "120px", textAlign: "center", color: "#fff" }}>
-                      {entity ? entity.name : "—"} ({clamped + 1}/{reviewList.length})
-                    </span>
-                    <button
-                      type="button"
-                      className="secondary"
-                      disabled={clamped >= reviewList.length - 1}
-                      onClick={() => setReviewIndex((i) => Math.min(reviewList.length - 1, i + 1))}
-                    >
-                      Neste →
-                    </button>
-                  </>
-                );
-              })()}
-            </div>
-          )}
-          <div className="compare-controls" style={reviewMode ? { opacity: 0.35, pointerEvents: "none" } : {}}>
+          <div className="compare-controls">
             <div className="compare-group">
               <label>Sammenlign klasser</label>
               <input
@@ -9869,6 +9800,25 @@ export default function Home() {
               >
                 Fjern sammenligning
               </button>
+              <button
+                type="button"
+                className="secondary"
+                disabled={schedule.length === 0}
+                onClick={() => {
+                  if (reviewMode) {
+                    setReviewMode(false);
+                    setSelectedClassCompareIds([]);
+                    setSelectedTeacherCompareIds([]);
+                    setSelectedRoomCompareIds([]);
+                  } else {
+                    setReviewMode(true);
+                    setReviewIndex(0);
+                    setReviewEntityType("class");
+                  }
+                }}
+              >
+                {reviewMode ? "Avslutt gjennomgang" : "Se gjennom"}
+              </button>
             </div>
           </div>
           {selectedTeacherCompareIds.length > 0 && (
@@ -9940,6 +9890,56 @@ export default function Home() {
               ))}
             </div>
           ) : null}
+          {reviewMode && (
+            <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap", margin: "10px 0", padding: "10px 12px", background: "#1a1a2e", borderRadius: "6px" }}>
+              {(["class", "teacher", "room"] as const).map((type) => {
+                const labels = { class: "Klasser", teacher: "Lærere", room: "Rom" };
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    className={reviewEntityType === type ? "" : "secondary"}
+                    style={{ minWidth: "80px" }}
+                    onClick={() => { setReviewEntityType(type); setReviewIndex(0); }}
+                  >
+                    {labels[type]}
+                  </button>
+                );
+              })}
+              <div style={{ width: "1px", height: "24px", background: "#444", margin: "0 4px" }} />
+              {(() => {
+                const reviewList =
+                  reviewEntityType === "class" ? sortedClasses :
+                  reviewEntityType === "teacher" ? sortedTeachersByFirstName :
+                  displayRoomOptions;
+                const clamped = Math.max(0, Math.min(reviewIndex, reviewList.length - 1));
+                const entity = reviewList[clamped];
+                return (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={clamped === 0}
+                      onClick={() => setReviewIndex((i) => Math.max(0, i - 1))}
+                    >
+                      ← Forrige
+                    </button>
+                    <span style={{ fontWeight: 600, minWidth: "120px", textAlign: "center", color: "#fff" }}>
+                      {entity ? entity.name : "—"} ({clamped + 1}/{reviewList.length})
+                    </span>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={clamped >= reviewList.length - 1}
+                      onClick={() => setReviewIndex((i) => Math.min(reviewList.length - 1, i + 1))}
+                    >
+                      Neste →
+                    </button>
+                  </>
+                );
+              })()}
+            </div>
+          )}
           <div className="weekly-timeline">
             <div className="weekly-head">
               <div className="weekly-corner" />
