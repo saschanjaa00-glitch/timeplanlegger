@@ -6042,7 +6042,9 @@ export default function Home() {
         let detail = `Server error ${res.status}`;
         try {
           const errBody = await res.json();
-          if (errBody?.detail) detail = `Error: ${errBody.detail}`;
+          if (errBody?.detail) {
+            detail = `Error: ${typeof errBody.detail === "string" ? errBody.detail : JSON.stringify(errBody.detail)}`;
+          }
         } catch { /* ignore parse failure */ }
         throw new Error(detail);
       }

@@ -116,7 +116,7 @@ class ScheduleRequest(BaseModel):
     sports_halls: List[SportsHall] = Field(default_factory=list)
     alternating_weeks_enabled: bool = False
     alternate_non_block_subjects: bool = False
-    solver_engine: Literal["staged", "cp_sat_experimental"] = "cp_sat_experimental"
+    solver_engine: Literal["staged", "cp_sat_experimental", "cp_sat_only"] = "cp_sat_experimental"
     solver_timeout_seconds: int = Field(default=90, ge=5, le=600)
 
 
