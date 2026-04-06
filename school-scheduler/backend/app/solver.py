@@ -6226,39 +6226,49 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         )
 
     if solver_engine == "cp_sat_experimental":
-        _solver_log("[ENGINE] cp_sat_experimental requested; running multi-seed CP-SAT.")
-        # Time budget: reserve a small slice per seed, use a per-attempt timeout.
-        # Seeds run sequentially; stop as soon as one produces zero shortfall.
-        CP_SAT_SEEDS = [0, 1, 2, 3, 4, 5, 6, 7]
-        time_remaining = deadline_monotonic - time.monotonic()
-        per_seed_timeout = max(5, int(time_remaining / len(CP_SAT_SEEDS)))
+        _solver_log("[ENGINE] cp_sat_experimental requested; running CP-SAT with seed retry.")
+        # Strategy: seed 0 gets the full remaining time budget (same behaviour as before).
+        # If it finishes early with a partial result AND there is still meaningful time left,
+        # retry with additional seeds sharing whatever time remains.
+        # This prevents the previous bug where 8 × (budget/8) always consumed the full budget.
+        RETRY_SEEDS = [1, 2, 3, 4, 5, 6, 7]
+        MIN_RETRY_TIME = 8  # seconds — don't bother retrying if less than this remains
         best_response: ScheduleResponse | None = None
-        for seed in CP_SAT_SEEDS:
-            if time.monotonic() >= deadline_monotonic:
+
+        # ── Seed 0: full budget ──────────────────────────────────────────────
+        time_left = max(5, int(deadline_monotonic - time.monotonic()))
+        _solver_log(f"[CP-SAT] seed=0 timeout={time_left}s")
+        response = _generate_schedule_cp_sat_experimental(data, time_left, random_seed=0)
+        if response.status == "success" and not _cp_sat_has_shortfall(response):
+            _solver_log("[CP-SAT] complete solution found at seed=0")
+            return _finalize_cp_sat(response)
+        best_response = response
+
+        # ── Retry seeds: only if seed 0 finished early and time remains ──────
+        for seed in RETRY_SEEDS:
+            time_left = int(deadline_monotonic - time.monotonic())
+            if time_left < MIN_RETRY_TIME:
                 generation_timed_out = True
                 break
-            seed_timeout = min(per_seed_timeout, max(5, int(deadline_monotonic - time.monotonic())))
-            _solver_log(f"[CP-SAT] seed={seed} timeout={seed_timeout}s")
-            response = _generate_schedule_cp_sat_experimental(
-                data, seed_timeout, random_seed=seed,
-            )
+            seeds_remaining = len(RETRY_SEEDS) - RETRY_SEEDS.index(seed)
+            seed_timeout = max(MIN_RETRY_TIME, time_left // seeds_remaining)
+            _solver_log(f"[CP-SAT] retry seed={seed} timeout={seed_timeout}s")
+            response = _generate_schedule_cp_sat_experimental(data, seed_timeout, random_seed=seed)
             if response.status == "success" and not _cp_sat_has_shortfall(response):
                 _solver_log(f"[CP-SAT] complete solution found at seed={seed}")
                 return _finalize_cp_sat(response)
-            # Keep the best partial (fewest shortfall subjects) as fallback.
+            # Keep the best partial (prefer success over infeasible, then most items).
             if best_response is None or (
                 response.status == "success"
                 and (best_response.status != "success" or _cp_sat_has_shortfall(best_response))
             ):
                 best_response = response
             elif response.status == "success" and best_response.status == "success":
-                # Both have shortfall — keep whichever has more schedule items.
                 if len(response.schedule or []) > len(best_response.schedule or []):
                     best_response = response
+
         # No seed produced a complete solution — return best partial.
-        _solver_log("[CP-SAT] all seeds exhausted without complete solution; returning best partial.")
-        if best_response and best_response.status == "success":
-            return _finalize_cp_sat(best_response)
+        _solver_log("[CP-SAT] all seeds exhausted; returning best partial.")
         return _finalize_cp_sat(
             best_response or ScheduleResponse(
                 status="infeasible",
