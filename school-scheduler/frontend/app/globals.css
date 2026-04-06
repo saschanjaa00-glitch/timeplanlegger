@@ -2461,6 +2461,7 @@ button.secondary {
 
 .warning-filter-link {
   display: inline;
+  width: auto;
   background: none;
   border: none;
   padding: 0;
@@ -2470,6 +2471,8 @@ button.secondary {
   font-weight: 700;
   text-decoration: underline;
   text-decoration-style: dotted;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .warning-filter-link:hover {
