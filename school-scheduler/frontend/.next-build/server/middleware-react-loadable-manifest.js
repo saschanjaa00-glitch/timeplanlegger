@@ -1,0 +1,1 @@
+self.__REACT_LOADABLE_MANIFEST='{"app\\\\page.tsx -> exceljs":{"id":7853,"files":["static/chunks/6edf0643.a3edb3521c476147.js"]}}';

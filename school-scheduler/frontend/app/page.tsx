@@ -44,7 +44,8 @@ type MeetingTeacherAssignment = {
 type Meeting = {
   id: string;
   name: string;
-  timeslot_id: string;
+  timeslot_id: string;           // kept for backwards compat / solver; equals timeslot_ids[0]
+  timeslot_ids: string[];        // canonical multi-slot array
   teacher_assignments: MeetingTeacherAssignment[];
 };
 
@@ -127,7 +128,7 @@ type WeekCalendarSetup = {
 
 type MeetingFormState = {
   name: string;
-  timeslot_id: string;
+  timeslot_ids: string[];
   teacher_modes: Record<string, "preferred" | "unavailable">;
 };
 
@@ -906,10 +907,18 @@ function normalizeMeeting(meeting: Partial<Meeting>): Meeting {
         }))
     : [];
 
+  const timeslotIds =
+    Array.isArray(meeting.timeslot_ids) && meeting.timeslot_ids.length > 0
+      ? meeting.timeslot_ids
+      : meeting.timeslot_id
+        ? [meeting.timeslot_id]
+        : [];
+
   return {
     id: meeting.id ?? "",
     name: meeting.name ?? "",
-    timeslot_id: meeting.timeslot_id ?? "",
+    timeslot_id: timeslotIds[0] ?? "",
+    timeslot_ids: timeslotIds,
     teacher_assignments: assignments,
   };
 }
@@ -1341,6 +1350,15 @@ export default function Home() {
   const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
   const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ visible: boolean; message: string; onConfirm: () => void } | null>(null);
+
+  function openConfirm(message: string, onConfirm: () => void) {
+    setConfirmDialog({ visible: true, message, onConfirm });
+  }
+  function closeConfirm() {
+    setConfirmDialog(null);
+  }
+
   const [generationPopup, setGenerationPopup] = useState<{
     visible: boolean;
     tone: "running" | "success" | "error";
@@ -1369,6 +1387,7 @@ export default function Home() {
     block_id: "",
     class_ids: [] as string[],
   });
+  const [newBlockNameForSubjectForm, setNewBlockNameForSubjectForm] = useState("");
   const [teacherForm, setTeacherForm] = useState({
     name: "",
     unavailable_timeslots: "",
@@ -1377,7 +1396,7 @@ export default function Home() {
   });
   const [meetingForm, setMeetingForm] = useState<MeetingFormState>({
     name: "",
-    timeslot_id: "",
+    timeslot_ids: [],
     teacher_modes: {},
   });
   const [editingMeetingId, setEditingMeetingId] = useState<string | null>(null);
@@ -1407,6 +1426,7 @@ export default function Home() {
   const [teacherOnSiteSearchQuery, setTeacherOnSiteSearchQuery] = useState("");
   const [teacherOnSiteCollapsed, setTeacherOnSiteCollapsed] = useState(false);
   const [teacherOnSiteSortMode, setTeacherOnSiteSortMode] = useState<"name" | "time">("name");
+  const [teacherOnSiteOverloadFilter, setTeacherOnSiteOverloadFilter] = useState<"all" | "over">("all");
   const [savedJsonExports, setSavedJsonExports] = useState<SavedJsonExport[]>([]);
   const [savedScheduleSnapshots, setSavedScheduleSnapshots] = useState<SavedScheduleSnapshot[]>([]);
   const [periodicSnapshotsCollapsed, setPeriodicSnapshotsCollapsed] = useState(true);
@@ -1439,6 +1459,7 @@ export default function Home() {
   const [redigerTimelineZoom, setRedigerTimelineZoom] = useState<45 | 90>(45);
   const [selectedRedigerIdx, setSelectedRedigerIdx] = useState<number | null>(null);
   const [redigerFeilFilter, setRedigerFeilFilter] = useState<Set<string>>(new Set(["unassigned", "overloaded", "teacher", "class", "room"]));
+  const [ignoredFeil, setIgnoredFeil] = useState<Set<string>>(new Set());
   const redigerHistoryRef = useRef<ScheduledItem[][]>([]);
   const redigerRedoRef = useRef<ScheduledItem[][]>([]);
   const [redigerUndoCount, setRedigerUndoCount] = useState(0);
@@ -1515,6 +1536,7 @@ export default function Home() {
   });
   const [isStorageHydrated, setIsStorageHydrated] = useState(false);
   const [expandedTeacherId, setExpandedTeacherId] = useState<string | null>(null);
+  const [hoveredTeacherId, setHoveredTeacherId] = useState<string | null>(null);
   const [expandedBlockId, setExpandedBlockId] = useState<string | null>(null);
   const [blockInlineSubjNames, setBlockInlineSubjNames] = useState<Record<string, string>>({});
   const excelFileRef = useRef<HTMLInputElement>(null);
@@ -2330,22 +2352,24 @@ export default function Home() {
 
     // Count all meeting assignments as fixed teacher presence.
     for (const meeting of meetings) {
-      const ts = timeslotById[meeting.timeslot_id];
-      if (!ts) {
-        continue;
-      }
-      const startMin = toMinutes(ts.start_time);
-      const endMin = toMinutes(ts.end_time);
-      if (startMin === Number.MAX_SAFE_INTEGER || endMin === Number.MAX_SAFE_INTEGER) {
-        continue;
-      }
-
-      for (const assignment of meeting.teacher_assignments) {
-        if (assignment.mode !== "preferred" && assignment.mode !== "unavailable") {
+      for (const slotId of meeting.timeslot_ids) {
+        const ts = timeslotById[slotId];
+        if (!ts) {
           continue;
         }
-        for (const weekLabel of weekLabels) {
-          addSpanForDay(assignment.teacher_id, weekLabel, ts.day, startMin, endMin, dayWindowsByTeacher);
+        const startMin = toMinutes(ts.start_time);
+        const endMin = toMinutes(ts.end_time);
+        if (startMin === Number.MAX_SAFE_INTEGER || endMin === Number.MAX_SAFE_INTEGER) {
+          continue;
+        }
+
+        for (const assignment of meeting.teacher_assignments) {
+          if (assignment.mode !== "preferred" && assignment.mode !== "unavailable") {
+            continue;
+          }
+          for (const weekLabel of weekLabels) {
+            addSpanForDay(assignment.teacher_id, weekLabel, ts.day, startMin, endMin, dayWindowsByTeacher);
+          }
         }
       }
     }
@@ -2419,6 +2443,14 @@ export default function Home() {
     sorted.sort((a, b) => a.teacher.name.localeCompare(b.teacher.name));
     return sorted;
   }, [enableAlternatingWeeks, filteredTeacherOnSiteSummaries, teacherOnSiteSortMode]);
+
+  const teacherOnSiteByTeacherId = useMemo(() => {
+    const map = new Map<string, (typeof teacherOnSiteSummaries)[0]["totals"]>();
+    for (const { teacher, totals } of teacherOnSiteSummaries) {
+      map.set(teacher.id, totals);
+    }
+    return map;
+  }, [teacherOnSiteSummaries]);
 
   const filteredTeachers = useMemo(() => {
     return sortedTeachersByFirstName.filter((teacher) => isTeacherNameMatch(teacherSearchQuery, teacher.name));
@@ -2549,7 +2581,7 @@ export default function Home() {
   function resetMeetingForm() {
     setMeetingForm({
       name: "",
-      timeslot_id: sortedTimeslots[0]?.id ?? "",
+      timeslot_ids: [],
       teacher_modes: {},
     });
     setEditingMeetingId(null);
@@ -2609,7 +2641,12 @@ export default function Home() {
     setEditingMeetingId(meeting.id);
     setMeetingForm({
       name: meeting.name,
-      timeslot_id: meeting.timeslot_id,
+      timeslot_ids:
+        meeting.timeslot_ids.length > 0
+          ? meeting.timeslot_ids
+          : meeting.timeslot_id
+            ? [meeting.timeslot_id]
+            : [],
       teacher_modes: Object.fromEntries(
         meeting.teacher_assignments.map((assignment) => [assignment.teacher_id, assignment.mode])
       ) as Record<string, "preferred" | "unavailable">,
@@ -2619,7 +2656,7 @@ export default function Home() {
 
   function upsertMeeting() {
     const name = meetingForm.name.trim();
-    const timeslotId = meetingForm.timeslot_id;
+    const timeslotIds = meetingForm.timeslot_ids;
     const teacherAssignments = Object.entries(meetingForm.teacher_modes)
       .filter((entry): entry is [string, "preferred" | "unavailable"] => entry[1] === "preferred" || entry[1] === "unavailable")
       .filter(([teacherId]) => teachers.some((teacher) => teacher.id === teacherId))
@@ -2629,8 +2666,12 @@ export default function Home() {
       setStatusText("M\u00f8tenavn er p\u00e5krevd.");
       return;
     }
-    if (!timeslotId || !timeslots.some((slot) => slot.id === timeslotId)) {
-      setStatusText("Velg en gyldig time for m\u00f8tet.");
+    if (timeslotIds.length === 0) {
+      setStatusText("Velg minst \u00e9n tidsluke for m\u00f8tet.");
+      return;
+    }
+    if (!timeslotIds.every((id) => timeslots.some((slot) => slot.id === id))) {
+      setStatusText("En eller flere tidsluker er ugyldige.");
       return;
     }
     if (teacherAssignments.length === 0) {
@@ -2644,7 +2685,8 @@ export default function Home() {
           ? {
               ...meeting,
               name,
-              timeslot_id: timeslotId,
+              timeslot_id: timeslotIds[0],
+              timeslot_ids: timeslotIds,
               teacher_assignments: teacherAssignments,
             }
           : meeting
@@ -2660,7 +2702,8 @@ export default function Home() {
       {
         id,
         name,
-        timeslot_id: timeslotId,
+        timeslot_id: timeslotIds[0],
+        timeslot_ids: timeslotIds,
         teacher_assignments: teacherAssignments,
       },
     ]);
@@ -3927,17 +3970,20 @@ export default function Home() {
     }
 
     for (const meeting of meetings) {
-      if (!overviewFlatColumns.some((column) => column.slot.id === meeting.timeslot_id)) {
-        continue;
-      }
-      for (const assignment of meeting.teacher_assignments) {
-        addEntry("teachers", assignment.teacher_id, meeting.timeslot_id, {
-          key: `meeting|${meeting.id}|${assignment.teacher_id}`,
-          title: `Møte: ${meeting.name}`,
-          subtitle: assignment.mode === "unavailable" ? "Opptatt" : "Prioritert",
-          teacher_label: teacherNameById[assignment.teacher_id] ?? assignment.teacher_id,
-          isMeeting: true,
-        });
+      const matchingSlotIds = meeting.timeslot_ids.filter((id) =>
+        overviewFlatColumns.some((column) => column.slot.id === id)
+      );
+      if (matchingSlotIds.length === 0) continue;
+      for (const slotId of matchingSlotIds) {
+        for (const assignment of meeting.teacher_assignments) {
+          addEntry("teachers", assignment.teacher_id, slotId, {
+            key: `meeting|${meeting.id}|${assignment.teacher_id}|${slotId}`,
+            title: `M\u00f8te: ${meeting.name}`,
+            subtitle: assignment.mode === "unavailable" ? "Opptatt" : "Prioritert",
+            teacher_label: teacherNameById[assignment.teacher_id] ?? assignment.teacher_id,
+            isMeeting: true,
+          });
+        }
       }
     }
 
@@ -4479,10 +4525,14 @@ export default function Home() {
       unavailable_timeslots: Array.from(new Set(teacher.unavailable_timeslots.map(remapId))),
     })));
 
-    setMeetings((prev) => prev.map((meeting) => ({
-      ...meeting,
-      timeslot_id: remapId(meeting.timeslot_id),
-    })));
+    setMeetings((prev) => prev.map((meeting) => {
+      const remappedIds = meeting.timeslot_ids.map(remapId);
+      return {
+        ...meeting,
+        timeslot_id: remappedIds[0] ?? "",
+        timeslot_ids: remappedIds,
+      };
+    }));
 
     setSubjects((prev) => prev.map((subject) => ({
       ...subject,
@@ -4586,22 +4636,6 @@ export default function Home() {
       window.removeEventListener("mouseup", handleMouseUp);
     };
   }, [resizeState, editingTimeslotId]);
-
-  useEffect(() => {
-    setMeetingForm((prev) => {
-      if (prev.timeslot_id && sortedTimeslots.some((slot) => slot.id === prev.timeslot_id)) {
-        return prev;
-      }
-      const fallbackTimeslotId = sortedTimeslots[0]?.id ?? "";
-      if (prev.timeslot_id === fallbackTimeslotId) {
-        return prev;
-      }
-      return {
-        ...prev,
-        timeslot_id: fallbackTimeslotId,
-      };
-    });
-  }, [sortedTimeslots]);
 
   function addTeacher() {
     if (!teacherForm.name) {
@@ -6021,11 +6055,15 @@ export default function Home() {
     })));
 
     setMeetings((prev) => prev
-      .filter((meeting) => meeting.timeslot_id !== timeslotId)
-      .map((meeting) => ({
-        ...meeting,
-        timeslot_id: remapId(meeting.timeslot_id),
-      })));
+      .map((meeting) => {
+        const filteredIds = meeting.timeslot_ids.filter((id) => id !== timeslotId).map(remapId);
+        return {
+          ...meeting,
+          timeslot_id: filteredIds[0] ?? "",
+          timeslot_ids: filteredIds,
+        };
+      })
+      .filter((meeting) => meeting.timeslot_ids.length > 0));
 
     setSubjects((prev) => prev.map((subject) => ({
       ...subject,
@@ -6085,12 +6123,12 @@ export default function Home() {
     }
 
     const isBlokkfag = subjectForm.subject_type === "programfag";
-    const selectedBlockId = subjectForm.block_id;
+    const selectedBlockId = subjectForm.block_id === "__new__" ? "" : subjectForm.block_id;
     const selectedClassIds = subjectForm.subject_type === "fellesfag"
       ? Array.from(new Set(subjectForm.class_ids))
       : [];
     if (isBlokkfag && sortedBlocksByName.length > 0 && !selectedBlockId) {
-      setStatusText("Velg en blokk for blokkfag-faget.");
+      setStatusText(subjectForm.block_id === "__new__" ? "Opprett blokken først ved å klikke «Opprett»." : "Velg en blokk for blokkfag-faget.");
       return;
     }
 
@@ -6179,6 +6217,7 @@ export default function Home() {
       avdeling: "",
       class_ids: [],
     }));
+    setNewBlockNameForSubjectForm("");
 
     if (isBlokkfag) {
       const blockName = sortedBlocksByName.find((block) => block.id === selectedBlockId)?.name ?? selectedBlockId;
@@ -7326,6 +7365,23 @@ export default function Home() {
 
   return (
     <main className={showUltrawideTimeline ? "ultrawide-mode" : ""}>
+      {confirmDialog?.visible && (
+        <div
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.45)", zIndex: 9000, display: "flex", alignItems: "center", justifyContent: "center" }}
+          onClick={closeConfirm}
+        >
+          <div
+            style={{ background: "#fffdfa", border: "1px solid #c9c9c4", boxShadow: "0 8px 32px rgba(0,0,0,0.18)", padding: "28px 32px", maxWidth: "380px", width: "calc(100vw - 48px)", borderRadius: "2px" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p style={{ margin: "0 0 20px", fontSize: "0.95rem", lineHeight: 1.5, color: "#1a1a18" }}>{confirmDialog.message}</p>
+            <div style={{ display: "flex", gap: "10px", justifyContent: "flex-end" }}>
+              <button type="button" className="secondary" style={{ width: "auto" }} onClick={closeConfirm}>Avbryt</button>
+              <button type="button" style={{ width: "auto", background: "#c53030", borderColor: "#a02020" }} onClick={() => { confirmDialog.onConfirm(); closeConfirm(); }}>Bekreft</button>
+            </div>
+          </div>
+        </div>
+      )}
       {generationPopup.visible && (
         <div className="generation-popup-overlay" role="status" aria-live="polite" aria-atomic="true">
           <div className={`generation-popup generation-popup-${generationPopup.tone}`}>
@@ -8502,8 +8558,16 @@ export default function Home() {
                   <div className="subject-add-conditional-slot">
                   <label>Blokk</label>
                   <select
-                    value={subjectForm.block_id}
-                    onChange={(e) => setSubjectForm((s) => ({ ...s, block_id: e.target.value }))}
+                    value={subjectForm.block_id === "__new__" ? "__new__" : subjectForm.block_id}
+                    onChange={(e) => {
+                      if (e.target.value === "__new__") {
+                        setSubjectForm((s) => ({ ...s, block_id: "__new__" }));
+                        setNewBlockNameForSubjectForm("");
+                      } else {
+                        setSubjectForm((s) => ({ ...s, block_id: e.target.value }));
+                        setNewBlockNameForSubjectForm("");
+                      }
+                    }}
                   >
                     <option value="">Velg blokk</option>
                     {sortedBlocksByName.map((block) => (
@@ -8511,7 +8575,36 @@ export default function Home() {
                         {block.name}
                       </option>
                     ))}
+                    <option value="__new__">＋ Legg til ny blokk</option>
                   </select>
+                  {subjectForm.block_id === "__new__" && (
+                    <div style={{ display: "flex", gap: "6px", marginTop: "6px", alignItems: "center" }}>
+                      <input
+                        type="text"
+                        placeholder="Navn på ny blokk"
+                        value={newBlockNameForSubjectForm}
+                        onChange={(e) => setNewBlockNameForSubjectForm(e.target.value)}
+                        style={{ flex: 1, fontSize: "0.84rem" }}
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        style={{ width: "auto", fontSize: "0.82rem", padding: "3px 10px" }}
+                        disabled={!newBlockNameForSubjectForm.trim()}
+                        onClick={() => {
+                          const trimmed = newBlockNameForSubjectForm.trim();
+                          if (!trimmed) return;
+                          const newId = makeUniqueId(`block_${toSlug(trimmed) || "item"}`, blocks.map((b) => b.id));
+                          setBlocks((prev) => [...prev, { id: newId, name: trimmed, occurrences: [], class_ids: [], subject_entries: [], timeslot_ids: [] }]);
+                          setSubjectForm((s) => ({ ...s, block_id: newId }));
+                          setNewBlockNameForSubjectForm("");
+                          setStatusText(`Opprettet blokk «${trimmed}».`);
+                        }}
+                      >
+                        Opprett
+                      </button>
+                    </div>
+                  )}
                   </div>
               )}
               <button type="submit">Legg til fagkort</button>
@@ -9275,7 +9368,7 @@ export default function Home() {
                       <strong>{block.name}</strong>
                       <div style={{ display: "flex", gap: "6px" }}>
                         <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); loadBlockIntoForm(block); }} style={{ padding: "3px 8px", fontSize: "0.75em" }}>Rediger</button>
-                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); deleteBlock(block.id); }} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Slett</button>
+                        <button type="button" className="secondary" onClick={(e) => { e.stopPropagation(); openConfirm(`Slett blokken «${block.name}»? Dette kan ikke angres.`, () => deleteBlock(block.id)); }} style={{ padding: "3px 8px", fontSize: "0.75em", color: "#c53" }}>Slett</button>
                       </div>
                     </div>
                     {(block.occurrences ?? []).length > 0 && (
@@ -9523,17 +9616,56 @@ export default function Home() {
                 placeholder="Tetmmøte, mentortime, avdelingsmøte"
               />
 
-              <label>Tidsluke</label>
-              <select
-                value={meetingForm.timeslot_id}
-                onChange={(e) => setMeetingForm((prev) => ({ ...prev, timeslot_id: e.target.value }))}
-              >
-                {sortedTimeslots.map((slot) => (
-                  <option key={slot.id} value={slot.id}>
-                    {toNorwegianDay(slot.day)} {slot.start_time}-{slot.end_time} ({slot.id})
-                  </option>
-                ))}
-              </select>
+              <label>Tidsluke(r)</label>
+              {sortedTimeslots.length === 0
+                ? <p>Ingen tidsluker tilgjengelig.</p>
+                : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: "3px", marginBottom: "8px" }}>
+                    {calendarDays.map((day) => {
+                      const daySlots = sortedTimeslots.filter((slot) => slot.day === day);
+                      if (daySlots.length === 0) return null;
+                      return (
+                        <div key={day} style={{ display: "flex", alignItems: "center", gap: "4px", flexWrap: "wrap" }}>
+                          <span style={{ fontSize: "0.72rem", color: "#888", width: "28px", flexShrink: 0 }}>
+                            {toNorwegianDay(day).slice(0, 3)}
+                          </span>
+                          {daySlots.map((slot) => {
+                            const selected = meetingForm.timeslot_ids.includes(slot.id);
+                            return (
+                              <button
+                                key={slot.id}
+                                type="button"
+                                style={{
+                                  width: "auto",
+                                  padding: "2px 6px",
+                                  borderRadius: "4px",
+                                  border: selected ? "1.5px solid #4f7a4f" : "1.5px solid #ccc",
+                                  background: selected ? "#d4edda" : "#f5f5f5",
+                                  color: selected ? "#2d5a2d" : "#666",
+                                  fontWeight: selected ? 600 : 400,
+                                  cursor: "pointer",
+                                  fontSize: "0.72rem",
+                                  lineHeight: "1.4",
+                                }}
+                                onClick={() =>
+                                  setMeetingForm((prev) => ({
+                                    ...prev,
+                                    timeslot_ids: selected
+                                      ? prev.timeslot_ids.filter((id) => id !== slot.id)
+                                      : [...prev.timeslot_ids, slot.id],
+                                  }))
+                                }
+                              >
+                                {slot.start_time}–{slot.end_time}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
+              }
 
               <div className="meeting-legend">
                 <span className="meeting-badge available">Tilgjengelig</span>
@@ -9624,7 +9756,12 @@ export default function Home() {
               <p className="meeting-empty">Ingen møter opprettet ennå.</p>
             ) : (
               sortedMeetings.map((meeting) => {
-                const slot = timeslotById[meeting.timeslot_id];
+                const slotLabels = meeting.timeslot_ids
+                  .map((id) => {
+                    const s = timeslotById[id];
+                    return s ? `${toNorwegianDay(s.day)} ${s.start_time}\u2013${s.end_time}` : id;
+                  })
+                  .join(", ");
                 const preferredTeachers = meeting.teacher_assignments
                   .filter((assignment) => assignment.mode === "preferred")
                   .map((assignment) => teacherNameById[assignment.teacher_id] ?? assignment.teacher_id);
@@ -9640,7 +9777,7 @@ export default function Home() {
                       <div>
                         <strong>{meeting.name}</strong>
                         <p>
-                          {slot ? `${toNorwegianDay(slot.day)} ${slot.start_time}-${slot.end_time}` : meeting.timeslot_id}
+                          {slotLabels || meeting.timeslot_id}
                         </p>
                       </div>
                       <div className="meeting-item-actions">
@@ -10159,12 +10296,27 @@ export default function Home() {
                         alignItems: "center",
                         padding: "6px 8px",
                         cursor: "pointer",
-                        backgroundColor: expandedTeacherId === t.id ? "#f0f0f0" : "#fff",
-                                              fontSize: "0.9em",
+                        backgroundColor: expandedTeacherId === t.id ? "#e8edf5" : hoveredTeacherId === t.id ? "#f4f6fb" : "#fff",
+                        fontSize: "0.9em",
+                        transition: "background-color 100ms ease",
                       }}
                       onClick={() => setExpandedTeacherId(expandedTeacherId === t.id ? null : t.id)}
+                      onMouseEnter={() => setHoveredTeacherId(t.id)}
+                      onMouseLeave={() => setHoveredTeacherId(null)}
                     >
-                      <span style={{ fontWeight: "bold", flex: 1 }}>{t.name}</span>
+                      <span style={{ fontWeight: "bold", flex: 1 }}>
+                          {t.name}
+                          {schedule.length > 0 && (() => {
+                            const totals = teacherOnSiteByTeacherId.get(t.id);
+                            if (!totals) return null;
+                            const avgText = enableAlternatingWeeks ? totals.averageText : totals.aText;
+                            return (
+                              <span style={{ fontSize: "0.75em", color: "#999", fontWeight: 400, marginLeft: "6px" }}>
+                                {avgText}
+                              </span>
+                            );
+                          })()}
+                        </span>
                       <div style={{ display: "flex", gap: "6px", alignItems: "center", marginLeft: "8px" }}>
                         <span style={{ fontSize: "0.85em", color: "#666", whiteSpace: "nowrap" }}>
                           {t.workload_percent}% arbeidsbelastning, {t.preferred_room_ids.length} rompreferanse, {t.preferred_avoid_timeslots.length} pref, {t.unavailable_timeslots.length} blokkert
@@ -11230,23 +11382,7 @@ export default function Home() {
                       })();
 
                       const meetingEvents: RenderEvent[] = meetings
-                          .filter((meeting) => timeslotById[meeting.timeslot_id]?.day === day)
                           .flatMap((meeting) => {
-                            const ts = timeslotById[meeting.timeslot_id];
-                            const start = toMinutes(ts?.start_time);
-                            const end = toMinutes(ts?.end_time);
-                            if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
-                              return [] as RenderEvent[];
-                            }
-
-                            const clampedStart = Math.max(DAY_START_MINUTES, start);
-                            const clampedEnd = Math.min(DAY_END_MINUTES, end);
-                            if (clampedEnd <= clampedStart) {
-                              return [] as RenderEvent[];
-                            }
-
-                            const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
-                            const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
                             const teacherIds = meeting.teacher_assignments.map((assignment) => assignment.teacher_id);
                             const teacherLabel = teacherIds
                               .map((teacherId) => teacherNameById[teacherId] ?? teacherId)
@@ -11266,35 +11402,52 @@ export default function Home() {
 
                             const laneCount = compareEntities.length > 0 ? compareEntities.length : 1;
 
-                            return matchedEntityIds.map<RenderEvent>((entityId, entityRenderIndex) => {
-                              const laneIndex = compareEntities.length > 0
-                                ? (compareEntityIndex[entityId] ?? 0)
-                                : 0;
-                              const laneEntity = compareEntities[laneIndex];
-                              const laneColor = laneEntity?.color ?? "#7b6848";
-                              return {
-                                key: `${meeting.id}_${meeting.timeslot_id}_${entityId}_${entityRenderIndex}`,
-                                kind: "meeting",
-                                subjectId: undefined,
-                                title: meeting.name,
-                                ts,
-                                classLabel: "Møte",
-                                teacherLabel,
-                                laneIndex,
-                                laneCount,
-                                laneEntityLabel: laneEntity?.label ?? "Møte",
-                                laneEntityKind: laneEntity?.kind,
-                                laneColor,
-                                topPct,
-                                heightPct,
-                                displayStart: ts?.start_time ?? "",
-                                displayEnd: ts?.end_time ?? "",
-                                startMin: clampedStart,
-                                endMin: clampedEnd,
-                                overlapCol: 0,
-                                overlapCols: 1,
-                                fillColor: compareEntities.length > 0 ? toOpaqueTint(laneColor, 0.86) : "#efe7d9",
-                              };
+                            return meeting.timeslot_ids.flatMap((slotId) => {
+                              const ts = timeslotById[slotId];
+                              if (!ts || ts.day !== day) return [] as RenderEvent[];
+                              const start = toMinutes(ts.start_time);
+                              const end = toMinutes(ts.end_time);
+                              if (start === Number.MAX_SAFE_INTEGER || end === Number.MAX_SAFE_INTEGER) {
+                                return [] as RenderEvent[];
+                              }
+                              const clampedStart = Math.max(DAY_START_MINUTES, start);
+                              const clampedEnd = Math.min(DAY_END_MINUTES, end);
+                              if (clampedEnd <= clampedStart) {
+                                return [] as RenderEvent[];
+                              }
+                              const topPct = ((clampedStart - DAY_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100;
+                              const heightPct = ((clampedEnd - clampedStart) / TIMELINE_TOTAL_MINUTES) * 100;
+
+                              return matchedEntityIds.map<RenderEvent>((entityId, entityRenderIndex) => {
+                                const laneIndex = compareEntities.length > 0
+                                  ? (compareEntityIndex[entityId] ?? 0)
+                                  : 0;
+                                const laneEntity = compareEntities[laneIndex];
+                                const laneColor = laneEntity?.color ?? "#7b6848";
+                                return {
+                                  key: `${meeting.id}_${slotId}_${entityId}_${entityRenderIndex}`,
+                                  kind: "meeting",
+                                  subjectId: undefined,
+                                  title: meeting.name,
+                                  ts,
+                                  classLabel: "M\u00f8te",
+                                  teacherLabel,
+                                  laneIndex,
+                                  laneCount,
+                                  laneEntityLabel: laneEntity?.label ?? "M\u00f8te",
+                                  laneEntityKind: laneEntity?.kind,
+                                  laneColor,
+                                  topPct,
+                                  heightPct,
+                                  displayStart: ts.start_time ?? "",
+                                  displayEnd: ts.end_time ?? "",
+                                  startMin: clampedStart,
+                                  endMin: clampedEnd,
+                                  overlapCol: 0,
+                                  overlapCols: 1,
+                                  fillColor: compareEntities.length > 0 ? toOpaqueTint(laneColor, 0.86) : "#efe7d9",
+                                };
+                              });
                             });
                           });
 
@@ -11504,41 +11657,57 @@ export default function Home() {
         {schedule.length > 0 && (
           <section className="card">
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "10px" }}>
-              <h2 style={{ marginBottom: 0 }}>Teacher On-Site Time</h2>
+              <h2 style={{ marginBottom: 0 }}>Tilstedetid per lærer</h2>
               <button type="button" className="secondary" onClick={() => setTeacherOnSiteCollapsed((prev) => !prev)}>
-                {teacherOnSiteCollapsed ? "Expand" : "Collapse"}
+                {teacherOnSiteCollapsed ? "Utvid" : "Skjul"}
               </button>
             </div>
             {!teacherOnSiteCollapsed && (
               <>
                 <p style={{ marginTop: "6px", marginBottom: "8px", fontSize: "0.88em" }}>
-                  First start to last end per day, summed by week.
+                  Fra første start til siste slutt per dag, summert per uke.
                 </p>
                 <input
                   type="text"
                   value={teacherOnSiteSearchQuery}
                   onChange={(e) => setTeacherOnSiteSearchQuery(e.target.value)}
-                  placeholder="Search teacher"
+                  placeholder="Søk lærer"
                   style={{ marginBottom: "8px", fontSize: "0.85em" }}
                 />
-                <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "6px" }}>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: "6px", marginBottom: "6px" }}>
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ width: "120px", fontSize: "0.75em", padding: "2px 6px", background: teacherOnSiteOverloadFilter === "over" ? "#fff0e8" : undefined, borderColor: teacherOnSiteOverloadFilter === "over" ? "#d97706" : undefined }}
+                    onClick={() => setTeacherOnSiteOverloadFilter((prev) => prev === "over" ? "all" : "over")}
+                  >
+                    {teacherOnSiteOverloadFilter === "over" ? "Viser: Over maks" : "Vis kun over maks"}
+                  </button>
                   <select
                     value={teacherOnSiteSortMode}
                     onChange={(e) => setTeacherOnSiteSortMode(e.target.value as "name" | "time")}
-                    style={{ fontSize: "0.82em", width: "140px" }}
+                    style={{ fontSize: "0.75em", width: "120px", padding: "2px 4px" }}
                     aria-label="Sort teacher on-site list"
                   >
-                    <option value="name">Sort: Name</option>
-                    <option value="time">Sort: Time</option>
+                    <option value="name">Sorter: Navn</option>
+                    <option value="time">Sorter: Tid</option>
                   </select>
                 </div>
                 <div className="list" style={{ maxHeight: "250px", fontSize: "0.84em" }}>
                   {sortedFilteredTeacherOnSiteSummaries.length === 0 ? (
                     <p style={{ color: "#999", margin: 0 }}>
-                      No teacher matches &quot;{teacherOnSiteSearchQuery}&quot;.
+                      Ingen lærer samsvarer med &quot;{teacherOnSiteSearchQuery}&quot;.
                     </p>
                   ) : (
-                    sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => (
+                    sortedFilteredTeacherOnSiteSummaries.map(({ teacher, totals }) => {
+                      const maxMinutes = Math.round((teacher.workload_percent ?? 100) / 100 * 29 * 60);
+                      const maxText = formatDurationMinutes(maxMinutes);
+                      const overAvg = totals.averageMinutes > maxMinutes;
+                      const overWeek = !overAvg && (totals.aMinutes > maxMinutes || (enableAlternatingWeeks && totals.bMinutes > maxMinutes));
+                      if (teacherOnSiteOverloadFilter === "over" && !overAvg && !overWeek) return null;
+                      const rowBg = overAvg ? "#fff0f0" : overWeek ? "#fff8ec" : "transparent";
+                      const rowBorder = overAvg ? "1px solid #f5c0c0" : overWeek ? "1px solid #f5dfa0" : "1px solid #efefef";
+                      return (
                       <div
                         key={teacher.id}
                         style={{
@@ -11546,16 +11715,20 @@ export default function Home() {
                           gridTemplateColumns: enableAlternatingWeeks ? "1.3fr 0.8fr 0.8fr 0.8fr" : "1.3fr 0.9fr",
                           gap: "6px",
                           alignItems: "center",
-                          padding: "4px 0",
-                          borderBottom: "1px solid #efefef",
+                          padding: "4px 6px",
+                          borderBottom: rowBorder,
+                          background: rowBg,
+                          borderRadius: "3px",
+                          marginBottom: "1px",
                         }}
                       >
                         <strong style={{ fontSize: "0.95em" }}>{teacher.name}</strong>
-                        <span>A: {totals.aText}</span>
-                        {enableAlternatingWeeks && <span>B: {totals.bText}</span>}
-                        {enableAlternatingWeeks && <span>Avg: {totals.averageText}</span>}
+                        <span style={{ color: totals.aMinutes > maxMinutes ? (overAvg ? "#c0392b" : "#b06000") : undefined }}>A: {totals.aText} <span style={{ color: "#888", fontWeight: 400 }}>({maxText})</span></span>
+                        {enableAlternatingWeeks && <span style={{ color: totals.bMinutes > maxMinutes ? (overAvg ? "#c0392b" : "#b06000") : undefined }}>B: {totals.bText} <span style={{ color: "#888", fontWeight: 400 }}>({maxText})</span></span>}
+                        {enableAlternatingWeeks && <span style={{ color: overAvg ? "#c0392b" : undefined }}>Snitt: {totals.averageText} <span style={{ color: "#888", fontWeight: 400 }}>({maxText})</span></span>}
                       </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </>
@@ -12253,14 +12426,18 @@ export default function Home() {
             room: { label: "Romkollisjon", heading: "Romkollisjon", bg: "#d1e7fd", border: "#2a6bb5", color: "#1a4a80" },
           };
           const typeOrder = ["unassigned", "overloaded", "teacher", "class", "room"] as const;
-          const counts = Object.fromEntries(typeOrder.map((t) => [t, redigerCollisions.filter((c) => c.type === t).length]));
+          const activeErrors = redigerCollisions.filter((c) => !ignoredFeil.has(c.label));
+          const ignoredErrors = redigerCollisions.filter((c) => ignoredFeil.has(c.label));
+          const counts = Object.fromEntries(typeOrder.map((t) => [t, activeErrors.filter((c) => c.type === t).length]));
           const activeTypes = typeOrder.filter((t) => counts[t] > 0);
-          const filtered = redigerCollisions.filter((c) => redigerFeilFilter.has(c.type));
+          const showIgnorert = redigerFeilFilter.has("ignorert");
+          const filtered = activeErrors.filter((c) => redigerFeilFilter.has(c.type));
+          if (activeErrors.length === 0 && ignoredErrors.length === 0) return null;
           return (
             <section className="card">
               <details open>
-                <summary style={{ cursor: "pointer", fontWeight: 600, color: "#c53030" }}>
-                  {redigerCollisions.length} feil – klikk for å skjule
+                <summary style={{ cursor: "pointer", fontWeight: 600, color: activeErrors.length > 0 ? "#c53030" : "#888" }}>
+                  {activeErrors.length > 0 ? `${activeErrors.length} feil` : "0 feil"}{ignoredErrors.length > 0 ? ` (${ignoredErrors.length} ignorert)` : ""} – klikk for å skjule
                 </summary>
                 <div style={{ display: "flex", gap: "6px", flexWrap: "wrap", marginTop: "8px", marginBottom: "6px", alignItems: "center" }}>
                   <span style={{ fontSize: "0.75rem", fontWeight: 600, color: "#555" }}>Filtrer:</span>
@@ -12294,28 +12471,90 @@ export default function Home() {
                       </button>
                     );
                   })}
+                  {ignoredErrors.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setRedigerFeilFilter((prev) => {
+                        const next = new Set(prev);
+                        if (next.has("ignorert")) next.delete("ignorert"); else next.add("ignorert");
+                        return next;
+                      })}
+                      style={{
+                        width: "auto",
+                        fontSize: "0.72rem",
+                        padding: "2px 8px",
+                        borderRadius: "3px",
+                        border: "1px solid #999",
+                        background: showIgnorert ? "#eee" : "#f5f5f5",
+                        color: showIgnorert ? "#444" : "#888",
+                        fontWeight: showIgnorert ? 700 : 400,
+                        cursor: "pointer",
+                        textTransform: "none",
+                        letterSpacing: 0,
+                      }}
+                    >
+                      Ignorert ({ignoredErrors.length})
+                    </button>
+                  )}
                 </div>
                 <ul style={{ marginTop: "4px", paddingLeft: "20px" }}>
                   {filtered.map((col, i) => {
                     const m = typeMeta[col.type];
                     return (
-                      <li key={i} style={{ marginBottom: "4px" }}>
+                      <li key={i} style={{ marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px" }}>
                         <span
                           style={{
                             display: "inline-block",
                             padding: "1px 6px",
-                            marginRight: "6px",
                             fontSize: "0.75rem",
                             borderRadius: "3px",
                             background: m.bg,
                             border: `1px solid ${m.border}`,
                             color: m.color,
                             fontWeight: 600,
+                            flexShrink: 0,
                           }}
                         >
                           {m.heading}
                         </span>
-                        {col.label}
+                        <span style={{ flex: 1 }}>{col.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => setIgnoredFeil((prev) => { const next = new Set(prev); next.add(col.label); return next; })}
+                          style={{ width: "auto", fontSize: "0.7rem", padding: "1px 7px", borderRadius: "3px", border: "1px solid #bbb", background: "#f5f5f5", color: "#666", cursor: "pointer", textTransform: "none", letterSpacing: 0, flexShrink: 0 }}
+                        >
+                          Ignorer
+                        </button>
+                      </li>
+                    );
+                  })}
+                  {showIgnorert && ignoredErrors.map((col, i) => {
+                    const m = typeMeta[col.type];
+                    return (
+                      <li key={`ign_${i}`} style={{ marginBottom: "4px", display: "flex", alignItems: "center", gap: "6px", opacity: 0.5 }}>
+                        <span
+                          style={{
+                            display: "inline-block",
+                            padding: "1px 6px",
+                            fontSize: "0.75rem",
+                            borderRadius: "3px",
+                            background: "#f0f0f0",
+                            border: "1px solid #ccc",
+                            color: "#888",
+                            fontWeight: 600,
+                            flexShrink: 0,
+                          }}
+                        >
+                          {m.heading}
+                        </span>
+                        <span style={{ flex: 1, textDecoration: "line-through" }}>{col.label}</span>
+                        <button
+                          type="button"
+                          onClick={() => setIgnoredFeil((prev) => { const next = new Set(prev); next.delete(col.label); return next; })}
+                          style={{ width: "auto", fontSize: "0.7rem", padding: "1px 7px", borderRadius: "3px", border: "1px solid #bbb", background: "#f5f5f5", color: "#666", cursor: "pointer", textTransform: "none", letterSpacing: 0, flexShrink: 0 }}
+                        >
+                          Gjenopprett
+                        </button>
                       </li>
                     );
                   })}
@@ -13306,9 +13545,9 @@ export default function Home() {
         function handleDownloadExcel() {
           const wb = XLSX.utils.book_new();
 
-          // ── Sheet 1: Per klasse ──────────────────────────────────────
+          // ── Sheet 1: Per klasse (regular/fellesfag only, no blocks) ─────
           const classRows: (string | number)[][] = [
-            ["Klasse", "Fag", "Type", "Blokk", "Lærer(e)", "Timeslot(er)"],
+            ["Klasse", "Fag", "Lærer(e)", "Timeslot(er)"],
           ];
           for (const cls of sortedClasses) {
             const classSubjects = subjects
@@ -13317,30 +13556,48 @@ export default function Home() {
             for (const subj of classSubjects) {
               const tNames = [...new Set([subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean).map(teacherName).join(", ");
               const items = schedule.filter(it => it.subject_id === subj.id && it.class_ids.includes(cls.id));
-              classRows.push([cls.name, subj.name, "Vanlig", "", tNames || "–", slotsStr(items) || "(ikke plassert)"]);
-            }
-            const classBlocks = blocks.filter(b => b.class_ids.includes(cls.id));
-            for (const block of classBlocks) {
-              const allEntries = [...block.subject_entries];
-              for (const sid of (block.subject_ids || [])) {
-                if (!allEntries.some(e => e.subject_id === sid))
-                  allEntries.push({ subject_id: sid, teacher_id: "", teacher_ids: [], preferred_room_id: "" });
-              }
-              for (const entry of allEntries) {
-                const subj = subjectById[entry.subject_id];
-                if (!subj) continue;
-                const tids = [...new Set([entry.teacher_id, ...(entry.teacher_ids || []), subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean);
-                const tNames = tids.map(teacherName).join(", ");
-                const items = schedule.filter(it => it.subject_id === entry.subject_id && it.class_ids.includes(cls.id));
-                classRows.push([cls.name, subj.name, "Blokk", block.name, tNames || "–", slotsStr(items) || "(ikke plassert)"]);
-              }
+              classRows.push([cls.name, subj.name, tNames || "–", slotsStr(items) || "(ikke plassert)"]);
             }
           }
           const ws1 = XLSX.utils.aoa_to_sheet(classRows);
-          ws1["!cols"] = [{ wch: 12 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 60 }];
+          ws1["!cols"] = [{ wch: 12 }, { wch: 30 }, { wch: 30 }, { wch: 60 }];
           XLSX.utils.book_append_sheet(wb, ws1, "Per klasse");
 
-          // ── Sheet 2: Per lærer ───────────────────────────────────────
+          // ── Sheet 2: Blokker ─────────────────────────────────────────
+          const blockRows: (string | number)[][] = [
+            ["Blokk", "Klasse(r)", "Tidspunkt", "Fag", "Lærer(e)"],
+          ];
+          for (const block of blocks) {
+            const blockClassNames = block.class_ids.map(cid => classById[cid]?.name || cid).join(", ");
+            const occMap = new Map<string, { occ: typeof block.occurrences[0]; weeks: Set<string | null> }>();
+            for (const occ of block.occurrences) {
+              const key = `${occ.day}|${occ.start_time}|${occ.end_time}`;
+              if (!occMap.has(key)) occMap.set(key, { occ, weeks: new Set() });
+              occMap.get(key)!.weeks.add(occ.week_type ?? null);
+            }
+            const occLabel = [...occMap.values()].map(({ occ, weeks }) => {
+              const hasA = weeks.has("A"); const hasB = weeks.has("B");
+              const weekSuffix = (hasA && hasB) ? " (begge uker)" : hasA ? " (A-uke)" : hasB ? " (B-uke)" : "";
+              return `${toNorwegianDay(occ.day)} ${occ.start_time}-${occ.end_time}${weekSuffix}`;
+            }).join(", ");
+            const allEntries = [...block.subject_entries];
+            for (const sid of (block.subject_ids || [])) {
+              if (!allEntries.some(e => e.subject_id === sid))
+                allEntries.push({ subject_id: sid, teacher_id: "", teacher_ids: [], preferred_room_id: "" });
+            }
+            for (const entry of allEntries) {
+              const subj = subjectById[entry.subject_id];
+              if (!subj) continue;
+              const tids = [...new Set([entry.teacher_id, ...(entry.teacher_ids || []), subj.teacher_id, ...(subj.teacher_ids || [])])].filter(Boolean);
+              const tNames = tids.map(teacherName).join(", ");
+              blockRows.push([block.name, blockClassNames, occLabel, subj.name, tNames || "–"]);
+            }
+          }
+          const ws2 = XLSX.utils.aoa_to_sheet(blockRows);
+          ws2["!cols"] = [{ wch: 20 }, { wch: 20 }, { wch: 50 }, { wch: 30 }, { wch: 30 }];
+          XLSX.utils.book_append_sheet(wb, ws2, "Blokker");
+
+          // ── Sheet 3: Per lærer ───────────────────────────────────────
           const teacherRows: (string | number)[][] = [
             ["Lærer", "Fag", "Type", "Blokk", "Klasse(r)", "Timeslot(er)"],
           ];
@@ -13367,11 +13624,11 @@ export default function Home() {
               }
             }
           }
-          const ws2 = XLSX.utils.aoa_to_sheet(teacherRows);
-          ws2["!cols"] = [{ wch: 25 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 60 }];
-          XLSX.utils.book_append_sheet(wb, ws2, "Per lærer");
+          const ws3 = XLSX.utils.aoa_to_sheet(teacherRows);
+          ws3["!cols"] = [{ wch: 25 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 20 }, { wch: 60 }];
+          XLSX.utils.book_append_sheet(wb, ws3, "Per lærer");
 
-          // ── Sheet 3: Alle plasseringer (én rad per slot) ─────────────
+          // ── Sheet 4: Alle plasseringer (én rad per slot) ─────────────
           const allRows: (string | number)[][] = [
             ["Klasse(r)", "Fag", "Type", "Blokk", "Lærer(e)", "Dag", "Periode", "Klokkeslett", "Uke"],
           ];
@@ -13394,9 +13651,9 @@ export default function Home() {
             const uke = it.week_type === "A" ? "A-uke" : it.week_type === "B" ? "B-uke" : "Begge uker";
             allRows.push([classNames, it.subject_name, typeLabel(it.subject_id), blockNameFor(it.subject_id), tNames || "–", toNorwegianDay(it.day), it.period, timeRange, uke]);
           }
-          const ws3 = XLSX.utils.aoa_to_sheet(allRows);
-          ws3["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 }];
-          XLSX.utils.book_append_sheet(wb, ws3, "Alle plasseringer");
+          const ws4 = XLSX.utils.aoa_to_sheet(allRows);
+          ws4["!cols"] = [{ wch: 20 }, { wch: 30 }, { wch: 10 }, { wch: 20 }, { wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 12 }];
+          XLSX.utils.book_append_sheet(wb, ws4, "Alle plasseringer");
 
           const wbout = XLSX.write(wb, { bookType: "xlsx", type: "array" });
           const blob = new Blob([wbout], { type: "application/octet-stream" });
