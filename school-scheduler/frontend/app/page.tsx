@@ -7977,6 +7977,20 @@ export default function Home() {
               placeholder="08:00"
               pattern="^([01]?\d|2[0-3]):[0-5]\d$"
               title="Bruk 24-timersformat HH:MM"
+              value={timeslotForm.start_time}
+              onChange={(e) => setTimeslotForm((s) => ({ ...s, start_time: e.target.value }))}
+              onBlur={(e) => setTimeslotForm((s) => ({ ...s, start_time: normalizeTime24(e.target.value) }))}
+            />
+          </div>
+
+          <div className="calendar-field time-field">
+            <label>Slutt</label>
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="08:45"
+              pattern="^([01]?\d|2[0-3]):[0-5]\d$"
+              title="Bruk 24-timersformat HH:MM"
               value={timeslotForm.end_time}
               onChange={(e) => setTimeslotForm((s) => ({ ...s, end_time: e.target.value }))}
               onBlur={(e) => setTimeslotForm((s) => ({ ...s, end_time: normalizeTime24(e.target.value) }))}
