@@ -8,6 +8,6 @@ export default function nextConfig(phase) {
     reactStrictMode: true,
     // Keep dev and build artifacts separate to avoid missing-chunk runtime errors
     // when "next dev" and "next build" run around the same time.
-    distDir: isDevServer ? ".next-dev" : ".next-build",
+    distDir: isDevServer ? ".next-dev" : ".next",
   };
 }
