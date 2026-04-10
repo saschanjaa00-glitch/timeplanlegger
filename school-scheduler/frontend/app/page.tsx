@@ -312,6 +312,33 @@ function mergeScheduleForDisplay(items: ScheduledItem[]): ScheduledItem[] {
   });
 }
 
+function reduceCloudSnapshots(snapshots: CloudSavefile[]): { kept: CloudSavefile[]; removedIds: string[] } {
+  const kept: CloudSavefile[] = [];
+  const removedIds: string[] = [];
+  let newestKeptAt: number | null = null;
+
+  for (const snapshot of snapshots) {
+    const createdAt = Date.parse(snapshot.created_at);
+
+    if (kept.length >= MAX_CLOUD_SNAPSHOTS) {
+      removedIds.push(snapshot.id);
+      continue;
+    }
+
+    if (newestKeptAt !== null && Number.isFinite(createdAt) && newestKeptAt - createdAt < CLOUD_SNAPSHOT_INTERVAL_MS) {
+      removedIds.push(snapshot.id);
+      continue;
+    }
+
+    kept.push(snapshot);
+    if (Number.isFinite(createdAt)) {
+      newestKeptAt = createdAt;
+    }
+  }
+
+  return { kept, removedIds };
+}
+
 function formatGeneratedScheduleStatus(data: GenerateResponse, runId: number): string {
   const schedule = data.schedule || [];
   const countA = schedule.filter((item) => item.week_type === "A").length;
@@ -722,6 +749,10 @@ const DAY_END_MINUTES = 16 * 60;
 const TIMELINE_TOTAL_MINUTES = DAY_END_MINUTES - DAY_START_MINUTES;
 const STORAGE_KEY = "school_scheduler_state_v3";
 const LEGACY_STORAGE_KEYS = ["school_scheduler_state_v2", "school_scheduler_state_v1"];
+const MAX_CLOUD_SNAPSHOTS = 12;
+const CLOUD_SNAPSHOT_INTERVAL_MINUTES = 20;
+const CLOUD_SNAPSHOT_INTERVAL_MS = CLOUD_SNAPSHOT_INTERVAL_MINUTES * 60 * 1000;
+const CLOUD_SNAPSHOT_FETCH_LIMIT = 100;
 const COMPARE_PALETTE = [
   "#e76f51",
   "#2a9d8f",
@@ -1868,8 +1899,15 @@ export default function Home() {
       .select("id, user_id, name, created_at, updated_at")
       .like("name", "_snapshot_%")
       .order("created_at", { ascending: false })
-      .limit(20);
-    if (!error && data) setCloudSnapshots(data as CloudSavefile[]);
+      .limit(CLOUD_SNAPSHOT_FETCH_LIMIT);
+    if (error || !data) return;
+
+    const snapshots = data as CloudSavefile[];
+    const { kept, removedIds } = reduceCloudSnapshots(snapshots);
+    if (removedIds.length > 0) {
+      await supabase.from("savefiles").delete().in("id", removedIds);
+    }
+    setCloudSnapshots(kept);
   }, []);
 
   function buildCloudPayload(): string {
@@ -2092,34 +2130,45 @@ export default function Home() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cloudUser, isStorageHydrated, subjects, teachers, meetings, rooms, sportsHalls, classes, timeslots, weekCalendarSetups, blocks, schedule]);
 
-  // ── Periodic autosave snapshot to Supabase (every 15 min) ──────────────────
+  // ── Periodic autosave snapshot to Supabase (every 20 min) ──────────────────
   const periodicAutosaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (!isStorageHydrated) return;
     if (periodicAutosaveIntervalRef.current) clearInterval(periodicAutosaveIntervalRef.current);
     periodicAutosaveIntervalRef.current = setInterval(async () => {
       if (!cloudUser) return;
+
+      const { data: existingSnapshots, error } = await supabase
+        .from("savefiles")
+        .select("id, user_id, name, created_at, updated_at")
+        .like("name", "_snapshot_%")
+        .order("created_at", { ascending: false })
+        .limit(CLOUD_SNAPSHOT_FETCH_LIMIT);
+      if (error) {
+        return;
+      }
+
+      const snapshots = (existingSnapshots as CloudSavefile[] | null) ?? [];
+      const newestSnapshot = snapshots[0];
+      const newestSnapshotAt = newestSnapshot ? Date.parse(newestSnapshot.created_at) : Number.NaN;
+      if (Number.isFinite(newestSnapshotAt) && Date.now() - newestSnapshotAt < CLOUD_SNAPSHOT_INTERVAL_MS) {
+        const { kept, removedIds } = reduceCloudSnapshots(snapshots);
+        if (removedIds.length > 0) {
+          await supabase.from("savefiles").delete().in("id", removedIds);
+        }
+        setCloudSnapshots(kept);
+        return;
+      }
+
       const now = new Date();
       const snapName = `_snapshot_${now.toISOString()}`;
       const payload = buildCloudPayload();
       await supabase.from("savefiles").insert({ user_id: cloudUser.id, name: snapName, data: payload });
-      // Load updated list and trim to 20 oldest
-      const { data } = await supabase
-        .from("savefiles")
-        .select("id, user_id, name, created_at, updated_at")
-        .like("name", "_snapshot_%")
-        .order("created_at", { ascending: false });
-      if (data) {
-        setCloudSnapshots(data as CloudSavefile[]);
-        if (data.length > 20) {
-          const toDelete = (data as CloudSavefile[]).slice(20).map((r) => r.id);
-          await supabase.from("savefiles").delete().in("id", toDelete);
-        }
-      }
-    }, 15 * 60 * 1000);
+      await loadCloudSnapshots();
+    }, CLOUD_SNAPSHOT_INTERVAL_MS);
     return () => { if (periodicAutosaveIntervalRef.current) clearInterval(periodicAutosaveIntervalRef.current); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isStorageHydrated, cloudUser]);
+  }, [isStorageHydrated, cloudUser, loadCloudSnapshots]);
 
   useEffect(() => {
     if (!isStorageHydrated) {
@@ -7715,16 +7764,16 @@ export default function Home() {
               style={{ fontSize: "0.85rem", padding: "3px 10px" }}
               onClick={() => { setPeriodicSnapshotsCollapsed((v) => !v); if (periodicSnapshotsCollapsed && cloudUser) loadCloudSnapshots(); }}
             >
-              {periodicSnapshotsCollapsed ? "▶" : "▼"} Automatiske øyeblikksbilder ({cloudSnapshots.length}/20)
+              {periodicSnapshotsCollapsed ? "▶" : "▼"} Automatiske øyeblikksbilder ({cloudSnapshots.length}/{MAX_CLOUD_SNAPSHOTS})
             </button>
             {!periodicSnapshotsCollapsed && (
               <div style={{ marginTop: "10px" }}>
                 <p style={{ fontSize: "0.82rem", color: "#555", marginBottom: "8px" }}>
-                  Lagres automatisk hvert 15. minutt til Supabase. Klikk «Last inn» for å gjenopprette et øyeblikksbilde.
+                  Lagres automatisk hvert {CLOUD_SNAPSHOT_INTERVAL_MINUTES}. minutt til Supabase, med maks ett øyeblikksbilde per 20-minuttersvindu. Klikk «Last inn» for å gjenopprette et øyeblikksbilde.
                   {!cloudUser && <span style={{ color: "#c53030" }}> (Logg inn for å aktivere.)</span>}
                 </p>
                 {cloudSnapshots.length === 0 ? (
-                  <div style={{ fontSize: "0.85rem", color: "#888" }}>Ingen øyeblikksbilder ennå – første kommer etter 15 minutter (krever innlogging).</div>
+                  <div style={{ fontSize: "0.85rem", color: "#888" }}>Ingen øyeblikksbilder ennå – første kommer etter {CLOUD_SNAPSHOT_INTERVAL_MINUTES} minutter (krever innlogging).</div>
                 ) : (
                   <div className="list">
                     {cloudSnapshots.map((snap) => (
