@@ -242,6 +242,19 @@ def _block_entry_teacher_ids(entry: BlockSubjectEntry) -> List[str]:
     return list(dict.fromkeys([teacher_id for teacher_id in candidates if teacher_id]))
 
 
+def _get_forced_ts_ids(subject: Subject) -> List[str]:
+    """Return the consolidated list of forced timeslot IDs for a subject.
+
+    Prefers the new ``force_timeslot_ids`` list; falls back to the legacy
+    single-value ``force_timeslot_id`` field so that older data stays compatible.
+    """
+    multi = [ts_id for ts_id in (getattr(subject, "force_timeslot_ids", None) or []) if (ts_id or "").strip()]
+    if multi:
+        return multi
+    single = (getattr(subject, "force_timeslot_id", "") or "").strip()
+    return [single] if single else []
+
+
 def _compute_allowed_weeks(
     subject: Subject,
     alternating_weeks_enabled: bool,
@@ -251,10 +264,21 @@ def _compute_allowed_weeks(
     if not alternating_weeks_enabled:
         return {"base"}
 
-    # Force-placed subjects are expected in both A/B weeks unless generation
-    # is non-alternating. This prevents odd/even balancing from dropping one week.
-    if getattr(subject, "force_place", False) and (getattr(subject, "force_timeslot_id", "") or "").strip():
-        return {"A", "B"}
+    # Force-placed subjects: compute union of per-slot week types.
+    if getattr(subject, "force_place", False) and _get_forced_ts_ids(subject):
+        forced_ts_ids = _get_forced_ts_ids(subject)
+        wt_dict = getattr(subject, "force_timeslot_week_types", None) or {}
+        global_wt = (getattr(subject, "force_week_type", "both") or "both").strip().lower()
+        allowed: Set[str] = set()
+        for ts_id in forced_ts_ids:
+            slot_wt = (wt_dict.get(ts_id) or global_wt).strip().lower()
+            if slot_wt == "a":
+                allowed.add("A")
+            elif slot_wt == "b":
+                allowed.add("B")
+            else:
+                allowed.update({"A", "B"})
+        return allowed if allowed else {"A", "B"}
 
     relevant_block_ids: Set[str] = set(subject.allowed_block_ids or [])
     relevant_block_ids |= linked_block_ids.get(subject.id, set())
@@ -1243,7 +1267,7 @@ def _generate_schedule_staged(
     def _is_force_locked_to_slot(subject: Subject | None, ts_id: str) -> bool:
         if not subject or not getattr(subject, "force_place", False):
             return False
-        return (getattr(subject, "force_timeslot_id", "") or "").strip() == ts_id
+        return ts_id in _get_forced_ts_ids(subject)
 
     def _room_capacity_available(subject: Subject | None, ts_id: str, week_key: str) -> bool:
         if not subject:
@@ -1398,14 +1422,9 @@ def _generate_schedule_staged(
             return _partial_infeasible_response("Schedule generation timed out during forced-slot placement.")
         if not getattr(subject, "force_place", False):
             continue
-        forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
-        if not forced_ts_id:
+        forced_ts_ids = _get_forced_ts_ids(subject)
+        if not forced_ts_ids:
             continue
-        if forced_ts_id not in all_timeslot_ids:
-            return _partial_infeasible_response(
-                f"Forced slot '{forced_ts_id}' for subject '{subject.name}' ({subject.id}) "
-                f"does not exist in active timeslots."
-            )
 
         if week_label in {"A", "B"}:
             allowed_weeks = _compute_allowed_weeks(subject, True, blocks_by_id, linked_block_ids)
@@ -1415,68 +1434,75 @@ def _generate_schedule_staged(
         teacher_ids = subject_effective_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
         primary_teacher_id = teacher_ids[0] if teacher_ids else ""
 
-        # Do not duplicate if this week already has the forced slot from seeding.
-        if any(
-            item.subject_id == subject.id
-            and item.timeslot_id == forced_ts_id
-            and (item.week_type or "base") == (week_label or "base")
-            for item in schedule_items
-        ):
-            continue
+        for forced_ts_id in forced_ts_ids:
+            if forced_ts_id not in all_timeslot_ids:
+                return _partial_infeasible_response(
+                    f"Forced slot '{forced_ts_id}' for subject '{subject.name}' ({subject.id}) "
+                    f"does not exist in active timeslots."
+                )
 
-        for teacher_id in teacher_ids:
-            if teacher_id in teachers_by_id:
-                if forced_ts_id in set(teachers_by_id[teacher_id].unavailable_timeslots):
+            # Do not duplicate if this week already has the forced slot from seeding.
+            if any(
+                item.subject_id == subject.id
+                and item.timeslot_id == forced_ts_id
+                and (item.week_type or "base") == (week_label or "base")
+                for item in schedule_items
+            ):
+                continue
+
+            for teacher_id in teacher_ids:
+                if teacher_id in teachers_by_id:
+                    if forced_ts_id in set(teachers_by_id[teacher_id].unavailable_timeslots):
+                        return _partial_infeasible_response(
+                            f"Forced placement for '{subject.name}' ({subject.id}) conflicts with "
+                            f"teacher availability ({teacher_id}) at slot {forced_ts_id}."
+                        )
+                if forced_ts_id in teacher_meeting_unavailable.get(teacher_id, set()):
                     return _partial_infeasible_response(
                         f"Forced placement for '{subject.name}' ({subject.id}) conflicts with "
-                        f"teacher availability ({teacher_id}) at slot {forced_ts_id}."
+                        f"teacher meeting lock ({teacher_id}) at slot {forced_ts_id}."
                     )
-            if forced_ts_id in teacher_meeting_unavailable.get(teacher_id, set()):
-                return _partial_infeasible_response(
-                    f"Forced placement for '{subject.name}' ({subject.id}) conflicts with "
-                    f"teacher meeting lock ({teacher_id}) at slot {forced_ts_id}."
-                )
-            if (teacher_id, forced_ts_id) in teacher_occupied:
-                return _partial_infeasible_response(
-                    f"Forced placement for '{subject.name}' ({subject.id}) conflicts with another "
-                    f"teacher assignment ({teacher_id}) at slot {forced_ts_id}."
-                )
+                if (teacher_id, forced_ts_id) in teacher_occupied:
+                    return _partial_infeasible_response(
+                        f"Forced placement for '{subject.name}' ({subject.id}) conflicts with another "
+                        f"teacher assignment ({teacher_id}) at slot {forced_ts_id}."
+                    )
 
-        for class_id in subject.class_ids:
-            if (class_id, forced_ts_id) in class_occupied:
-                return _partial_infeasible_response(
-                    f"Forced placement for '{subject.name}' ({subject.id}) conflicts with another "
-                    f"class assignment ({class_id}) at slot {forced_ts_id}."
-                )
+            for class_id in subject.class_ids:
+                if (class_id, forced_ts_id) in class_occupied:
+                    return _partial_infeasible_response(
+                        f"Forced placement for '{subject.name}' ({subject.id}) conflicts with another "
+                        f"class assignment ({class_id}) at slot {forced_ts_id}."
+                    )
 
-        ts = timeslots_by_id[forced_ts_id]
-        schedule_items.append(
-            ScheduledItem(
-                subject_id=subject.id,
-                subject_name=subject.name,
-                teacher_id=primary_teacher_id,
-                teacher_ids=teacher_ids,
-                class_ids=subject.class_ids,
-                timeslot_id=forced_ts_id,
-                day=ts.day,
-                period=ts.period,
-                week_type=week_label,
-                room_id=subject_to_room.get(subject.id),
+            ts = timeslots_by_id[forced_ts_id]
+            schedule_items.append(
+                ScheduledItem(
+                    subject_id=subject.id,
+                    subject_name=subject.name,
+                    teacher_id=primary_teacher_id,
+                    teacher_ids=teacher_ids,
+                    class_ids=subject.class_ids,
+                    timeslot_id=forced_ts_id,
+                    day=ts.day,
+                    period=ts.period,
+                    week_type=week_label,
+                    room_id=subject_to_room.get(subject.id),
+                )
             )
-        )
 
-        forced_units = timeslot_units_by_id.get(forced_ts_id, 1)
-        seeded_units_by_subject[subject.id] += forced_units
-        seeded_days_by_subject[subject.id].add(ts.day)
-        for class_id in subject.class_ids:
-            class_occupied.add((class_id, forced_ts_id))
-            class_day_load_units[(class_id, ts.day)] += forced_units
-            class_week_units[class_id] += forced_units
-            class_periods_by_day[(class_id, ts.day)].add(ts.period)
-        for teacher_id in teacher_ids:
-            teacher_occupied.add((teacher_id, forced_ts_id))
-            teacher_day_count_staged[(teacher_id, ts.day)] += 1
-        _increment_room_slot_usage(subject.id, forced_ts_id, (week_label or "base"))
+            forced_units = timeslot_units_by_id.get(forced_ts_id, 1)
+            seeded_units_by_subject[subject.id] += forced_units
+            seeded_days_by_subject[subject.id].add(ts.day)
+            for class_id in subject.class_ids:
+                class_occupied.add((class_id, forced_ts_id))
+                class_day_load_units[(class_id, ts.day)] += forced_units
+                class_week_units[class_id] += forced_units
+                class_periods_by_day[(class_id, ts.day)].add(ts.period)
+            for teacher_id in teacher_ids:
+                teacher_occupied.add((teacher_id, forced_ts_id))
+                teacher_day_count_staged[(teacher_id, ts.day)] += 1
+            _increment_room_slot_usage(subject.id, forced_ts_id, (week_label or "base"))
 
     block_subject_ids: Set[str] = set(linked_block_ids.keys())
 
@@ -1864,7 +1890,7 @@ def _generate_schedule_staged(
                 continue
             if existing_subject.id in link_group_by_subject_id:
                 continue
-            if existing_subject.force_place and (existing_subject.force_timeslot_id or "").strip():
+            if existing_subject.force_place and _get_forced_ts_ids(existing_subject):
                 continue
             if existing_item.start_time and existing_item.end_time:
                 continue
@@ -2437,6 +2463,10 @@ def _generate_schedule_staged(
                         continue
 
                     would_overshoot = 1 if units_for_placement > remaining_units else 0
+                    # Excluded-from-generation slots that a subject is explicitly allowed to
+                    # use via generation_allowed_class_ids are still strongly deprioritised —
+                    # the solver should only place there when no normal slot is available.
+                    excluded_slot_penalty = 5 if getattr(ts, "excluded_from_generation", False) else 0
                     exact_fit_penalty = 0 if units_for_placement == remaining_units else 1
                     single_unit_penalty = 0
                     if prefer_single_unit_first:
@@ -2448,8 +2478,6 @@ def _generate_schedule_staged(
                     cross_week_pair_penalty = 0
                     if preferred_slot_union and ts_id not in preferred_slot_union:
                         cross_week_pair_penalty = 1
-
-                    excluded_slot_penalty = 1 if getattr(ts, "excluded_from_generation", False) else 0
 
                     day_load = 0
                     if subject.class_ids:
@@ -2521,6 +2549,7 @@ def _generate_schedule_staged(
 
                     score = (
                         would_overshoot,
+                        excluded_slot_penalty,
                         teacher_four_session_penalty,
                         norsk_pair_penalty,
                         norsk_pair_setup_penalty,
@@ -2532,7 +2561,6 @@ def _generate_schedule_staged(
                         exact_fit_penalty,
                         class_week_balance_penalty,
                         cross_week_pair_penalty,
-                        excluded_slot_penalty,
                         first_slot_repeat_penalty,
                         last_slot_repeat_penalty,
                         boundary_penalty,
@@ -2724,7 +2752,7 @@ def _subject_day_repeat_penalty(
     grouped_periods: Dict[Tuple[str, str, str], List[int]] = defaultdict(list)
     for item in items:
         subject = subjects_by_id.get(item.subject_id)
-        if subject and subject.force_place and (subject.force_timeslot_id or "").strip():
+        if subject and subject.force_place and _get_forced_ts_ids(subject):
             continue
         grouped_periods[(item.subject_id, item.week_type or "base", item.day)].append(item.period)
 
@@ -3225,7 +3253,7 @@ def _post_optimize_ab_day_uniqueness(
         counts: Dict[Tuple[str, str], List[int]] = defaultdict(list)
         for idx, item in enumerate(working_items):
             subject = subjects_by_id.get(item.subject_id)
-            if subject and subject.force_place and (subject.force_timeslot_id or "").strip():
+            if subject and subject.force_place and _get_forced_ts_ids(subject):
                 continue
             counts[(item.subject_id, item.day)].append(idx)
 
@@ -3264,7 +3292,7 @@ def _post_optimize_ab_day_uniqueness(
             subject_a = subjects_by_id.get(item_a.subject_id)
             if not subject_a:
                 continue
-            if subject_a.force_place and (subject_a.force_timeslot_id or "").strip():
+            if subject_a.force_place and _get_forced_ts_ids(subject_a):
                 continue
 
             subject_a_days_all_weeks = {
@@ -3346,7 +3374,7 @@ def _post_optimize_ab_day_uniqueness(
                     continue
 
                 subject_b = subjects_by_id.get(item_b.subject_id)
-                if subject_b and subject_b.force_place and (subject_b.force_timeslot_id or "").strip():
+                if subject_b and subject_b.force_place and _get_forced_ts_ids(subject_b):
                     continue
 
                 pair_b_idx = _find_opposite_week_pair_index(item_b, working_items, {idx_b})
@@ -3466,7 +3494,7 @@ def _post_optimize_ab_day_uniqueness(
         s.id
         for s in data.subjects
         if not _is_norsk_vg3_subject(s)
-        and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+        and not (getattr(s, "force_place", False) and _get_forced_ts_ids(s))
         and s.id not in block_subject_ids
     ]
 
@@ -3591,7 +3619,7 @@ def _post_optimize_ab_day_uniqueness(
         if (s.subject_type or "").lower() == "fellesfag"
         and int(s.sessions_per_week or 1) % 2 == 0
         and not _is_norsk_vg3_subject(s)
-        and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+        and not (getattr(s, "force_place", False) and _get_forced_ts_ids(s))
         and s.id not in block_subject_ids
     }
 
@@ -3721,7 +3749,7 @@ def _post_optimize_ab_day_uniqueness(
             subject_b = subjects_by_id.get(item_b.subject_id)
             if not subject_b:
                 continue
-            if subject_b.force_place and (subject_b.force_timeslot_id or "").strip():
+            if subject_b.force_place and _get_forced_ts_ids(subject_b):
                 continue
             if item_b.subject_id in block_subject_ids:
                 continue
@@ -3737,7 +3765,7 @@ def _post_optimize_ab_day_uniqueness(
                 subject_a = subjects_by_id.get(item_a.subject_id)
                 if not subject_a:
                     continue
-                if subject_a.force_place and (subject_a.force_timeslot_id or "").strip():
+                if subject_a.force_place and _get_forced_ts_ids(subject_a):
                     continue
                 if item_a.subject_id in block_subject_ids:
                     continue
@@ -3841,7 +3869,7 @@ def _post_optimize_ab_day_uniqueness(
             for s in data.subjects
             if _is_norsk_vg3_subject(s)
             and s.id not in block_subject_ids
-            and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+            and not (getattr(s, "force_place", False) and _get_forced_ts_ids(s))
         }
         for subject_id in norsk_subject_ids:
             for week_key in ["A", "B"]:
@@ -3868,7 +3896,7 @@ def _post_optimize_ab_day_uniqueness(
                 continue
             if subject.id in block_subject_ids:
                 continue
-            if getattr(subject, "force_place", False) and (getattr(subject, "force_timeslot_id", "") or "").strip():
+            if getattr(subject, "force_place", False) and _get_forced_ts_ids(subject):
                 continue
 
             for week_key in ["A", "B"]:
@@ -3963,7 +3991,7 @@ def _post_optimize_ab_day_uniqueness(
                                     continue
                                 if blocking_item.subject_id in block_subject_ids:
                                     continue
-                                if getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
+                                if getattr(blocking_subject, "force_place", False) and _get_forced_ts_ids(blocking_subject):
                                     continue
                                 if _item_units(blocking_item, timeslot_units_map) != _item_units(move_item, timeslot_units_map):
                                     continue
@@ -4028,7 +4056,7 @@ def _post_optimize_ab_day_uniqueness(
         if int(s.sessions_per_week or 1) % 2 == 1
         and not _is_norsk_vg3_subject(s)
         and s.id not in block_subject_ids
-        and not (getattr(s, "force_place", False) and (getattr(s, "force_timeslot_id", "") or "").strip())
+        and not (getattr(s, "force_place", False) and _get_forced_ts_ids(s))
     }
 
     for _ in range(50):
@@ -4119,7 +4147,7 @@ def _post_optimize_ab_day_uniqueness(
         for subject in data.subjects:
             if subject.id in block_subject_ids:
                 continue
-            if getattr(subject, "force_place", False) and (getattr(subject, "force_timeslot_id", "") or "").strip():
+            if getattr(subject, "force_place", False) and _get_forced_ts_ids(subject):
                 continue
 
             subject_indices = [
@@ -4190,7 +4218,7 @@ def _post_optimize_ab_day_uniqueness(
                             continue
                         if blocking_item.subject_id in block_subject_ids:
                             continue
-                        if getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
+                        if getattr(blocking_subject, "force_place", False) and _get_forced_ts_ids(blocking_subject):
                             continue
                         if _item_units(blocking_item, timeslot_units_map) != _item_units(move_item, timeslot_units_map):
                             continue
@@ -5029,9 +5057,24 @@ def _fill_regular_slot_shortage_for_partial_weeks(
                 # Allowing same-day fallback can create day-repeat violations that
                 # cause _success_response_with_hard_rules to reject the whole schedule.
                 for prefer_new_day in (True,):
-                    for ts_id in allowed_slots:
+                    # Try non-excluded slots first; fall back to excluded-override slots
+                    # only if nothing else is available (low-priority use of excluded times).
+                    subject_class_ids_set = set(class_ids)
+                    def _ts_is_excluded_override(ts_obj: object) -> bool:
+                        if not getattr(ts_obj, "excluded_from_generation", False):
+                            return False
+                        allowed_cids = set(getattr(ts_obj, "generation_allowed_class_ids", []) or [])
+                        return bool(subject_class_ids_set and subject_class_ids_set.issubset(allowed_cids))
+                    slot_pass_candidates = [
+                        (ts_id, False) for ts_id in allowed_slots
+                        if timeslots_by_id.get(ts_id) and not getattr(timeslots_by_id[ts_id], "excluded_from_generation", False)
+                    ] + [
+                        (ts_id, True) for ts_id in allowed_slots
+                        if timeslots_by_id.get(ts_id) and _ts_is_excluded_override(timeslots_by_id[ts_id])
+                    ]
+                    for ts_id, _is_excluded_override in slot_pass_candidates:
                         ts = timeslots_by_id.get(ts_id)
-                        if not ts or getattr(ts, "excluded_from_generation", False):
+                        if not ts:
                             continue
                         slot_units = timeslot_units_map.get(ts_id, 1)
                         if slot_units != 2:
@@ -5439,35 +5482,43 @@ def _generate_schedule_cp_sat_experimental(
     forced_class_occupied: Set[Tuple[str, str, str]] = set()  # (class_id, ts_id, week_key)
 
     for subject in data.subjects:
-        forced_ts_id_fp = (getattr(subject, "force_timeslot_id", "") or "").strip()
-        if not (getattr(subject, "force_place", False) and forced_ts_id_fp):
+        forced_ts_ids_fp = _get_forced_ts_ids(subject)
+        if not (getattr(subject, "force_place", False) and forced_ts_ids_fp):
             continue
-        ts_fp = timeslots_by_id.get(forced_ts_id_fp)
-        if not ts_fp:
-            continue
-        forced_subject_ids.add(subject.id)
         teacher_ids_forced = _subject_teacher_ids(subject)
         primary_teacher_id_forced = teacher_ids_forced[0] if teacher_ids_forced else ""
-        for week_key in week_labels:
-            week_type_for_item = None if week_key == "base" else week_key
-            forced_schedule_items.append(
-                ScheduledItem(
-                    subject_id=subject.id,
-                    subject_name=subject.name,
-                    teacher_id=primary_teacher_id_forced,
-                    teacher_ids=teacher_ids_forced,
-                    class_ids=list(subject.class_ids or []),
-                    timeslot_id=forced_ts_id_fp,
-                    day=ts_fp.day,
-                    period=ts_fp.period or 0,
-                    week_type=week_type_for_item,
+        forced_subject_ids.add(subject.id)
+        for forced_ts_id_fp in forced_ts_ids_fp:
+            ts_fp = timeslots_by_id.get(forced_ts_id_fp)
+            if not ts_fp:
+                continue
+            _wt_dict_fp = getattr(subject, "force_timeslot_week_types", None) or {}
+            _global_wt_fp = (getattr(subject, "force_week_type", "both") or "both").strip().lower()
+            _slot_wt_fp = (_wt_dict_fp.get(forced_ts_id_fp) or _global_wt_fp).strip().lower()
+            for week_key in week_labels:
+                if _slot_wt_fp == "a" and week_key != "A":
+                    continue
+                if _slot_wt_fp == "b" and week_key != "B":
+                    continue
+                week_type_for_item = None if week_key == "base" else week_key
+                forced_schedule_items.append(
+                    ScheduledItem(
+                        subject_id=subject.id,
+                        subject_name=subject.name,
+                        teacher_id=primary_teacher_id_forced,
+                        teacher_ids=teacher_ids_forced,
+                        class_ids=list(subject.class_ids or []),
+                        timeslot_id=forced_ts_id_fp,
+                        day=ts_fp.day,
+                        period=ts_fp.period or 0,
+                        week_type=week_type_for_item,
+                    )
                 )
-            )
-            for class_id in (subject.class_ids or []):
-                forced_class_occupied.add((class_id, forced_ts_id_fp, week_key))
-            for tid in teacher_ids_forced:
-                if tid:
-                    teacher_block_occupied.add((tid, forced_ts_id_fp, week_key))
+                for class_id in (subject.class_ids or []):
+                    forced_class_occupied.add((class_id, forced_ts_id_fp, week_key))
+                for tid in teacher_ids_forced:
+                    if tid:
+                        teacher_block_occupied.add((tid, forced_ts_id_fp, week_key))
 
     # === BLOCK PRE-PLACEMENT (priority 2) ===
     # All subjects referenced in any block are placed directly from block occurrences.
@@ -5649,6 +5700,9 @@ def _generate_schedule_cp_sat_experimental(
         forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
         if getattr(subject, "force_place", False) and forced_ts_id in all_timeslot_ids:
             allowed_slots.add(forced_ts_id)
+        for _fp_ts in _get_forced_ts_ids(subject):
+            if _fp_ts in all_timeslot_ids:
+                allowed_slots.add(_fp_ts)
         for teacher_id in teacher_ids:
             if teacher_id in teachers_by_id:
                 allowed_slots -= set(teachers_by_id[teacher_id].unavailable_timeslots)
@@ -5758,15 +5812,16 @@ def _generate_schedule_cp_sat_experimental(
     for subject in data.subjects:
         if subject.id in forced_subject_ids:
             continue  # Already pre-placed.
-        forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
-        if not (getattr(subject, "force_place", False) and forced_ts_id):
+        fp_ts_ids = _get_forced_ts_ids(subject)
+        if not (getattr(subject, "force_place", False) and fp_ts_ids):
             continue
-        for week_key in week_labels:
-            key = (subject.id, forced_ts_id, week_key)
-            if key not in x:
-                forced_slot_issues.append(f"{subject.id}:{week_key}:{forced_ts_id}")
-                continue
-            model.Add(x[key] == 1)
+        for forced_ts_id in fp_ts_ids:
+            for week_key in week_labels:
+                key = (subject.id, forced_ts_id, week_key)
+                if key not in x:
+                    forced_slot_issues.append(f"{subject.id}:{week_key}:{forced_ts_id}")
+                    continue
+                model.Add(x[key] == 1)
 
     if forced_slot_issues:
         return ScheduleResponse(
@@ -7142,115 +7197,117 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             teacher_ids = alternating_subject_teacher_ids.get(subject.id, _subject_teacher_ids(subject))
             primary_teacher_id = teacher_ids[0] if teacher_ids else ""
 
-            # Hard repair for force-placed subjects: forced slot must exist in every
-            # eligible week. Try to relocate blockers before giving up.
-            forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
-            if getattr(subject, "force_place", False) and forced_ts_id and forced_ts_id in alternating_all_timeslot_ids:
-                forced_units = timeslot_units_map.get(forced_ts_id, 1)
-                eligible_weeks = sorted(set(allowed_weeks) & set(week_labels_for_rules))
-                for target_week in eligible_weeks:
-                    already_forced = any(
-                        item.subject_id == subject.id
-                        and (item.week_type or "base") == target_week
-                        and item.timeslot_id == forced_ts_id
-                        for item in working_items
-                    )
-                    if already_forced:
+            # Hard repair for force-placed subjects: each forced slot must exist in
+            # every eligible week. Try to relocate blockers before giving up.
+            if getattr(subject, "force_place", False):
+                for forced_ts_id in _get_forced_ts_ids(subject):
+                    if forced_ts_id not in alternating_all_timeslot_ids:
                         continue
-
-                    # If totals are already saturated, remove one non-forced item of
-                    # equal units in the same week to make room for the forced slot.
-                    if placed_units_by_subject.get(subject.id, 0) >= expected_total:
-                        removable_item = next(
-                            (
-                                item for item in working_items
-                                if item.subject_id == subject.id
-                                and (item.week_type or "base") == target_week
-                                and item.timeslot_id != forced_ts_id
-                                and _item_units(item, timeslot_units_map) == forced_units
-                            ),
-                            None,
+                    forced_units = timeslot_units_map.get(forced_ts_id, 1)
+                    eligible_weeks = sorted(set(allowed_weeks) & set(week_labels_for_rules))
+                    for target_week in eligible_weeks:
+                        already_forced = any(
+                            item.subject_id == subject.id
+                            and (item.week_type or "base") == target_week
+                            and item.timeslot_id == forced_ts_id
+                            for item in working_items
                         )
-                        if removable_item is not None:
-                            _remove_item(removable_item)
-                            shortfall += forced_units
+                        if already_forced:
+                            continue
 
-                    # Try to free class blockers at forced slot.
-                    for blocking_item in _find_class_conflicting_items(
-                        list(subject.class_ids),
-                        target_week,
-                        forced_ts_id,
-                        subject.id,
-                    ):
-                        _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
+                        # If totals are already saturated, remove one non-forced item of
+                        # equal units in the same week to make room for the forced slot.
+                        if placed_units_by_subject.get(subject.id, 0) >= expected_total:
+                            removable_item = next(
+                                (
+                                    item for item in working_items
+                                    if item.subject_id == subject.id
+                                    and (item.week_type or "base") == target_week
+                                    and item.timeslot_id != forced_ts_id
+                                    and _item_units(item, timeslot_units_map) == forced_units
+                                ),
+                                None,
+                            )
+                            if removable_item is not None:
+                                _remove_item(removable_item)
+                                shortfall += forced_units
 
-                    # Try to free teacher blockers at forced slot.
-                    for blocking_item in [
-                        item
-                        for item in working_items
-                        if (item.week_type or "base") == target_week
-                        and item.timeslot_id == forced_ts_id
-                        and item.subject_id != subject.id
-                        and (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
-                    ]:
-                        _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
+                        # Try to free class blockers at forced slot.
+                        for blocking_item in _find_class_conflicting_items(
+                            list(subject.class_ids),
+                            target_week,
+                            forced_ts_id,
+                            subject.id,
+                        ):
+                            _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
 
-                    forced_ts = alternating_timeslots_by_id[forced_ts_id]
-                    class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
-                    teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
-                    teacher_day_conflict = any(
-                        teacher_day_count[(teacher_id, target_week, forced_ts.day)] >= 3
-                        for teacher_id in teacher_ids
-                    )
-
-                    # Final force-place priority: if blockers remain, force-placed subjects
-                    # take precedence over non-force, non-block items.
-                    if class_conflict or teacher_conflict:
-                        blocking_items = [
+                        # Try to free teacher blockers at forced slot.
+                        for blocking_item in [
                             item
                             for item in working_items
                             if (item.week_type or "base") == target_week
                             and item.timeslot_id == forced_ts_id
                             and item.subject_id != subject.id
-                            and (
-                                any(class_id in (item.class_ids or []) for class_id in subject.class_ids)
-                                or (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
-                            )
-                        ]
+                            and (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
+                        ]:
+                            _try_relocate_item(blocking_item, target_week, forced_ts_id, depth_remaining=1)
 
-                        can_evict_all = True
-                        for blocking_item in blocking_items:
-                            blocking_subject = subjects_by_id.get(blocking_item.subject_id)
-                            if _is_block_item_for_rules(blocking_item):
-                                can_evict_all = False
-                                break
-                            if blocking_subject and getattr(blocking_subject, "force_place", False) and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip():
-                                can_evict_all = False
-                                break
+                        forced_ts = alternating_timeslots_by_id[forced_ts_id]
+                        class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
+                        teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
+                        teacher_day_conflict = any(
+                            teacher_day_count[(teacher_id, target_week, forced_ts.day)] >= 3
+                            for teacher_id in teacher_ids
+                        )
 
-                        if can_evict_all and blocking_items:
-                            for blocking_item in blocking_items:
-                                evicted_units = _item_units(blocking_item, timeslot_units_map)
-                                evicted_backfill_needs.append(
-                                    (blocking_item.subject_id, target_week, evicted_units)
+                        # Final force-place priority: if blockers remain, force-placed subjects
+                        # take precedence over non-force, non-block items.
+                        if class_conflict or teacher_conflict:
+                            blocking_items = [
+                                item
+                                for item in working_items
+                                if (item.week_type or "base") == target_week
+                                and item.timeslot_id == forced_ts_id
+                                and item.subject_id != subject.id
+                                and (
+                                    any(class_id in (item.class_ids or []) for class_id in subject.class_ids)
+                                    or (set(_item_teacher_ids_for_rules(item)) & set(teacher_ids))
                                 )
-                                _remove_item(blocking_item)
+                            ]
 
-                            class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
-                            teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
+                            can_evict_all = True
+                            for blocking_item in blocking_items:
+                                blocking_subject = subjects_by_id.get(blocking_item.subject_id)
+                                if _is_block_item_for_rules(blocking_item):
+                                    can_evict_all = False
+                                    break
+                                if blocking_subject and getattr(blocking_subject, "force_place", False) and _get_forced_ts_ids(blocking_subject):
+                                    can_evict_all = False
+                                    break
 
-                    if class_conflict or teacher_conflict or teacher_day_conflict:
-                        continue
+                            if can_evict_all and blocking_items:
+                                for blocking_item in blocking_items:
+                                    evicted_units = _item_units(blocking_item, timeslot_units_map)
+                                    evicted_backfill_needs.append(
+                                        (blocking_item.subject_id, target_week, evicted_units)
+                                    )
+                                    _remove_item(blocking_item)
 
-                    added_units = _add_item(
-                        subject,
-                        teacher_ids,
-                        primary_teacher_id,
-                        target_week,
-                        forced_ts_id,
-                    )
-                    added_count += 1
-                    shortfall = max(0, shortfall - added_units)
+                                class_conflict = any((class_id, target_week, forced_ts_id) in class_busy for class_id in subject.class_ids)
+                                teacher_conflict = any((teacher_id, target_week, forced_ts_id) in teacher_busy for teacher_id in teacher_ids)
+
+                        if class_conflict or teacher_conflict or teacher_day_conflict:
+                            continue
+
+                        added_units = _add_item(
+                            subject,
+                            teacher_ids,
+                            primary_teacher_id,
+                            target_week,
+                            forced_ts_id,
+                        )
+                        added_count += 1
+                        shortfall = max(0, shortfall - added_units)
 
             # If totals are already satisfied, we still allow force-slot repair above
             # but do not continue with generic backfill placement.
@@ -7390,7 +7447,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                                     and not (
                                         blocking_subject
                                         and getattr(blocking_subject, "force_place", False)
-                                        and (getattr(blocking_subject, "force_timeslot_id", "") or "").strip()
+                                        and _get_forced_ts_ids(blocking_subject)
                                     )
                                     and _item_units(blocking_item, timeslot_units_map) == slot_units
                                 ):
@@ -7557,7 +7614,7 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
                                 blocker_subject = subjects_by_id.get(blocker.subject_id)
                                 if _is_block_item_for_rules(blocker):
                                     continue
-                                if blocker_subject and getattr(blocker_subject, "force_place", False) and (getattr(blocker_subject, "force_timeslot_id", "") or "").strip():
+                                if blocker_subject and getattr(blocker_subject, "force_place", False) and _get_forced_ts_ids(blocker_subject):
                                     continue
                                 if _item_units(blocker, timeslot_units_map) != slot_units:
                                     continue
@@ -10013,19 +10070,19 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         subject_sessions_required[subject.id] = required_units
 
         allowed = _compute_allowed_timeslots(subject, all_timeslot_ids, block_to_timeslots, timeslots_by_id)
-        forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
-        if getattr(subject, "force_place", False) and forced_ts_id:
-            if forced_ts_id not in all_timeslot_ids:
-                return ScheduleResponse(
-                    status="infeasible",
-                    message=(
-                        f"Forced slot '{forced_ts_id}' for subject '{subject.name}' ({subject.id}) "
-                        "does not exist in active timeslots."
-                    ),
-                    schedule=[],
-                )
-            # Force placement must not be filtered out by allowed_timeslots.
-            allowed.add(forced_ts_id)
+        if getattr(subject, "force_place", False):
+            for forced_ts_id in _get_forced_ts_ids(subject):
+                if forced_ts_id not in all_timeslot_ids:
+                    return ScheduleResponse(
+                        status="infeasible",
+                        message=(
+                            f"Forced slot '{forced_ts_id}' for subject '{subject.name}' ({subject.id}) "
+                            "does not exist in active timeslots."
+                        ),
+                        schedule=[],
+                    )
+                # Force placement must not be filtered out by allowed_timeslots.
+                allowed.add(forced_ts_id)
 
         teacher = teachers_by_id.get(subject.teacher_id)
         if teacher:
@@ -10769,25 +10826,26 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         for subject in data.subjects:
             if not getattr(subject, "force_place", False):
                 continue
-            forced_ts_id = (getattr(subject, "force_timeslot_id", "") or "").strip()
-            if not forced_ts_id:
+            fp_ts_ids = _get_forced_ts_ids(subject)
+            if not fp_ts_ids:
                 continue
 
             allowed_weeks_set = set(subject_allowed_weeks.get(subject.id, []))
-            for week_label in week_labels:
-                if week_label not in allowed_weeks_set:
-                    continue
-                key = (subject.id, forced_ts_id, week_label)
-                if key not in x:
-                    return ScheduleResponse(
-                        status="infeasible",
-                        message=(
-                            f"Forced placement for subject '{subject.name}' ({subject.id}) "
-                            f"at slot {forced_ts_id} is not feasible in week {week_label}."
-                        ),
-                        schedule=[],
-                    )
-                _force_key(key, 1, "subject force_place")
+            for forced_ts_id in fp_ts_ids:
+                for week_label in week_labels:
+                    if week_label not in allowed_weeks_set:
+                        continue
+                    key = (subject.id, forced_ts_id, week_label)
+                    if key not in x:
+                        return ScheduleResponse(
+                            status="infeasible",
+                            message=(
+                                f"Forced placement for subject '{subject.name}' ({subject.id}) "
+                                f"at slot {forced_ts_id} is not feasible in week {week_label}."
+                            ),
+                            schedule=[],
+                        )
+                    _force_key(key, 1, "subject force_place")
 
     if force_conflicts:
         preview = " | ".join(force_conflicts[:5])

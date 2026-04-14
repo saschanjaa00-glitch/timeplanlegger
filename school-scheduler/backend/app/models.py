@@ -15,6 +15,9 @@ class Subject(BaseModel):
     sessions_per_week: int = 1
     force_place: bool = False
     force_timeslot_id: Optional[str] = None
+    force_timeslot_ids: List[str] = Field(default_factory=list)
+    force_week_type: str = "both"  # "A", "B", or "both" — global fallback
+    force_timeslot_week_types: Dict[str, str] = Field(default_factory=dict)  # per-slot week type
     allowed_timeslots: Optional[List[str]] = None
     # Optional extension to support blocks as grouped timeslot candidates.
     allowed_block_ids: Optional[List[str]] = None

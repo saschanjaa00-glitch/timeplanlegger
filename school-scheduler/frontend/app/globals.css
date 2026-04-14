@@ -1832,8 +1832,7 @@ p {
 
 .faggrupper-force-field {
   display: grid;
-  grid-template-columns: auto 1fr;
-  align-items: center;
+  grid-template-columns: 1fr;
   gap: 0.3rem;
   min-width: 0;
   margin-left: 0;
@@ -1856,6 +1855,53 @@ p {
 .faggrupper-force-field select {
   margin-bottom: 0;
   min-width: 0;
+  font-size: 0.72rem;
+}
+
+.force-slot-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.18rem;
+  background: #3b82f6;
+  color: #fff;
+  border-radius: 4px;
+  padding: 0.1rem 0.25rem 0.1rem 0.45rem;
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.force-slot-chip-label {
+  white-space: nowrap;
+}
+
+.force-slot-chip-wt {
+  background: rgba(255,255,255,0.18);
+  border: 1px solid rgba(255,255,255,0.35);
+  color: #fff;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  padding: 0 2px;
+  cursor: pointer;
+  min-width: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+}
+
+.force-slot-chip .subject-class-chip-remove {
+  background: none;
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0 2px;
+  margin: 0;
+  opacity: 0.7;
+}
+
+.force-slot-chip .subject-class-chip-remove:hover {
+  opacity: 1;
 }
 
 @media (max-width: 1700px) {

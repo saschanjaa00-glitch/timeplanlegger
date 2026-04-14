@@ -19,6 +19,9 @@ type Subject = {
   // alternating_week_split is DISABLED - auto-balancing is used instead
   force_place?: boolean;
   force_timeslot_id?: string;
+  force_timeslot_ids?: string[];
+  force_week_type?: "A" | "B" | "both";
+  force_timeslot_week_types?: Record<string, "A" | "B" | "both">;
   allowed_timeslots?: string[];
   allowed_block_ids?: string[];
   preferred_room_ids?: string[];
@@ -243,6 +246,8 @@ type PersistedState = {
   cautionsList?: string[];
   placementWarningDetails?: PlacementWarningDetail[];
   placementWarningSummary?: string;
+  lastGenerateResponse?: Omit<GenerateResponse, "schedule"> | null;
+  // Legacy fields for backwards-compat with old snapshots:
   unplacedStatusDetails?: UnplacedStatusDetail[];
   unplacedStatusSummary?: string;
 };
@@ -876,6 +881,27 @@ function normalizeSubject(subject: Partial<Subject>): Subject {
       typeof subject.force_timeslot_id === "string" && subject.force_timeslot_id.trim()
         ? subject.force_timeslot_id.trim()
         : undefined,
+    force_timeslot_ids: (() => {
+      const multi = Array.isArray(subject.force_timeslot_ids)
+        ? subject.force_timeslot_ids.map((id) => String(id).trim()).filter(Boolean)
+        : [];
+      if (multi.length > 0) return multi;
+      // Migrate legacy single field
+      const single = typeof subject.force_timeslot_id === "string" ? subject.force_timeslot_id.trim() : "";
+      return single ? [single] : [];
+    })(),
+    force_week_type: (["A", "B", "both"] as const).includes(subject.force_week_type as "A" | "B" | "both")
+      ? (subject.force_week_type as "A" | "B" | "both")
+      : "both",
+    force_timeslot_week_types: (() => {
+      const raw = subject.force_timeslot_week_types;
+      if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+        return Object.fromEntries(
+          Object.entries(raw).filter(([, v]) => ["A", "B", "both"].includes(v as string))
+        ) as Record<string, "A" | "B" | "both">;
+      }
+      return {};
+    })(),
     // alternating_week_split is DISABLED
     allowed_timeslots: Array.isArray(subject.allowed_timeslots) ? subject.allowed_timeslots : undefined,
     allowed_block_ids: Array.isArray(subject.allowed_block_ids) ? subject.allowed_block_ids : undefined,
@@ -1377,8 +1403,9 @@ export default function Home() {
   const [lastRunMetadata, setLastRunMetadata] = useState<Record<string, number> | null>(null);
   const [placementWarningDetails, setPlacementWarningDetails] = useState<PlacementWarningDetail[]>([]);
   const [placementWarningSummary, setPlacementWarningSummary] = useState("");
-  const [unplacedStatusDetails, setUnplacedStatusDetails] = useState<UnplacedStatusDetail[]>([]);
-  const [unplacedStatusSummary, setUnplacedStatusSummary] = useState("");
+  // unplacedStatusDetails and unplacedStatusSummary are computed via useMemo (see below, near teacherNameById)
+  // Stores the lightweight generate response so the warning recomputes live on Rediger edits.
+  const [lastGenerateResponse, setLastGenerateResponse] = useState<Omit<GenerateResponse, "schedule"> | null>(null);
   const [cautionsList, setCautionsList] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ message: string; onConfirm: () => void | Promise<void> } | null>(null);
@@ -1542,6 +1569,7 @@ export default function Home() {
   const [blockAddSubjectPopupBlockId, setBlockAddSubjectPopupBlockId] = useState<string | null>(null);
   const [blockAddSubjectName, setBlockAddSubjectName] = useState("");
   const [excludedSessionSearchBySubjectEntity, setExcludedSessionSearchBySubjectEntity] = useState<Record<string, string>>({});
+  const [forcedSessionSearchBySubjectEntity, setForcedSessionSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [roomSearchBySubjectEntity, setRoomSearchBySubjectEntity] = useState<Record<string, string>>({});
   const [overviewTeacherUnavailableDraftById, setOverviewTeacherUnavailableDraftById] = useState<Record<string, string>>({});
   const [fellesfagSelectionByClass, setFellesfagSelectionByClass] = useState<Record<string, string>>({});
@@ -1682,8 +1710,7 @@ export default function Home() {
       cautionsList,
       placementWarningDetails,
       placementWarningSummary,
-      unplacedStatusDetails,
-      unplacedStatusSummary,
+      lastGenerateResponse,
     };
   }
 
@@ -1751,10 +1778,13 @@ export default function Home() {
       setPlacementWarningSummary(parsed.placementWarningSummary);
     }
     if (Array.isArray(parsed.unplacedStatusDetails)) {
-      setUnplacedStatusDetails(parsed.unplacedStatusDetails);
+      // Legacy snapshot field — ignored; recomputed from lastGenerateResponse.
     }
     if (typeof parsed.unplacedStatusSummary === "string") {
-      setUnplacedStatusSummary(parsed.unplacedStatusSummary);
+      // Legacy snapshot field — ignored; recomputed from lastGenerateResponse.
+    }
+    if (parsed.lastGenerateResponse && typeof parsed.lastGenerateResponse === "object") {
+      setLastGenerateResponse(parsed.lastGenerateResponse as Omit<GenerateResponse, "schedule">);
     }
   }
 
@@ -2015,8 +2045,10 @@ export default function Home() {
         cautionsList: string[];
         placementWarningDetails: PlacementWarningDetail[];
         placementWarningSummary: string;
-        unplacedStatusDetails: UnplacedStatusDetail[];
-        unplacedStatusSummary: string;
+        lastGenerateResponse?: Omit<GenerateResponse, "schedule"> | null;
+        // Legacy fields kept for backwards-compat with old snapshots:
+        unplacedStatusDetails?: UnplacedStatusDetail[];
+        unplacedStatusSummary?: string;
       }>;
 
       applyPersistedState(parsed);
@@ -2076,8 +2108,7 @@ export default function Home() {
       cautionsList,
       placementWarningDetails,
       placementWarningSummary,
-      unplacedStatusDetails,
-      unplacedStatusSummary,
+      lastGenerateResponse,
     };
 
     const serialized = JSON.stringify(persisted);
@@ -2116,8 +2147,7 @@ export default function Home() {
     cautionsList,
     placementWarningDetails,
     placementWarningSummary,
-    unplacedStatusDetails,
-    unplacedStatusSummary,
+    lastGenerateResponse,
   ]);
 
   // ── Autosave to cloud (debounced 8s) ──────────────────────────────────────
@@ -3284,6 +3314,31 @@ export default function Home() {
   const teacherNameById = useMemo(() => {
     return Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher.name])) as Record<string, string>;
   }, [teachers]);
+
+  // Recompute unplaced-subject warnings live whenever the schedule is edited.
+  const blockLinkedSubjectIdsForWarning = useMemo(() => new Set<string>([
+    ...blocks.flatMap((block) => (block.subject_ids ?? []).filter(Boolean)),
+    ...blocks.flatMap((block) => (block.subject_entries ?? []).map((entry) => entry.subject_id).filter(Boolean)),
+  ]), [blocks]);
+
+  const { unplacedStatusDetails, unplacedStatusSummary } = useMemo(() => {
+    if (!lastGenerateResponse || schedule.length === 0) {
+      return { unplacedStatusDetails: [] as UnplacedStatusDetail[], unplacedStatusSummary: "" };
+    }
+    const syntheticResponse: GenerateResponse = { ...lastGenerateResponse, schedule };
+    const details = collectUnplacedStatusDetails(
+      syntheticResponse,
+      subjects,
+      timeslots,
+      blockLinkedSubjectIdsForWarning,
+      enableAlternatingWeeks,
+      teacherNameById,
+    );
+    const summary = details.length > 0
+      ? `${details.length} fag har ubelagte enheter.`
+      : "";
+    return { unplacedStatusDetails: details, unplacedStatusSummary: summary };
+  }, [lastGenerateResponse, schedule, subjects, timeslots, blockLinkedSubjectIdsForWarning, teacherNameById, enableAlternatingWeeks]);
 
   const roomNameById = useMemo(() => {
     return Object.fromEntries(displayRoomOptions.map((room) => [room.id, room.name])) as Record<string, string>;
@@ -4596,6 +4651,14 @@ export default function Home() {
         ? Array.from(new Set(subject.allowed_timeslots.map(remapId)))
         : undefined,
       force_timeslot_id: subject.force_timeslot_id ? remapId(subject.force_timeslot_id) : undefined,
+      force_timeslot_ids: subject.force_timeslot_ids
+        ? subject.force_timeslot_ids.map(remapId)
+        : undefined,
+      force_timeslot_week_types: subject.force_timeslot_week_types
+        ? Object.fromEntries(
+            Object.entries(subject.force_timeslot_week_types).map(([k, v]) => [remapId(k), v])
+          )
+        : undefined,
     })));
 
     setSchedule((prev) => prev.map((item) => ({
@@ -6130,6 +6193,16 @@ export default function Home() {
         subject.force_timeslot_id === timeslotId
           ? undefined
           : (subject.force_timeslot_id ? remapId(subject.force_timeslot_id) : undefined),
+      force_timeslot_ids: subject.force_timeslot_ids
+        ? Array.from(new Set(subject.force_timeslot_ids.filter((id) => id !== timeslotId).map(remapId)))
+        : undefined,
+      force_timeslot_week_types: subject.force_timeslot_week_types
+        ? Object.fromEntries(
+            Object.entries(subject.force_timeslot_week_types)
+              .filter(([k]) => k !== timeslotId)
+              .map(([k, v]) => [remapId(k), v])
+          )
+        : undefined,
     })));
 
     if (editingTimeslotId === timeslotId) {
@@ -6508,8 +6581,7 @@ export default function Home() {
     startGenerationProgressTicker();
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
-    setUnplacedStatusDetails([]);
-    setUnplacedStatusSummary("");
+    setLastGenerateResponse(null);
     setCautionsList([]);
     setLastRunMetadata(null);
     setSchedule([]);
@@ -6587,6 +6659,17 @@ export default function Home() {
               typeof s.force_timeslot_id === "string" && s.force_timeslot_id.trim()
                 ? s.force_timeslot_id.trim()
                 : undefined,
+            force_timeslot_ids: Array.isArray(s.force_timeslot_ids)
+              ? s.force_timeslot_ids.filter(Boolean)
+              : [],
+            force_week_type: (["A", "B", "both"] as const).includes(s.force_week_type as "A" | "B" | "both")
+              ? s.force_week_type
+              : "both",
+            force_timeslot_week_types: (s.force_timeslot_week_types && typeof s.force_timeslot_week_types === "object" && !Array.isArray(s.force_timeslot_week_types))
+              ? Object.fromEntries(
+                  Object.entries(s.force_timeslot_week_types).filter(([, v]) => ["A", "B", "both"].includes(v as string))
+                ) as Record<string, "A" | "B" | "both">
+              : {},
             // alternating_week_split is DISABLED - auto-balancing is used instead
             allowed_block_ids: s.allowed_block_ids ?? undefined,
             allowed_timeslots: s.allowed_timeslots ?? undefined,
@@ -6707,22 +6790,9 @@ export default function Home() {
         setPlacementWarningDetails([]);
       }
 
-      const unplacedDetails = collectUnplacedStatusDetails(
-        data,
-        cleanSubjects,
-        timeslots,
-        blockLinkedSubjectIds,
-        enableAlternatingWeeks,
-        Object.fromEntries(teachers.map((teacher) => [teacher.id, teacher.name])) as Record<string, string>,
-      );
-      setUnplacedStatusDetails(unplacedDetails);
-      if (unplacedDetails.length > 0) {
-        setUnplacedStatusSummary(
-          `${unplacedDetails.length} subject${unplacedDetails.length === 1 ? "" : "s"} have unplaced units.`,
-        );
-      } else {
-        setUnplacedStatusSummary("");
-      }
+      // Store the response (without schedule) so unplaced warnings recompute live on Rediger edits.
+      const { schedule: _ignored, ...responseWithoutSchedule } = data;
+      setLastGenerateResponse(responseWithoutSchedule);
 
       const successStatus = formatGeneratedScheduleStatus(data, runId);
       const attemptDetails = formatGenerationAttemptDetails(data.metadata);
@@ -6743,8 +6813,7 @@ export default function Home() {
       const failStatus = `Mislyktes (kjøring ${runId}): ${message}. Total tid ${generationElapsedLabel()}.`;
       setPlacementWarningDetails([]);
       setPlacementWarningSummary("");
-      setUnplacedStatusDetails([]);
-      setUnplacedStatusSummary("");
+      setLastGenerateResponse(null);
       setCautionsList([]);
       setLastRunMetadata(null);
       setStatusText(failStatus);
@@ -6759,8 +6828,7 @@ export default function Home() {
     setSchedule([]);
     setPlacementWarningDetails([]);
     setPlacementWarningSummary("");
-    setUnplacedStatusDetails([]);
-    setUnplacedStatusSummary("");
+    setLastGenerateResponse(null);
     setCautionsList([]);
     setLastRunMetadata(null);
     setStatusText("Generert timeplan slettet. Inndata og begrensninger er uendret.");
@@ -8934,6 +9002,8 @@ export default function Home() {
                         const excludedTimeslots = getExcludedTimeslotsForSubject(subject);
                         const excludedSearchKey = `exclude_faggrupper_${subject.id}`;
                         const excludedDraft = excludedSessionSearchBySubjectEntity[excludedSearchKey] ?? "";
+                        const forcedSearchKey = `force_faggrupper_${subject.id}`;
+                        const forcedDraft = forcedSessionSearchBySubjectEntity[forcedSearchKey] ?? "";
                         const isClassCopy =
                           subject.class_ids.length === 1 &&
                           subject.class_ids[0] === activeFaggruppeClassId;
@@ -9052,7 +9122,7 @@ export default function Home() {
                                   className="faggrupper-units-field faggrupper-force-field"
                                   title={
                                     isClassCopy && subject.subject_type === "fellesfag"
-                                      ? "Tving én ukentlig plassering i et bestemt slott (kan overlappe med blokker)."
+                                      ? "Tving faget inn i ett eller flere bestemte slotter (kan overlappe blokker)."
                                       : "Kun klassesspesifikke fellesfag kan tvangslplasseres her."
                                   }
                                 >
@@ -9065,31 +9135,110 @@ export default function Home() {
                                         const checked = e.target.checked;
                                         updateSubjectCard(subject.id, {
                                           force_place: checked,
-                                          force_timeslot_id: checked ? subject.force_timeslot_id : undefined,
+                                          force_timeslot_ids: checked ? (subject.force_timeslot_ids ?? []) : [],
                                         });
                                       }}
                                     />
                                     Tvang
                                   </label>
-                                  <select
-                                    value={subject.force_timeslot_id ?? ""}
-                                    disabled={!isClassCopy || subject.subject_type !== "fellesfag" || !subject.force_place}
-                                    onChange={(e) => {
-                                      const value = e.target.value;
-                                      updateSubjectCard(subject.id, {
-                                        force_place: Boolean(subject.force_place),
-                                        force_timeslot_id: value || undefined,
-                                      });
-                                    }}
-                                  >
-                                    <option value="">Velg slott</option>
-                                    {sortedTimeslots.map((ts) => (
-                                      <option key={ts.id} value={ts.id}>
-                                        {ts.day} P{ts.period}
-                                        {ts.start_time && ts.end_time ? ` (${ts.start_time}-${ts.end_time})` : ""}
-                                      </option>
-                                    ))}
-                                  </select>
+                                  {subject.force_place && (
+                                    <>
+                                      <div className="faggrupper-teacher-add-row">
+                                        <input
+                                          list={`forced-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}
+                                          value={forcedDraft}
+                                          disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                          onChange={(e) => {
+                                            const nextValue = e.target.value;
+                                            const resolvedId = resolveTimeslotIdFromInput(nextValue);
+                                            if (resolvedId) {
+                                              const current = subject.force_timeslot_ids ?? [];
+                                              if (!current.includes(resolvedId)) {
+                                                updateSubjectCard(subject.id, {
+                                                  force_timeslot_ids: [...current, resolvedId],
+                                                });
+                                              }
+                                              setForcedSessionSearchBySubjectEntity((prev) => ({
+                                                ...prev,
+                                                [forcedSearchKey]: "",
+                                              }));
+                                              return;
+                                            }
+                                            setForcedSessionSearchBySubjectEntity((prev) => ({
+                                              ...prev,
+                                              [forcedSearchKey]: nextValue,
+                                            }));
+                                          }}
+                                          onKeyDown={(e) => {
+                                            if (e.key !== "Enter") return;
+                                            e.preventDefault();
+                                            const resolvedIds = resolveTimeslotIdsFromInput(forcedDraft);
+                                            if (!resolvedIds || resolvedIds.length === 0) return;
+                                            const current = new Set(subject.force_timeslot_ids ?? []);
+                                            for (const id of resolvedIds) current.add(id);
+                                            updateSubjectCard(subject.id, {
+                                              force_timeslot_ids: Array.from(current),
+                                            });
+                                            setForcedSessionSearchBySubjectEntity((prev) => ({
+                                              ...prev,
+                                              [forcedSearchKey]: "",
+                                            }));
+                                          }}
+                                          placeholder="Søk time(r), kommaseparert"
+                                        />
+                                      </div>
+                                      <div className="faggrupper-teacher-selected excluded-session-selected" style={{ marginTop: "0.18rem" }}>
+                                        {(subject.force_timeslot_ids ?? []).length === 0 ? (
+                                          <span className="faggrupper-teacher-empty">Ingen tvungne timer</span>
+                                        ) : (
+                                          (subject.force_timeslot_ids ?? []).map((tsId) => {
+                                            const slot = timeslotById[tsId];
+                                            const label = slot ? formatTimeslotLabel(slot) : tsId;
+                                            const slotWt = (subject.force_timeslot_week_types ?? {})[tsId] ?? "both";
+                                            return (
+                                              <span key={tsId} className="subject-class-chip subject-class-chip-editable faggrupper-teacher-chip force-slot-chip">
+                                                <span className="force-slot-chip-label">{label}</span>
+                                                <select
+                                                  className="force-slot-chip-wt"
+                                                  value={slotWt}
+                                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                                  onChange={(e) => {
+                                                    updateSubjectCard(subject.id, {
+                                                      force_timeslot_week_types: {
+                                                        ...(subject.force_timeslot_week_types ?? {}),
+                                                        [tsId]: e.target.value as "A" | "B" | "both",
+                                                      },
+                                                    });
+                                                  }}
+                                                >
+                                                  <option value="both">A+B</option>
+                                                  <option value="A">A</option>
+                                                  <option value="B">B</option>
+                                                </select>
+                                                <button
+                                                  type="button"
+                                                  className="subject-class-chip-remove"
+                                                  disabled={!isClassCopy || subject.subject_type !== "fellesfag"}
+                                                  onClick={() => {
+                                                    const next = (subject.force_timeslot_ids ?? []).filter((id) => id !== tsId);
+                                                    const nextWt = { ...(subject.force_timeslot_week_types ?? {}) };
+                                                    delete nextWt[tsId];
+                                                    updateSubjectCard(subject.id, {
+                                                      force_timeslot_ids: next,
+                                                      force_timeslot_week_types: nextWt,
+                                                    });
+                                                  }}
+                                                  aria-label={`Fjern tvunget slott ${label}`}
+                                                >
+                                                  x
+                                                </button>
+                                              </span>
+                                            );
+                                          })
+                                        )}
+                                      </div>
+                                    </>
+                                  )}
                                 </div>
 
                                 <div
@@ -9184,6 +9333,11 @@ export default function Home() {
 
                             <datalist id={`excluded-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}>
                               {filterTimeslotsForQuery(excludedDraft).map((ts) => (
+                                <option key={ts.id} value={formatTimeslotLabel(ts)} />
+                              ))}
+                            </datalist>
+                            <datalist id={`forced-session-options-faggrupper-${activeFaggruppeClassId}-${subject.id}`}>
+                              {filterTimeslotsForQuery(forcedDraft).map((ts) => (
                                 <option key={ts.id} value={formatTimeslotLabel(ts)} />
                               ))}
                             </datalist>
@@ -10837,7 +10991,7 @@ export default function Home() {
                       <button
                         className="warning-filter-link"
                         onClick={() => { setSelectedClassCompareIds(detail.class_ids ?? []); setSelectedTeacherCompareIds([]); }}
-                      >{detail.subject_name}</button>
+                      >{(detail.class_ids ?? []).map((id) => classNameById[id] ?? id).join(", ")} - {detail.subject_name}</button>
                       {" "}krevde {detail.required_units}e, plasserte {detail.placed_units}e, mangler {detail.missing_units}e.
                     </li>
                   ))}
@@ -10859,7 +11013,7 @@ export default function Home() {
                       <button
                         className="warning-filter-link"
                         onClick={() => { setSelectedClassCompareIds(detail.class_ids ?? []); setSelectedTeacherCompareIds([]); }}
-                      >{detail.subject_name}</button>
+                      >{(detail.class_ids ?? []).map((id) => classNameById[id] ?? id).join(", ")} - {detail.subject_name}</button>
                       {" "}| Lærer:{" "}
                       {(detail.teacher_ids ?? []).length > 0
                         ? <button
