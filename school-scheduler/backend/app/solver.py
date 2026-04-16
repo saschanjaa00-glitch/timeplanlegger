@@ -5400,6 +5400,169 @@ def _rebalance_1tmt_naturfag_samf_partial(
     return working_items
 
 
+def _enforce_cp_sat_link_sync(
+    data: ScheduleRequest,
+    schedule_items: List[ScheduledItem],
+) -> List[ScheduledItem]:
+    """
+    Post-processing pass ensuring all members of a link_group_id
+    (fellesfag, single class each) end up at the same (ts_id, week_type) slots.
+
+    This is needed because force-placed link-group leaders are pre-placed
+    outside the CP-SAT model, so the CP-SAT link constraint never fires for them.
+    The fill functions then place each member independently.
+
+    Strategy:
+    - Use the member with the most placements as the reference (canonical slots).
+    - Re-place all other members at those same slots.
+    - Teacher and class hard conflicts are still respected (skip conflicting slots).
+    - allowed_timeslots restrictions are overridden: the link constraint takes
+      priority, otherwise a force-placed leader outside a follower's
+      allowed_timeslots would make perfect sync impossible.
+    - Within the same link group, shared teachers (combined-class scenario) are
+      allowed at the same slot; only cross-group/non-linked teacher conflicts
+      are blocked.
+    """
+    # Identify non-block link groups.
+    block_subject_ids: Set[str] = set()
+    for _b in data.blocks:
+        for _e in _b.subject_entries:
+            block_subject_ids.add(_e.subject_id)
+        for _sid in _b.subject_ids:
+            block_subject_ids.add(_sid)
+
+    link_members_by_group: Dict[str, List[str]] = defaultdict(list)
+    subjects_by_id: Dict[str, Subject] = {s.id: s for s in data.subjects}
+    for subject in data.subjects:
+        if subject.id in block_subject_ids:
+            continue
+        gid = _subject_link_group_id(subject)
+        if not gid or subject.subject_type != "fellesfag" or len(subject.class_ids or []) != 1:
+            continue
+        link_members_by_group[gid].append(subject.id)
+
+    active_groups: Dict[str, List[str]] = {}
+    for gid, members in link_members_by_group.items():
+        unique = list(dict.fromkeys(members))
+        if len(unique) >= 2:
+            active_groups[gid] = unique
+
+    if not active_groups:
+        return schedule_items
+
+    timeslots_by_id: Dict[str, Timeslot] = {t.id: t for t in data.timeslots}
+    all_linked_ids: Set[str] = {sid for members in active_groups.values() for sid in members}
+
+    # Index items by subject.
+    items_by_subject: Dict[str, List[ScheduledItem]] = defaultdict(list)
+    for item in schedule_items:
+        items_by_subject[item.subject_id].append(item)
+
+    # Baseline occupancy from NON-linked items only.
+    # Class occupancy is updated per-group as we go (different classes can't share a slot).
+    # Teacher occupancy uses a fixed baseline per group (within-group shared teachers are allowed).
+    class_occupied: Set[Tuple[str, str, str]] = set()   # (class_id, ts_id, week_key)
+    baseline_teacher_occupied: Set[Tuple[str, str, str]] = set()  # (teacher_id, ts_id, week_key)
+    for item in schedule_items:
+        if item.subject_id in all_linked_ids:
+            continue
+        week_key = item.week_type or "base"
+        for cid in item.class_ids:
+            class_occupied.add((cid, item.timeslot_id, week_key))
+        for tid in _scheduled_item_teacher_ids(item):
+            baseline_teacher_occupied.add((tid, item.timeslot_id, week_key))
+
+    # Start result with non-linked items; linked items are rebuilt below.
+    result: List[ScheduledItem] = [
+        item for item in schedule_items if item.subject_id not in all_linked_ids
+    ]
+
+    for gid, member_ids in active_groups.items():
+        # Reference: member with the most placed sessions.
+        ref_id = max(member_ids, key=lambda sid: len(items_by_subject.get(sid, [])))
+        ref_items = items_by_subject.get(ref_id, [])
+        if not ref_items:
+            _solver_log(f"[LINK-SYNC] group {gid}: no reference placements, skipping")
+            for mid in member_ids:
+                result.extend(items_by_subject.get(mid, []))
+            continue
+
+        ref_slot_map: Dict[Tuple[str, Optional[str]], ScheduledItem] = {
+            (item.timeslot_id, item.week_type): item for item in ref_items
+        }
+        _solver_log(
+            f"[LINK-SYNC] group {gid}: ref={ref_id}, "
+            f"{len(ref_slot_map)} canonical slots"
+        )
+
+        # Snapshot teacher occupancy baseline before this group (prevents cross-group conflicts
+        # while allowing shared teachers within the same link group).
+        group_baseline_teacher = set(baseline_teacher_occupied)
+        group_new_items: List[Tuple[ScheduledItem, List[str], List[str]]] = []
+
+        for member_id in member_ids:
+            member_subject = subjects_by_id.get(member_id)
+            if not member_subject:
+                continue
+            member_teacher_ids = _subject_teacher_ids(member_subject)
+            primary_teacher_id = member_teacher_ids[0] if member_teacher_ids else ""
+            member_class_ids = list(member_subject.class_ids or [])
+
+            for (ts_id, week_type), ref_item in sorted(
+                ref_slot_map.items(), key=lambda kv: (kv[0][1] or "", kv[0][0])
+            ):
+                week_key = week_type or "base"
+
+                # Hard class conflict: another (non-linked) subject already occupies this slot.
+                if any((cid, ts_id, week_key) in class_occupied for cid in member_class_ids):
+                    _solver_log(
+                        f"[LINK-SYNC] {member_id}: class conflict at {ts_id}/{week_key}, skipping"
+                    )
+                    continue
+
+                # Hard teacher conflict against baseline only (allows shared teachers in group).
+                if any((tid, ts_id, week_key) in group_baseline_teacher for tid in member_teacher_ids):
+                    _solver_log(
+                        f"[LINK-SYNC] {member_id}: teacher conflict at {ts_id}/{week_key}, skipping"
+                    )
+                    continue
+
+                ts = timeslots_by_id.get(ts_id)
+                if not ts:
+                    continue
+
+                new_item = ScheduledItem(
+                    subject_id=member_id,
+                    subject_name=member_subject.name,
+                    teacher_id=primary_teacher_id,
+                    teacher_ids=member_teacher_ids,
+                    class_ids=member_class_ids,
+                    timeslot_id=ts_id,
+                    day=ts.day,
+                    period=ts.period,
+                    start_time=ref_item.start_time,
+                    end_time=ref_item.end_time,
+                    week_type=week_type,
+                )
+                result.append(new_item)
+                group_new_items.append((new_item, member_teacher_ids, member_class_ids))
+
+                # Update class occupancy immediately so other members in the same group
+                # for DIFFERENT classes can't inadvertently double-book (classes need
+                # separate rooms even in combined lessons handled by the same teacher).
+                for cid in member_class_ids:
+                    class_occupied.add((cid, ts_id, week_key))
+
+        # After the full group is processed, mark teacher occupancy so later groups
+        # and later link group iterations see the correct teacher load.
+        for new_item, teacher_ids, _ in group_new_items:
+            wk = new_item.week_type or "base"
+            for tid in teacher_ids:
+                baseline_teacher_occupied.add((tid, new_item.timeslot_id, wk))
+
+    return result
+
+
 def _generate_schedule_cp_sat_experimental(
     data: ScheduleRequest,
     solver_timeout_seconds: int,
@@ -6193,19 +6356,29 @@ def _generate_schedule_cp_sat_experimental(
             )
 
     # ── Objective ─────────────────────────────────────────────────────────────
+    # Collect all tail-slot variables for the tail-usage penalty.
+    # Weight 3: prefer a regular 90-min slot over a tail slot when both are free.
+    all_tail_vars: List[cp_model.IntVar] = list(x_tail.values())
+
     model.Minimize(
-        10000 * sum(shortfall_vars)
+        1_000_000 * sum(shortfall_vars)
         + 500 * sum(teacher_day_excess_vars)
         + 10 * sum(same_day_penalties)
         + 5 * sum(odd_pair_penalties)
+        + 3 * sum(all_tail_vars)
         - 15 * sum(norsk_pair_bonus_vars)
     )
 
     solver = cp_model.CpSolver()
     solver.parameters.max_time_in_seconds = float(max(1, min(600, solver_timeout_seconds)))
-    solver.parameters.num_search_workers = _cp_sat_workers()
+    # When a specific seed is requested, use a single worker so the seed fully
+    # controls the search path. Multi-worker mode internally diversifies with its
+    # own seeds, making the external random_seed parameter nearly ineffective.
     if random_seed != 0:
+        solver.parameters.num_search_workers = 1
         solver.parameters.random_seed = random_seed
+    else:
+        solver.parameters.num_search_workers = _cp_sat_workers()
 
     status = solver.Solve(model)
     if status not in (cp_model.OPTIMAL, cp_model.FEASIBLE):
@@ -6296,6 +6469,10 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     def _cp_sat_has_shortfall(response: ScheduleResponse) -> bool:
         """Return True if the CP-SAT schedule is missing any required units."""
+        return _cp_sat_shortfall_units(response) > 0
+
+    def _cp_sat_shortfall_units(response: ScheduleResponse) -> int:
+        """Return total missing units across all non-block subjects."""
         _block_ids: Set[str] = set()
         for _b in data.blocks:
             for _e in _b.subject_entries:
@@ -6308,13 +6485,13 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
             if _item.subject_id not in _block_ids:
                 _placed[_item.subject_id] += _tum.get(_item.timeslot_id, 1)
         _week_factor = 2 if data.alternating_weeks_enabled else 1
+        missing = 0
         for _s in data.subjects:
             if _s.id in _block_ids:
                 continue
             _required = max(0, int(_s.sessions_per_week or 0)) * _week_factor
-            if _placed.get(_s.id, 0) < _required:
-                return True
-        return False
+            missing += max(0, _required - _placed.get(_s.id, 0))
+        return missing
 
     def _finalize_cp_sat(response: ScheduleResponse) -> ScheduleResponse:
         cp_sat_metadata = dict(response.metadata or {})
@@ -6325,12 +6502,18 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
         cp_sat_schedule = list(response.schedule or [])
         if data.alternating_weeks_enabled:
             _cp_sat_tum: Dict[str, int] = {t.id: _timeslot_45m_units(t) for t in data.timeslots}
-            cp_sat_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
-                data, cp_sat_schedule, _cp_sat_tum,
-            )
+            # Regular-slot fill runs first so full 90-min slots on free days are
+            # always preferred over tail slots when both options exist.
             cp_sat_schedule = _fill_regular_slot_shortage_for_partial_weeks(
                 data, cp_sat_schedule, _cp_sat_tum,
             )
+            cp_sat_schedule = _fill_reduced_tail_shortage_for_partial_weeks(
+                data, cp_sat_schedule, _cp_sat_tum,
+            )
+        # Enforce link synchronization after all placement passes.
+        # This reconciles linked fellesfag subjects whose leader was force-placed
+        # (and therefore bypassed the CP-SAT link constraint).
+        cp_sat_schedule = _enforce_cp_sat_link_sync(data, cp_sat_schedule)
         return ScheduleResponse(
             status=response.status,
             message=response.message,
@@ -6342,48 +6525,53 @@ def generate_schedule(data: ScheduleRequest) -> ScheduleResponse:
 
     if solver_engine == "cp_sat_experimental":
         _solver_log("[ENGINE] cp_sat_experimental requested; running CP-SAT with seed retry.")
-        # Strategy: seed 0 gets the full remaining time budget (same behaviour as before).
-        # If it finishes early with a partial result AND there is still meaningful time left,
-        # retry with additional seeds sharing whatever time remains.
-        # This prevents the previous bug where 8 × (budget/8) always consumed the full budget.
-        RETRY_SEEDS = [1, 2, 3, 4, 5, 6, 7]
-        MIN_RETRY_TIME = 8  # seconds — don't bother retrying if less than this remains
+        # Strategy: split time evenly across all seeds from the start so every
+        # seed gets a fair share. Always try at least MIN_SEEDS_BEFORE_EARLY_EXIT
+        # seeds before accepting any complete solution — different seeds explore
+        # different parts of the objective landscape and can find better schedules
+        # even when an earlier seed already found a feasible (but suboptimal) result.
+        _num_seeds = max(1, min(32, int(getattr(data, "solver_num_seeds", 8) or 8)))
+        MIN_SEEDS_BEFORE_EARLY_EXIT = min(5, _num_seeds)
+        MIN_SEED_TIME = 5  # seconds — skip a seed if less than this remains
         best_response: ScheduleResponse | None = None
 
-        # ── Seed 0: full budget ──────────────────────────────────────────────
-        time_left = max(5, int(deadline_monotonic - time.monotonic()))
-        _solver_log(f"[CP-SAT] seed=0 timeout={time_left}s")
-        response = _generate_schedule_cp_sat_experimental(data, time_left, random_seed=0)
-        if response.status == "success" and not _cp_sat_has_shortfall(response):
-            _solver_log("[CP-SAT] complete solution found at seed=0")
-            return _finalize_cp_sat(response)
-        best_response = response
-
-        # ── Retry seeds: only if seed 0 finished early and time remains ──────
-        for seed in RETRY_SEEDS:
+        for seed_idx in range(_num_seeds):
             time_left = int(deadline_monotonic - time.monotonic())
-            if time_left < MIN_RETRY_TIME:
+            if time_left < MIN_SEED_TIME:
                 generation_timed_out = True
                 break
-            seeds_remaining = len(RETRY_SEEDS) - RETRY_SEEDS.index(seed)
-            seed_timeout = max(MIN_RETRY_TIME, time_left // seeds_remaining)
-            _solver_log(f"[CP-SAT] retry seed={seed} timeout={seed_timeout}s")
-            response = _generate_schedule_cp_sat_experimental(data, seed_timeout, random_seed=seed)
-            if response.status == "success" and not _cp_sat_has_shortfall(response):
-                _solver_log(f"[CP-SAT] complete solution found at seed={seed}")
-                return _finalize_cp_sat(response)
-            # Keep the best partial (prefer success over infeasible, then most items).
-            if best_response is None or (
-                response.status == "success"
-                and (best_response.status != "success" or _cp_sat_has_shortfall(best_response))
-            ):
-                best_response = response
-            elif response.status == "success" and best_response.status == "success":
-                if len(response.schedule or []) > len(best_response.schedule or []):
-                    best_response = response
+            # Distribute remaining time evenly across remaining seeds.
+            seeds_remaining = _num_seeds - seed_idx
+            seed_timeout = max(MIN_SEED_TIME, time_left // seeds_remaining)
+            _solver_log(f"[CP-SAT] seed={seed_idx} timeout={seed_timeout}s ({seed_idx + 1}/{_num_seeds})")
+            response = _generate_schedule_cp_sat_experimental(data, seed_timeout, random_seed=seed_idx)
 
-        # No seed produced a complete solution — return best partial.
-        _solver_log("[CP-SAT] all seeds exhausted; returning best partial.")
+            # Track best result: fewest missing units, then most scheduled items.
+            if best_response is None:
+                best_response = response
+            elif response.status == "success":
+                new_shortfall = _cp_sat_shortfall_units(response)
+                old_shortfall = _cp_sat_shortfall_units(best_response) if best_response.status == "success" else 999999
+                if new_shortfall < old_shortfall or (
+                    new_shortfall == old_shortfall
+                    and len(response.schedule or []) > len(best_response.schedule or [])
+                ):
+                    best_response = response
+                    _solver_log(f"[CP-SAT] new best at seed={seed_idx}: shortfall={new_shortfall}")
+
+            # Early exit only after minimum seeds tried AND best is already complete.
+            seeds_tried = seed_idx + 1
+            if (
+                seeds_tried >= MIN_SEEDS_BEFORE_EARLY_EXIT
+                and best_response is not None
+                and best_response.status == "success"
+                and not _cp_sat_has_shortfall(best_response)
+            ):
+                _solver_log(f"[CP-SAT] complete solution confirmed after {seeds_tried} seeds; stopping early.")
+                break
+
+        cp_sat_missing = _cp_sat_shortfall_units(best_response) if (best_response and best_response.status == "success") else -1
+        _solver_log(f"[CP-SAT] seed loop done; best shortfall={cp_sat_missing} units.")
         return _finalize_cp_sat(
             best_response or ScheduleResponse(
                 status="infeasible",
