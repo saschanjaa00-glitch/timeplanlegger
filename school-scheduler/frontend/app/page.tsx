@@ -567,6 +567,12 @@ function collectUnplacedStatusDetails(
     (response.diagnostics?.missing_subjects ?? []).map((entry) => [entry.subject_id, entry]),
   );
   for (const subject of plannedSubjects) {
+    // Skip fellesfag template subjects (no assigned class) — they are never
+    // sent to the backend, so they will always show 0 placed.
+    if (subject.subject_type === "fellesfag" && (subject.class_ids ?? []).length === 0) {
+      continue;
+    }
+
     const perWeekUnits = Math.max(1, Number(subject.sessions_per_week || 1));
     const requiredTotalUnits = alternatingWeeksEnabled ? perWeekUnits * 2 : perWeekUnits;
     const placedTotalUnits = placedUnitsBySubject[subject.id] ?? 0;
@@ -1437,6 +1443,8 @@ export default function Home() {
   const alternateNonBlockSubjects = true;
   const [solverTimeoutSeconds, setSolverTimeoutSeconds] = useState(120);
   const [solverTimeoutDraft, setSolverTimeoutDraft] = useState("");
+  const [solverNumSeeds, setSolverNumSeeds] = useState(8);
+  const [solverNumSeedsDraft, setSolverNumSeedsDraft] = useState("");
 
   const [subjectForm, setSubjectForm] = useState({
     name: "",
@@ -6694,6 +6702,7 @@ export default function Home() {
         alternate_non_block_subjects: alternateNonBlockSubjects,
         solver_engine: "cp_sat_experimental",
         solver_timeout_seconds: Math.max(5, Math.min(600, Math.round(solverTimeoutSeconds))),
+        solver_num_seeds: Math.max(1, Math.min(32, Math.round(solverNumSeeds))),
         blocks: (blocks ?? []).map((block) => ({
           id: block.id,
           name: block.name,
@@ -6791,6 +6800,7 @@ export default function Home() {
       }
 
       // Store the response (without schedule) so unplaced warnings recompute live on Rediger edits.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { schedule: _ignored, ...responseWithoutSchedule } = data;
       setLastGenerateResponse(responseWithoutSchedule);
 
@@ -10878,6 +10888,25 @@ export default function Home() {
                 style={{ width: "64px", fontSize: "0.85rem", padding: "2px 4px" }}
               />
               s
+            </label>
+            <label style={{ fontSize: "0.85rem", display: "flex", alignItems: "center", gap: "6px", whiteSpace: "nowrap" }}
+              title="Antall tilfeldige startpunkter CP-SAT prøver. Flere gir bedre sjanse for optimal løsning, men tar mer tid.">
+              Seeds:
+              <input
+                type="number"
+                min={1}
+                max={32}
+                step={1}
+                value={solverNumSeedsDraft !== "" ? solverNumSeedsDraft : solverNumSeeds}
+                onChange={(e) => setSolverNumSeedsDraft(e.target.value)}
+                onBlur={(e) => {
+                  const parsed = Number(e.target.value);
+                  const clamped = isNaN(parsed) ? solverNumSeeds : Math.max(1, Math.min(32, Math.round(parsed)));
+                  setSolverNumSeeds(clamped);
+                  setSolverNumSeedsDraft("");
+                }}
+                style={{ width: "48px", fontSize: "0.85rem", padding: "2px 4px" }}
+              />
             </label>
             <div className="status" style={{ marginBottom: 0 }}>{statusText}</div>
           </div>
