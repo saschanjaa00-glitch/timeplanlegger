@@ -1511,6 +1511,10 @@ export default function Home() {
   const [cloudLoginMode, setCloudLoginMode] = useState<"magic" | "password">("password");
   const [cloudPassword, setCloudPassword] = useState("");
   const [cloudPasswordMode, setCloudPasswordMode] = useState<"signin" | "signup">("signin");
+  const [cloudAuthSuccessMessage, setCloudAuthSuccessMessage] = useState("");
+  const [cloudRecoveryMode, setCloudRecoveryMode] = useState(false);
+  const [cloudRecoveryPassword, setCloudRecoveryPassword] = useState("");
+  const [cloudRecoveryPasswordConfirm, setCloudRecoveryPasswordConfirm] = useState("");
   const [cloudSavefiles, setCloudSavefiles] = useState<CloudSavefile[]>([]);
   const [cloudLoading, setCloudLoading] = useState(false);
   const [cloudSaveStatus, setCloudSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -1880,18 +1884,21 @@ export default function Home() {
   async function sendMagicLink(email: string) {
     setCloudAuthStatus("sending");
     setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
     const { error } = await supabase.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if (error) {
       setCloudAuthStatus("error");
       setCloudAuthError(error.message);
     } else {
       setCloudAuthStatus("sent");
+      setCloudAuthSuccessMessage("Sjekk e-posten din for en innloggingslenke. Klikk på lenken for å logge inn.");
     }
   }
 
   async function signInWithPassword(email: string, password: string) {
     setCloudAuthStatus("sending");
     setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setCloudAuthStatus("error");
@@ -1904,13 +1911,54 @@ export default function Home() {
   async function signUpWithPassword(email: string, password: string) {
     setCloudAuthStatus("sending");
     setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
     const { error } = await supabase.auth.signUp({ email, password });
     if (error) {
       setCloudAuthStatus("error");
       setCloudAuthError(error.message);
     } else {
       setCloudAuthStatus("sent");
+      setCloudAuthSuccessMessage("Konto opprettet! Sjekk e-posten din for bekreftelseslenke, deretter logg inn.");
     }
+  }
+
+  async function sendPasswordResetEmail(email: string) {
+    setCloudAuthStatus("sending");
+    setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
+    const redirectTo = typeof window !== "undefined" ? window.location.origin : undefined;
+    const { error } = redirectTo
+      ? await supabase.auth.resetPasswordForEmail(email, { redirectTo })
+      : await supabase.auth.resetPasswordForEmail(email);
+
+    if (error) {
+      setCloudAuthStatus("error");
+      setCloudAuthError(error.message);
+    } else {
+      setCloudAuthStatus("sent");
+      setCloudAuthSuccessMessage("Sjekk e-posten din for lenken til å nullstille passordet.");
+    }
+  }
+
+  async function updateRecoveredPassword(password: string) {
+    setCloudAuthStatus("sending");
+    setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
+    const { error } = await supabase.auth.updateUser({ password });
+
+    if (error) {
+      setCloudAuthStatus("error");
+      setCloudAuthError(error.message);
+      return;
+    }
+
+    setCloudRecoveryMode(false);
+    setCloudRecoveryPassword("");
+    setCloudRecoveryPasswordConfirm("");
+    setCloudPassword("");
+    setCloudPasswordMode("signin");
+    setCloudAuthStatus("sent");
+    setCloudAuthSuccessMessage("Passordet er oppdatert. Du er nå logget inn med det nye passordet.");
   }
 
   async function signOutCloud() {
@@ -1918,6 +1966,11 @@ export default function Home() {
     setCloudUser(null);
     setCloudSavefiles([]);
     setCloudAuthStatus("idle");
+    setCloudAuthError("");
+    setCloudAuthSuccessMessage("");
+    setCloudRecoveryMode(false);
+    setCloudRecoveryPassword("");
+    setCloudRecoveryPasswordConfirm("");
   }
 
   const loadCloudSavefiles = useCallback(async () => {
@@ -2069,11 +2122,32 @@ export default function Home() {
 
   // ── Supabase auth listener ─────────────────────────────────────────────────
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const recoveryMarker = `${window.location.hash}${window.location.search}`;
+      if (recoveryMarker.includes("type=recovery")) {
+        setCloudRecoveryMode(true);
+        setCloudLoginMode("password");
+        setCloudPasswordMode("signin");
+      }
+    }
+
     supabase.auth.getSession().then(({ data: { session } }) => {
       setCloudUser(session?.user ?? null);
       if (session?.user) { loadCloudSavefiles(); loadCloudSnapshots(); }
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === "PASSWORD_RECOVERY") {
+        setCloudRecoveryMode(true);
+        setCloudLoginMode("password");
+        setCloudPasswordMode("signin");
+        setCloudAuthStatus("idle");
+        setCloudAuthError("");
+        setCloudAuthSuccessMessage("");
+      } else if (event === "SIGNED_OUT") {
+        setCloudRecoveryMode(false);
+        setCloudRecoveryPassword("");
+        setCloudRecoveryPasswordConfirm("");
+      }
       setCloudUser(session?.user ?? null);
       if (session?.user) { loadCloudSavefiles(); loadCloudSnapshots(); }
       else { setCloudSavefiles([]); setCloudSnapshots([]); }
@@ -2768,11 +2842,6 @@ export default function Home() {
       setStatusText("En eller flere tidsluker er ugyldige.");
       return;
     }
-    if (teacherAssignments.length === 0) {
-      setStatusText("Velg minst \u00e9n l\u00e6rer som foretrukket eller blokkert for m\u00f8tet.");
-      return;
-    }
-
     if (editingMeetingId) {
       setMeetings((prev) => prev.map((meeting) => (
         meeting.id === editingMeetingId
@@ -7615,7 +7684,75 @@ export default function Home() {
         <article className="card" style={{ gridColumn: "1 / -1" }}>
           <h2>Skylagring</h2>
 
-          {!cloudUser ? (
+          {cloudRecoveryMode ? (
+            <div style={{ maxWidth: "360px" }}>
+              <p style={{ marginTop: 0 }}>
+                Skriv inn nytt passord for kontoen din. Denne visningen åpnes fra lenken du fikk på e-post.
+              </p>
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (cloudRecoveryPassword.length < 6) {
+                    setCloudAuthStatus("error");
+                    setCloudAuthError("Passordet må være minst 6 tegn.");
+                    setCloudAuthSuccessMessage("");
+                    return;
+                  }
+                  if (cloudRecoveryPassword !== cloudRecoveryPasswordConfirm) {
+                    setCloudAuthStatus("error");
+                    setCloudAuthError("Passordene er ikke like.");
+                    setCloudAuthSuccessMessage("");
+                    return;
+                  }
+                  updateRecoveredPassword(cloudRecoveryPassword);
+                }}
+                style={{ display: "flex", flexDirection: "column", gap: "8px" }}
+              >
+                <input
+                  type="password"
+                  placeholder="Nytt passord"
+                  value={cloudRecoveryPassword}
+                  onChange={(e) => setCloudRecoveryPassword(e.target.value)}
+                  required
+                  disabled={cloudAuthStatus === "sending"}
+                />
+                <input
+                  type="password"
+                  placeholder="Gjenta nytt passord"
+                  value={cloudRecoveryPasswordConfirm}
+                  onChange={(e) => setCloudRecoveryPasswordConfirm(e.target.value)}
+                  required
+                  disabled={cloudAuthStatus === "sending"}
+                />
+                <div style={{ display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" }}>
+                  <button type="submit" disabled={cloudAuthStatus === "sending"}>
+                    {cloudAuthStatus === "sending" ? "Oppdaterer…" : "Oppdater passord"}
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    style={{ fontSize: "0.8rem" }}
+                    onClick={() => {
+                      setCloudRecoveryMode(false);
+                      setCloudRecoveryPassword("");
+                      setCloudRecoveryPasswordConfirm("");
+                      setCloudAuthStatus("idle");
+                      setCloudAuthError("");
+                      setCloudAuthSuccessMessage("");
+                    }}
+                  >
+                    Avbryt
+                  </button>
+                </div>
+              </form>
+              {cloudAuthStatus === "sent" && cloudAuthSuccessMessage && (
+                <p style={{ color: "green", marginTop: "8px" }}>{cloudAuthSuccessMessage}</p>
+              )}
+              {cloudAuthStatus === "error" && (
+                <p style={{ color: "red", marginTop: "8px" }}>{cloudAuthError}</p>
+              )}
+            </div>
+          ) : !cloudUser ? (
             /* Login form */
             <div>
               {/* Mode tabs */}
@@ -7624,7 +7761,7 @@ export default function Home() {
                   type="button"
                   className={cloudLoginMode === "password" ? "" : "secondary"}
                   style={{ fontSize: "0.85rem" }}
-                  onClick={() => { setCloudLoginMode("password"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                  onClick={() => { setCloudLoginMode("password"); setCloudAuthStatus("idle"); setCloudAuthError(""); setCloudAuthSuccessMessage(""); }}
                 >
                   Brukernavn/passord
                 </button>
@@ -7632,7 +7769,7 @@ export default function Home() {
                   type="button"
                   className={cloudLoginMode === "magic" ? "" : "secondary"}
                   style={{ fontSize: "0.85rem" }}
-                  onClick={() => { setCloudLoginMode("magic"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                  onClick={() => { setCloudLoginMode("magic"); setCloudAuthStatus("idle"); setCloudAuthError(""); setCloudAuthSuccessMessage(""); }}
                 >
                   Magisk lenke (e-post)
                 </button>
@@ -7672,19 +7809,30 @@ export default function Home() {
                       <button type="submit" disabled={cloudAuthStatus === "sending"}>
                         {cloudAuthStatus === "sending" ? "Venter…" : cloudPasswordMode === "signin" ? "Logg inn" : "Opprett konto"}
                       </button>
+                      {cloudPasswordMode === "signin" && (
+                        <button
+                          type="button"
+                          className="secondary"
+                          style={{ fontSize: "0.8rem" }}
+                          onClick={() => sendPasswordResetEmail(cloudEmail)}
+                          disabled={cloudAuthStatus === "sending" || !cloudEmail.trim()}
+                        >
+                          Glemt passord?
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="secondary"
                         style={{ fontSize: "0.8rem" }}
-                        onClick={() => { setCloudPasswordMode(cloudPasswordMode === "signin" ? "signup" : "signin"); setCloudAuthStatus("idle"); setCloudAuthError(""); }}
+                        onClick={() => { setCloudPasswordMode(cloudPasswordMode === "signin" ? "signup" : "signin"); setCloudAuthStatus("idle"); setCloudAuthError(""); setCloudAuthSuccessMessage(""); }}
                       >
                         {cloudPasswordMode === "signin" ? "Ny bruker? Opprett konto" : "Har konto? Logg inn"}
                       </button>
                     </div>
                   </form>
-                  {cloudAuthStatus === "sent" && cloudPasswordMode === "signup" && (
+                  {cloudAuthStatus === "sent" && cloudAuthSuccessMessage && (
                     <p style={{ color: "green", marginTop: "8px" }}>
-                      Konto opprettet! Sjekk e-posten din for bekreftelseslenke, deretter logg inn.
+                      {cloudAuthSuccessMessage}
                     </p>
                   )}
                   {cloudAuthStatus === "error" && (
@@ -7712,9 +7860,9 @@ export default function Home() {
                       {cloudAuthStatus === "sending" ? "Sender…" : "Send innloggingslenke"}
                     </button>
                   </form>
-                  {cloudAuthStatus === "sent" && (
+                  {cloudAuthStatus === "sent" && cloudAuthSuccessMessage && (
                     <p style={{ color: "green", marginTop: "8px" }}>
-                      Sjekk e-posten din for en innloggingslenke. Klikk på lenken for å logge inn.
+                      {cloudAuthSuccessMessage}
                     </p>
                   )}
                   {cloudAuthStatus === "error" && (
