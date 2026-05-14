@@ -1,11 +1,14 @@
 [RUN] generate_schedule called with alternating_weeks_enabled=True
 [ENGINE] cp_sat_experimental requested; running CP-SAT with seed retry.
-[CP-SAT] seed=0 timeout=90s
-[CP-SAT] retry seed=1 timeout=12s
-[CP-SAT] retry seed=2 timeout=14s
-[CP-SAT] retry seed=3 timeout=17s
-[CP-SAT] retry seed=4 timeout=21s
-[CP-SAT] retry seed=5 timeout=28s
-[CP-SAT] retry seed=6 timeout=41s
-[CP-SAT] retry seed=7 timeout=82s
-[CP-SAT] all seeds exhausted; returning best partial.
+[CP-SAT] seed=0 timeout=15s (1/8)
+[CP-SAT] seed=1 timeout=16s (2/8)
+[CP-SAT] seed=2 timeout=18s (3/8)
+[CP-SAT] seed=3 timeout=21s (4/8)
+[CP-SAT] seed=4 timeout=24s (5/8)
+[CP-SAT] seed=5 timeout=31s (6/8)
+[CP-SAT] seed=6 timeout=43s (7/8)
+[CP-SAT] seed=7 timeout=82s (8/8)
+[CP-SAT] seed loop done; best shortfall=12 units.
+[LINK-SYNC] group link_aktivitetsl_re_vg1_mo0ip6jp: ref=subject_aktivitetsl_re_vg1_1ida, 4 canonical slots
+[LINK-SYNC] group link_aktivitetsl_re_vg2_mnm4wmyc: ref=subject_aktivitetsl_re_vg2_2idb, 4 canonical slots
+[LINK-SYNC] group link_aktivitetsl_re_vg3_mo0ip9xa: ref=subject_aktivitetsl_re_vg3_3ida, 4 canonical slots

@@ -14,10 +14,24 @@ create table if not exists public.savefiles (
 create index if not exists savefiles_user_updated
   on public.savefiles (user_id, updated_at desc);
 
--- 3. Enable Row Level Security
+-- 3. Explicit Data API grants (required for new Supabase defaults)
+grant select on public.savefiles to anon;
+grant select, insert, update, delete on public.savefiles to authenticated;
+grant select, insert, update, delete on public.savefiles to service_role;
+
+-- 4. Optional safety net for future tables created by postgres in public
+-- Add this to your migration flow if tables are created by a different role.
+alter default privileges for role postgres in schema public
+  grant select on tables to anon;
+alter default privileges for role postgres in schema public
+  grant select, insert, update, delete on tables to authenticated;
+alter default privileges for role postgres in schema public
+  grant select, insert, update, delete on tables to service_role;
+
+-- 5. Enable Row Level Security
 alter table public.savefiles enable row level security;
 
--- 4. Users can only see, insert, update, delete their own rows
+-- 6. Users can only see, insert, update, delete their own rows
 create policy "Users can read own savefiles"
   on public.savefiles for select
   using (auth.uid() = user_id);
@@ -34,7 +48,7 @@ create policy "Users can delete own savefiles"
   on public.savefiles for delete
   using (auth.uid() = user_id);
 
--- 5. Auto-update the updated_at timestamp on changes
+-- 7. Auto-update the updated_at timestamp on changes
 create or replace function public.set_updated_at()
 returns trigger language plpgsql as $$
 begin

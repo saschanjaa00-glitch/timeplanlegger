@@ -1,4 +1,10 @@
 {
   "framework": "nextjs",
-  "outputDirectory": ".next-build"
+  "outputDirectory": ".next-build",
+  "crons": [
+    {
+      "path": "/api/keepalive",
+      "schedule": "0 3 */2 * *"
+    }
+  ]
 }

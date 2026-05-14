@@ -121,6 +121,7 @@ class ScheduleRequest(BaseModel):
     alternate_non_block_subjects: bool = False
     solver_engine: Literal["staged", "cp_sat_experimental"] = "cp_sat_experimental"
     solver_timeout_seconds: int = Field(default=90, ge=5, le=600)
+    solver_num_seeds: int = Field(default=8, ge=1, le=32)
 
 
 class ScheduledItem(BaseModel):
