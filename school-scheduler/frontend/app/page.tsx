@@ -5137,9 +5137,11 @@ export default function Home() {
         const laerereSheet = wb.Sheets["Lærere"];
         const laerereRows = laerereSheet ? XLSX.utils.sheet_to_json<Record<string, unknown>>(laerereSheet) : [];
 
+        const normalizeTeacherKey = (name: string) => name.toLowerCase().trim();
+
         // Build name→teacher lookup (lowercased)
         const byName = new Map<string, Teacher>();
-        for (const t of teachers) byName.set(t.name.toLowerCase().trim(), t);
+        for (const t of teachers) byName.set(normalizeTeacherKey(t.name), t);
 
         // Process Lærere sheet: new teachers + avdeling updates
         const addedTeachers: Teacher[] = [];
@@ -5148,8 +5150,8 @@ export default function Home() {
           const name = String(row["Navn"] ?? "").trim();
           const avd = String(row["Avdeling"] ?? "").trim();
           if (!name) continue;
-          if (avd) avdelingUpdates.set(name.toLowerCase(), avd);
-          if (!byName.has(name.toLowerCase())) {
+          if (avd) avdelingUpdates.set(normalizeTeacherKey(name), avd);
+          if (!byName.has(normalizeTeacherKey(name))) {
             const id = makeUniqueId(`teacher_${toSlug(name) || "item"}`, [
               ...teachers.map((t) => t.id),
               ...addedTeachers.map((t) => t.id),
@@ -5160,21 +5162,22 @@ export default function Home() {
               workload_percent: 100, preferred_room_ids: [], room_requirement_mode: "always",
             };
             addedTeachers.push(nt);
-            byName.set(name.toLowerCase(), nt);
+            byName.set(normalizeTeacherKey(name), nt);
           }
         }
 
         // Apply avdeling updates to existing teachers
         const allTeachers: Teacher[] = [...teachers.map((t) => {
-          const upd = avdelingUpdates.get(t.name.toLowerCase().trim());
+          const upd = avdelingUpdates.get(normalizeTeacherKey(t.name));
           return upd ? { ...t, avdeling: upd } : t;
         }), ...addedTeachers];
 
         // Helper: resolve teacher by name from combined list
-        const resolveTeacher = (name: string): Teacher | undefined => byName.get(name.toLowerCase().trim());
+        const resolveTeacher = (name: string): Teacher | undefined => byName.get(normalizeTeacherKey(name));
 
         // Group Stillingsplan rows by Fag-ID: collect all teacher names + avdeling per subject
         const teacherNamesById = new Map<string, { hoved: string[]; sam: string[]; avdeling: string }>();
+        const avdelingByTeacherName = new Map<string, string>();
         for (const row of spRows) {
           const fagId = String(row["Fag-ID"] ?? "").trim();
           if (!fagId) continue;
@@ -5186,6 +5189,20 @@ export default function Home() {
           if (h) entry.hoved.push(h);
           if (s) s.split(",").map((n) => n.trim()).filter(Boolean).forEach((n) => entry.sam.push(n));
           if (avd && !entry.avdeling) entry.avdeling = avd;
+          if (h && avd && !avdelingByTeacherName.has(normalizeTeacherKey(h))) {
+            avdelingByTeacherName.set(normalizeTeacherKey(h), avd);
+          }
+          if (s && avd) {
+            s.split(",")
+              .map((n) => n.trim())
+              .filter(Boolean)
+              .forEach((n) => {
+                const key = normalizeTeacherKey(n);
+                if (!avdelingByTeacherName.has(key)) {
+                  avdelingByTeacherName.set(key, avd);
+                }
+              });
+          }
         }
 
         // Build map: subject name (lowercased) → avdeling from any row in the sheet
@@ -5196,26 +5213,90 @@ export default function Home() {
           if (fagName && avd) avdelingBySubjectName.set(fagName.toLowerCase(), avd);
         }
 
-        let updatedCount = 0;
-        const updatedSubjects = subjects.map((subj) => {
-          const entry = teacherNamesById.get(subj.id);
-          // Resolve avdeling: from this subject's entry, or from the family name map
-          const newAvdeling = entry?.avdeling
-            || avdelingBySubjectName.get(subj.name.toLowerCase())
-            || subj.avdeling;
-          if (!entry) return newAvdeling !== subj.avdeling ? { ...subj, avdeling: newAvdeling } : subj;
-          const [firstHoved, ...restHoved] = entry.hoved;
-          const otherNames = [...new Set([...restHoved, ...entry.sam])].filter((n) => n !== firstHoved);
-          const hoofdObj = firstHoved ? resolveTeacher(firstHoved) : undefined;
-          const otherObjs = otherNames.map((n) => resolveTeacher(n)).filter(Boolean) as Teacher[];
-          const newTid = hoofdObj?.id ?? "";
-          const newTids = [...(hoofdObj ? [hoofdObj.id] : []), ...otherObjs.map((t) => t.id)];
-          updatedCount++;
-          return { ...subj, teacher_id: newTid, teacher_ids: newTids, avdeling: newAvdeling || undefined };
+        const resolveTeacherIdsForSubject = (
+          subjectId: string,
+          resolver: (name: string) => Teacher | undefined
+        ): string[] => {
+          const entry = teacherNamesById.get(subjectId);
+          if (!entry) return [];
+          const orderedNames = Array.from(new Set([...(entry.hoved ?? []), ...(entry.sam ?? [])]));
+          const ids: string[] = [];
+          for (const teacherName of orderedNames) {
+            const resolved = resolver(teacherName);
+            if (!resolved) continue;
+            if (!ids.includes(resolved.id)) {
+              ids.push(resolved.id);
+            }
+          }
+          return ids;
+        };
+
+        const applyStillingsplanAssignments = (
+          sourceSubjects: Subject[],
+          sourceBlocks: Block[],
+          resolver: (name: string) => Teacher | undefined
+        ): { updatedSubjects: Subject[]; updatedBlocks: Block[]; updatedCount: number } => {
+          let localUpdatedCount = 0;
+          const nextSubjects = sourceSubjects.map((subj) => {
+            const entry = teacherNamesById.get(subj.id);
+            const newAvdeling = entry?.avdeling
+              || avdelingBySubjectName.get(subj.name.toLowerCase())
+              || subj.avdeling;
+            if (!entry) {
+              return newAvdeling !== subj.avdeling ? { ...subj, avdeling: newAvdeling } : subj;
+            }
+
+            const resolvedTeacherIds = resolveTeacherIdsForSubject(subj.id, resolver);
+            localUpdatedCount++;
+            return {
+              ...subj,
+              teacher_id: resolvedTeacherIds[0] ?? "",
+              teacher_ids: resolvedTeacherIds,
+              avdeling: newAvdeling || undefined,
+            };
+          });
+
+          const nextBlocks = sourceBlocks.map((block) => {
+            if (!Array.isArray(block.subject_entries) || block.subject_entries.length === 0) {
+              return block;
+            }
+            const nextEntries = block.subject_entries.map((entry) => {
+              if (!entry?.subject_id || !teacherNamesById.has(entry.subject_id)) {
+                return entry;
+              }
+              const resolvedTeacherIds = resolveTeacherIdsForSubject(entry.subject_id, resolver);
+              return {
+                ...entry,
+                teacher_id: resolvedTeacherIds[0] ?? "",
+                teacher_ids: resolvedTeacherIds,
+              };
+            });
+            return { ...block, subject_entries: nextEntries };
+          });
+
+          return { updatedSubjects: nextSubjects, updatedBlocks: nextBlocks, updatedCount: localUpdatedCount };
+        };
+
+        const missingTeacherNames = new Map<string, { name: string; avdeling?: string }>();
+        teacherNamesById.forEach((entry) => {
+          const names = [...entry.hoved, ...entry.sam];
+          names.forEach((name) => {
+            const key = normalizeTeacherKey(name);
+            if (!key || resolveTeacher(name)) return;
+            if (!missingTeacherNames.has(key)) {
+              missingTeacherNames.set(key, {
+                name,
+                avdeling: avdelingByTeacherName.get(key),
+              });
+            }
+          });
         });
+
+        const { updatedSubjects, updatedBlocks, updatedCount } = applyStillingsplanAssignments(subjects, blocks, resolveTeacher);
 
         setTeachers(allTeachers);
         setSubjects(updatedSubjects);
+        setBlocks(updatedBlocks);
 
         // Prompt for avdeling if new teachers have none
         const needsAvd = addedTeachers.filter((t) => !t.avdeling);
@@ -5223,9 +5304,69 @@ export default function Home() {
           setPendingAvdelingTeachers(needsAvd.map((t) => ({ id: t.id, name: t.name, avdeling: "" })));
         }
 
-        setStatusText(
-          `Oppdaterte ${updatedCount} fag${addedTeachers.length > 0 ? `, la til ${addedTeachers.length} ny(e) lærere` : ""}.`
-        );
+        const missingList = Array.from(missingTeacherNames.values()).sort((a, b) => a.name.localeCompare(b.name, "nb"));
+        if (missingList.length > 0) {
+          const missingTeachersToCreate: Teacher[] = [];
+          for (const mt of missingList) {
+            const id = makeUniqueId(`teacher_${toSlug(mt.name) || "item"}`, [
+              ...allTeachers.map((t) => t.id),
+              ...missingTeachersToCreate.map((t) => t.id),
+            ]);
+            missingTeachersToCreate.push({
+              id,
+              name: mt.name,
+              avdeling: mt.avdeling,
+              preferred_avoid_timeslots: [],
+              unavailable_timeslots: [],
+              workload_percent: 100,
+              preferred_room_ids: [],
+              room_requirement_mode: "always",
+            });
+          }
+
+          const listedNames = missingList.slice(0, 12).map((t) => t.name).join(", ");
+          const extraCount = missingList.length > 12 ? ` (+${missingList.length - 12} til)` : "";
+          openConfirm(
+            `Disse lærerne finnes ikke i Lærere-fanen: ${listedNames}${extraCount}. Vil du legge dem til automatisk?`,
+            () => {
+              const createdByKey = new Map<string, Teacher>();
+              for (const t of missingTeachersToCreate) {
+                createdByKey.set(normalizeTeacherKey(t.name), t);
+              }
+
+              const resolveWithCreated = (name: string): Teacher | undefined => {
+                return resolveTeacher(name) ?? createdByKey.get(normalizeTeacherKey(name));
+              };
+
+              setTeachers((prev) => {
+                const prevByName = new Set(prev.map((t) => normalizeTeacherKey(t.name)));
+                const toAdd = missingTeachersToCreate.filter((t) => !prevByName.has(normalizeTeacherKey(t.name)));
+                return toAdd.length > 0 ? [...prev, ...toAdd] : prev;
+              });
+
+              setSubjects((prev) => applyStillingsplanAssignments(prev, blocks, resolveWithCreated).updatedSubjects);
+              setBlocks((prev) => applyStillingsplanAssignments(subjects, prev, resolveWithCreated).updatedBlocks);
+
+              const missingWithoutAvdeling = missingTeachersToCreate
+                .filter((t) => !t.avdeling)
+                .map((t) => ({ id: t.id, name: t.name, avdeling: "" }));
+              if (missingWithoutAvdeling.length > 0) {
+                setPendingAvdelingTeachers((prev) => {
+                  const seen = new Set(prev.map((t) => t.id));
+                  const append = missingWithoutAvdeling.filter((t) => !seen.has(t.id));
+                  return append.length > 0 ? [...prev, ...append] : prev;
+                });
+              }
+
+              const importedTeacherCount = addedTeachers.length + missingTeachersToCreate.length;
+              setStatusText(`Oppdaterte ${updatedCount} fag, la til ${importedTeacherCount} ny(e) lærere.`);
+            }
+          );
+          setStatusText(`Oppdaterte ${updatedCount} fag. Fant ${missingList.length} lærer(e) som ikke finnes i Lærere-fanen.`);
+          return;
+        }
+
+        setStatusText(`Oppdaterte ${updatedCount} fag${addedTeachers.length > 0 ? `, la til ${addedTeachers.length} ny(e) lærere` : ""}.`);
       } catch (err) {
         console.error(err);
         setStatusText("Feil ved lesing av stillingsplan-fil.");

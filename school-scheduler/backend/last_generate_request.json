@@ -9576,5 +9576,5 @@
   "alternate_non_block_subjects": true,
   "solver_engine": "cp_sat_experimental",
   "solver_timeout_seconds": 120,
-  "solver_num_seeds": 8
+  "solver_num_seeds": 12
 }

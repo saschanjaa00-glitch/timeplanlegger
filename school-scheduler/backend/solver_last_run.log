@@ -1,14 +1,19 @@
 [RUN] generate_schedule called with alternating_weeks_enabled=True
 [ENGINE] cp_sat_experimental requested; running CP-SAT with seed retry.
-[CP-SAT] seed=0 timeout=15s (1/8)
-[CP-SAT] seed=1 timeout=16s (2/8)
-[CP-SAT] seed=2 timeout=18s (3/8)
-[CP-SAT] seed=3 timeout=21s (4/8)
-[CP-SAT] seed=4 timeout=24s (5/8)
-[CP-SAT] seed=5 timeout=31s (6/8)
-[CP-SAT] seed=6 timeout=43s (7/8)
-[CP-SAT] seed=7 timeout=82s (8/8)
-[CP-SAT] seed loop done; best shortfall=12 units.
+[CP-SAT] seed=0 timeout=10s (1/12)
+[CP-SAT] seed=1 timeout=10s (2/12)
+[CP-SAT] seed=2 timeout=11s (3/12)
+[CP-SAT] seed=3 timeout=11s (4/12)
+[CP-SAT] seed=4 timeout=11s (5/12)
+[CP-SAT] seed=5 timeout=12s (6/12)
+[CP-SAT] new best at seed=5: shortfall=10
+[CP-SAT] seed=6 timeout=13s (7/12)
+[CP-SAT] seed=7 timeout=13s (8/12)
+[CP-SAT] seed=8 timeout=15s (9/12)
+[CP-SAT] seed=9 timeout=18s (10/12)
+[CP-SAT] seed=10 timeout=24s (11/12)
+[CP-SAT] seed=11 timeout=41s (12/12)
+[CP-SAT] seed loop done; best shortfall=10 units.
 [LINK-SYNC] group link_aktivitetsl_re_vg1_mo0ip6jp: ref=subject_aktivitetsl_re_vg1_1ida, 4 canonical slots
 [LINK-SYNC] group link_aktivitetsl_re_vg2_mnm4wmyc: ref=subject_aktivitetsl_re_vg2_2idb, 4 canonical slots
 [LINK-SYNC] group link_aktivitetsl_re_vg3_mo0ip9xa: ref=subject_aktivitetsl_re_vg3_3ida, 4 canonical slots
